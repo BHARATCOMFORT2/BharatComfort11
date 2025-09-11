@@ -1,8 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  where,
+  addDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { useRouter } from "next/navigation";
 
 interface Review {
   id: string;
@@ -19,8 +28,15 @@ export default function ListingReviewsPage({
   params: { listingId: string };
 }) {
   const { listingId } = params;
+  const router = useRouter();
+
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // New review form state
+  const [rating, setRating] = useState<number>(5);
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchReviews = async () => {
@@ -47,6 +63,39 @@ export default function ListingReviewsPage({
     fetchReviews();
   }, [listingId]);
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = auth.currentUser;
+
+    if (!user) {
+      router.push("/auth/login");
+      return;
+    }
+
+    if (!comment.trim()) return;
+
+    setSubmitting(true);
+    try {
+      await addDoc(collection(db, "reviews"), {
+        listingId,
+        userId: user.uid,
+        userName: user.displayName || "Anonymous",
+        rating,
+        comment,
+        createdAt: serverTimestamp(),
+      });
+
+      // Refresh page data
+      setComment("");
+      setRating(5);
+      router.refresh();
+    } catch (err) {
+      console.error("Error submitting review:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   if (loading) return <p className="text-center py-12">Loading reviews...</p>;
 
   return (
@@ -56,9 +105,11 @@ export default function ListingReviewsPage({
       </h1>
 
       {reviews.length === 0 ? (
-        <p className="text-center text-gray-600">No reviews yet for this listing.</p>
+        <p className="text-center text-gray-600 mb-8">
+          No reviews yet for this listing.
+        </p>
       ) : (
-        <div className="grid gap-6">
+        <div className="grid gap-6 mb-12">
           {reviews.map((review) => (
             <div
               key={review.id}
@@ -80,6 +131,47 @@ export default function ListingReviewsPage({
           ))}
         </div>
       )}
+
+      {/* Review Submission Form */}
+      <div className="bg-gray-50 p-6 rounded-lg shadow border">
+        <h2 className="text-xl font-semibold mb-4">Leave a Review</h2>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block mb-2 font-medium">Rating</label>
+            <select
+              value={rating}
+              onChange={(e) => setRating(Number(e.target.value))}
+              className="border rounded p-2 w-full"
+            >
+              {[5, 4, 3, 2, 1].map((r) => (
+                <option key={r} value={r}>
+                  {r} Star{r > 1 && "s"}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block mb-2 font-medium">Comment</label>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              className="border rounded p-2 w-full"
+              rows={4}
+              placeholder="Write your experience..."
+              required
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="bg-blue-600 text-white px-6 py-3 rounded-lg shadow hover:bg-blue-700 disabled:opacity-50"
+          >
+            {submitting ? "Submitting..." : "Submit Review"}
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

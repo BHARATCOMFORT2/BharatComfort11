@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
-import { collection, getDocs, orderBy, query, where } from "firebase/firestore";
+import { db, auth } from "@/lib/firebase";
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  where,
+  updateDoc,
+  doc,
+} from "firebase/firestore";
 
 interface Review {
   id: string;
@@ -12,6 +20,8 @@ interface Review {
   comment: string;
   reply?: string;
   createdAt: any;
+  upvotes?: string[];
+  downvotes?: string[];
 }
 
 export default function ListingReviewsPage({
@@ -48,6 +58,58 @@ export default function ListingReviewsPage({
     fetchReviews();
   }, [listingId]);
 
+  const handleVote = async (reviewId: string, type: "up" | "down") => {
+    const user = auth.currentUser;
+    if (!user) {
+      alert("You must be logged in to vote on reviews.");
+      return;
+    }
+
+    try {
+      const reviewRef = doc(db, "reviews", reviewId);
+      const review = reviews.find((r) => r.id === reviewId);
+      if (!review) return;
+
+      const upvotes = review.upvotes || [];
+      const downvotes = review.downvotes || [];
+
+      let newUpvotes = [...upvotes];
+      let newDownvotes = [...downvotes];
+
+      if (type === "up") {
+        if (upvotes.includes(user.uid)) {
+          newUpvotes = upvotes.filter((id) => id !== user.uid);
+        } else {
+          newUpvotes = [...upvotes, user.uid];
+          newDownvotes = downvotes.filter((id) => id !== user.uid);
+        }
+      } else {
+        if (downvotes.includes(user.uid)) {
+          newDownvotes = downvotes.filter((id) => id !== user.uid);
+        } else {
+          newDownvotes = [...downvotes, user.uid];
+          newUpvotes = upvotes.filter((id) => id !== user.uid);
+        }
+      }
+
+      await updateDoc(reviewRef, {
+        upvotes: newUpvotes,
+        downvotes: newDownvotes,
+      });
+
+      // Update state
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === reviewId
+            ? { ...r, upvotes: newUpvotes, downvotes: newDownvotes }
+            : r
+        )
+      );
+    } catch (err) {
+      console.error("Error voting on review:", err);
+    }
+  };
+
   if (loading) return <p className="text-center py-12">Loading reviews...</p>;
 
   return (
@@ -78,15 +140,31 @@ export default function ListingReviewsPage({
                   : "-"}
               </p>
 
-              {/* Show Partner Reply */}
+              {/* Partner Reply */}
               {review.reply && (
-                <div className="bg-gray-50 border-l-4 border-blue-500 p-3 rounded">
+                <div className="bg-gray-50 border-l-4 border-blue-500 p-3 rounded mb-3">
                   <p className="text-sm">
                     <strong className="text-blue-600">Partner Reply:</strong>{" "}
                     {review.reply}
                   </p>
                 </div>
               )}
+
+              {/* Voting buttons */}
+              <div className="flex items-center gap-4 text-sm">
+                <button
+                  onClick={() => handleVote(review.id, "up")}
+                  className="flex items-center gap-1 text-green-600"
+                >
+                  👍 {review.upvotes?.length || 0}
+                </button>
+                <button
+                  onClick={() => handleVote(review.id, "down")}
+                  className="flex items-center gap-1 text-red-600"
+                >
+                  👎 {review.downvotes?.length || 0}
+                </button>
+              </div>
             </div>
           ))}
         </div>

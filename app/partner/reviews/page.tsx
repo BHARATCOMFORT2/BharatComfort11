@@ -8,6 +8,8 @@ import {
   query,
   where,
   orderBy,
+  updateDoc,
+  doc,
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
@@ -17,6 +19,7 @@ interface Review {
   userName: string;
   rating: number;
   comment: string;
+  reply?: string;
   createdAt: any;
 }
 
@@ -24,6 +27,8 @@ export default function PartnerReviewsPage() {
   const router = useRouter();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [replying, setReplying] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
 
   useEffect(() => {
     const fetchPartnerReviews = async () => {
@@ -70,6 +75,29 @@ export default function PartnerReviewsPage() {
     fetchPartnerReviews();
   }, [router]);
 
+  const handleReply = async (reviewId: string) => {
+    if (!replyText.trim()) return;
+
+    try {
+      const reviewRef = doc(db, "reviews", reviewId);
+      await updateDoc(reviewRef, {
+        reply: replyText,
+      });
+
+      // Update local state
+      setReviews((prev) =>
+        prev.map((r) =>
+          r.id === reviewId ? { ...r, reply: replyText } : r
+        )
+      );
+
+      setReplying(null);
+      setReplyText("");
+    } catch (err) {
+      console.error("Error saving reply:", err);
+    }
+  };
+
   if (loading) return <p className="text-center py-12">Loading your reviews...</p>;
 
   if (reviews.length === 0) {
@@ -97,12 +125,58 @@ export default function PartnerReviewsPage() {
               </span>
             </div>
             <p className="text-gray-700 mb-2">{review.comment}</p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 mb-3">
               Listing: {review.listingId} •{" "}
               {review.createdAt?.toDate
                 ? review.createdAt.toDate().toLocaleDateString()
                 : "-"}
             </p>
+
+            {/* Existing Reply */}
+            {review.reply && (
+              <div className="bg-gray-50 border-l-4 border-blue-500 p-3 mb-3 rounded">
+                <p className="text-sm">
+                  <strong>Your Reply:</strong> {review.reply}
+                </p>
+              </div>
+            )}
+
+            {/* Reply Form */}
+            {replying === review.id ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={replyText}
+                  onChange={(e) => setReplyText(e.target.value)}
+                  className="flex-1 border rounded px-3 py-2 text-sm"
+                  placeholder="Write your reply..."
+                />
+                <button
+                  onClick={() => handleReply(review.id)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded text-sm"
+                >
+                  Save
+                </button>
+                <button
+                  onClick={() => {
+                    setReplying(null);
+                    setReplyText("");
+                  }}
+                  className="bg-gray-300 px-4 py-2 rounded text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              !review.reply && (
+                <button
+                  onClick={() => setReplying(review.id)}
+                  className="text-blue-600 text-sm"
+                >
+                  Reply
+                </button>
+              )
+            )}
           </div>
         ))}
       </div>

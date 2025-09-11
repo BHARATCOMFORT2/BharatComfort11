@@ -5,12 +5,14 @@ import { db, auth } from "@/lib/firebase";
 import {
   addDoc,
   collection,
+  doc,
   onSnapshot,
   orderBy,
   query,
   serverTimestamp,
+  setDoc,
 } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 interface Message {
   id: string;
@@ -21,8 +23,14 @@ interface Message {
 
 export default function ChatPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // The partner or user we’re chatting with
+  const otherUserId = searchParams.get("with"); // e.g. /chat?with=abc123
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
+  const [conversationId, setConversationId] = useState<string | null>(null);
 
   useEffect(() => {
     const user = auth.currentUser;
@@ -30,12 +38,27 @@ export default function ChatPage() {
       router.push("/auth/login");
       return;
     }
+    if (!otherUserId) return;
 
-    // Subscribe to messages collection (real-time)
-    const q = query(
-      collection(db, "messages"),
-      orderBy("createdAt", "asc")
+    // Create/find conversation
+    const convId = [user.uid, otherUserId].sort().join("_"); // deterministic id
+    setConversationId(convId);
+
+    // Ensure conversation doc exists
+    const convRef = doc(db, "conversations", convId);
+    setDoc(
+      convRef,
+      {
+        participants: [user.uid, otherUserId],
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
     );
+
+    // Subscribe to messages
+    const msgsRef = collection(db, "conversations", convId, "messages");
+    const q = query(msgsRef, orderBy("createdAt", "asc"));
+
     const unsub = onSnapshot(q, (snapshot) => {
       const msgs: Message[] = snapshot.docs.map((doc) => ({
         id: doc.id,
@@ -45,31 +68,57 @@ export default function ChatPage() {
     });
 
     return () => unsub();
-  }, [router]);
+  }, [router, otherUserId]);
 
   const sendMessage = async () => {
     const user = auth.currentUser;
-    if (!user) return;
-
-    if (!newMessage.trim()) return;
+    if (!user || !conversationId || !newMessage.trim()) return;
 
     try {
-      await addDoc(collection(db, "messages"), {
+      const msgsRef = collection(
+        db,
+        "conversations",
+        conversationId,
+        "messages"
+      );
+      await addDoc(msgsRef, {
         senderId: user.uid,
         text: newMessage,
         createdAt: serverTimestamp(),
       });
+
+      // Update conversation doc
+      const convRef = doc(db, "conversations", conversationId);
+      await setDoc(
+        convRef,
+        {
+          lastMessage: newMessage,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
       setNewMessage("");
     } catch (err) {
       console.error("Error sending message:", err);
     }
   };
 
+  if (!otherUserId) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <p className="text-gray-600">
+          Select a user/partner to start chatting.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-screen bg-gray-50">
       {/* Chat header */}
       <div className="p-4 bg-blue-600 text-white text-lg font-bold">
-        💬 Chat
+        💬 Chat with {otherUserId}
       </div>
 
       {/* Messages */}
@@ -79,9 +128,7 @@ export default function ChatPage() {
           return (
             <div
               key={msg.id}
-              className={`flex ${
-                isMine ? "justify-end" : "justify-start"
-              }`}
+              className={`flex ${isMine ? "justify-end" : "justify-start"}`}
             >
               <div
                 className={`px-4 py-2 rounded-lg max-w-xs ${

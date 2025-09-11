@@ -2,14 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
 import { useRouter } from "next/navigation";
+import { sendPasswordResetEmail, updateProfile } from "firebase/auth";
 
 export default function UserDashboardPage() {
   const router = useRouter();
   const [bookings, setBookings] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Profile state
+  const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -20,6 +33,10 @@ export default function UserDashboardPage() {
       }
 
       try {
+        // Prefill profile details
+        setDisplayName(user.displayName || "");
+        setEmail(user.email || "");
+
         // Fetch user bookings
         const bookingsQuery = query(
           collection(db, "bookings"),
@@ -33,7 +50,7 @@ export default function UserDashboardPage() {
         // Fetch notifications
         const notifQuery = query(
           collection(db, "notifications"),
-          where("userId", "in", [user.uid, "all"]) // personal + global notifications
+          where("userId", "in", [user.uid, "all"])
         );
         const notifSnap = await getDocs(notifQuery);
         const notifList: any[] = [];
@@ -49,14 +66,79 @@ export default function UserDashboardPage() {
     fetchData();
   }, [router]);
 
+  const handleProfileUpdate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      await updateProfile(user, { displayName });
+      // optionally sync to Firestore "users" collection
+      const ref = doc(db, "users", user.uid);
+      await updateDoc(ref, { displayName });
+
+      setProfileMsg("Profile updated successfully ✅");
+    } catch (err: any) {
+      setProfileMsg("Error: " + err.message);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    const user = auth.currentUser;
+    if (!user?.email) return;
+
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+      setProfileMsg("Password reset email sent 📩");
+    } catch (err: any) {
+      setProfileMsg("Error: " + err.message);
+    }
+  };
+
   if (loading) return <p className="text-center py-12">Loading...</p>;
 
   return (
-    <div className="container mx-auto px-4 py-12">
+    <div className="container mx-auto px-4 py-12 space-y-10">
       <h1 className="text-2xl font-bold mb-6">My Dashboard</h1>
 
+      {/* Profile Settings */}
+      <div className="bg-white p-6 rounded-lg shadow">
+        <h2 className="text-lg font-semibold mb-4">Profile Settings</h2>
+        <form onSubmit={handleProfileUpdate} className="space-y-4">
+          <input
+            type="text"
+            value={displayName}
+            onChange={(e) => setDisplayName(e.target.value)}
+            placeholder="Full Name"
+            className="w-full p-3 border rounded"
+          />
+          <input
+            type="email"
+            value={email}
+            disabled
+            className="w-full p-3 border rounded bg-gray-100 cursor-not-allowed"
+          />
+          <div className="flex gap-4">
+            <button
+              type="submit"
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Save Changes
+            </button>
+            <button
+              type="button"
+              onClick={handlePasswordReset}
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+            >
+              Reset Password
+            </button>
+          </div>
+        </form>
+        {profileMsg && <p className="mt-3 text-sm text-green-600">{profileMsg}</p>}
+      </div>
+
       {/* Notifications */}
-      <div className="bg-white p-6 rounded-lg shadow mb-10">
+      <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-lg font-semibold mb-4">Notifications</h2>
         {notifications.length > 0 ? (
           <ul className="space-y-3">

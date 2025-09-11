@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { sendNotification } from "@/lib/notifications"; // our helper
+import { sendNotification } from "@/lib/notifications";
+import { db } from "@/lib/firebase";
+import { doc, updateDoc, getDoc } from "firebase/firestore";
 
-// Initialize Stripe
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY as string, {
   apiVersion: "2024-06-20",
 });
-
-// Webhook secret from Stripe dashboard
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET as string;
 
 export async function POST(req: NextRequest) {
@@ -19,7 +18,6 @@ export async function POST(req: NextRequest) {
   }
 
   let event: Stripe.Event;
-
   try {
     event = stripe.webhooks.constructEvent(rawBody, sig, endpointSecret);
   } catch (err: any) {
@@ -30,32 +28,59 @@ export async function POST(req: NextRequest) {
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      console.log("✅ Payment successful:", session.id);
+      const { userId, bookingId } = session.metadata || {};
 
-      // Example: send notification to user
-      if (session.metadata?.userId) {
+      console.log("✅ Payment successful for booking:", bookingId);
+
+      if (bookingId) {
+        const bookingRef = doc(db, "bookings", bookingId);
+        await updateDoc(bookingRef, { status: "paid" });
+
+        // fetch partnerId from booking document
+        const bookingSnap = await getDoc(bookingRef);
+        const bookingData = bookingSnap.data();
+        if (bookingData?.partnerId) {
+          await sendNotification({
+            userId: bookingData.partnerId,
+            type: "partner",
+            message: `🎉 New booking received for your listing (${bookingData.listingId})!`,
+            link: `/partner/bookings/${bookingId}`,
+          });
+        }
+      }
+
+      if (userId) {
         await sendNotification({
-          userId: session.metadata.userId,
+          userId,
           type: "booking",
-          message: "✅ Your payment was successful! Booking confirmed.",
-          link: "/user/bookings",
+          message: "✅ Your booking is confirmed!",
+          link: `/user/bookings/${bookingId}`,
         });
       }
+
       break;
     }
 
     case "payment_intent.payment_failed": {
       const paymentIntent = event.data.object as Stripe.PaymentIntent;
-      console.log("❌ Payment failed:", paymentIntent.id);
+      const { userId, bookingId } = paymentIntent.metadata || {};
 
-      if (paymentIntent.metadata?.userId) {
+      console.log("❌ Payment failed for booking:", bookingId);
+
+      if (bookingId) {
+        const bookingRef = doc(db, "bookings", bookingId);
+        await updateDoc(bookingRef, { status: "pending" });
+      }
+
+      if (userId) {
         await sendNotification({
-          userId: paymentIntent.metadata.userId,
+          userId,
           type: "booking",
           message: "❌ Your payment failed. Please try again.",
           link: "/payments/checkout",
         });
       }
+
       break;
     }
 

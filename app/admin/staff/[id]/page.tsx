@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  orderBy,
+} from "firebase/firestore";
 
 export default function StaffDetailsPage() {
   const router = useRouter();
@@ -11,6 +20,7 @@ export default function StaffDetailsPage() {
   const staffId = params?.id as string;
 
   const [staff, setStaff] = useState<any>(null);
+  const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   const fetchStaff = async () => {
@@ -21,8 +31,22 @@ export default function StaffDetailsPage() {
       }
     } catch (err) {
       console.error("Error fetching staff details:", err);
-    } finally {
-      setLoading(false);
+    }
+  };
+
+  const fetchLogs = async () => {
+    try {
+      const q = query(
+        collection(db, "staff_logs"),
+        where("staffId", "==", staffId),
+        orderBy("timestamp", "desc")
+      );
+      const snap = await getDocs(q);
+      const list: any[] = [];
+      snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
+      setLogs(list);
+    } catch (err) {
+      console.error("Error fetching staff logs:", err);
     }
   };
 
@@ -33,7 +57,7 @@ export default function StaffDetailsPage() {
       return;
     }
     // TODO: enforce superadmin role check
-    fetchStaff();
+    Promise.all([fetchStaff(), fetchLogs()]).finally(() => setLoading(false));
   }, [router, staffId]);
 
   const updateRole = async (role: string) => {
@@ -68,7 +92,7 @@ export default function StaffDetailsPage() {
 
       <h1 className="text-2xl font-bold mb-6">Staff Details</h1>
 
-      <div className="bg-white shadow rounded-lg p-6 space-y-4">
+      <div className="bg-white shadow rounded-lg p-6 space-y-4 mb-8">
         <p><span className="font-semibold">Name:</span> {staff.name}</p>
         <p><span className="font-semibold">Email:</span> {staff.email}</p>
 
@@ -97,14 +121,29 @@ export default function StaffDetailsPage() {
             <option value="suspended">Suspended</option>
           </select>
         </div>
-
-        <div>
-          <label className="font-semibold block mb-1">Tasks/Notes</label>
-          <p className="text-gray-600 text-sm">
-            (This could be extended later to show logs of actions this staff has taken.)
-          </p>
-        </div>
       </div>
+
+      <h2 className="text-xl font-semibold mb-4">Activity Logs</h2>
+      {logs.length > 0 ? (
+        <ul className="space-y-2">
+          {logs.map((log) => (
+            <li
+              key={log.id}
+              className="border rounded-lg p-3 bg-gray-50 shadow-sm"
+            >
+              <p className="text-sm">
+                <span className="font-semibold">{log.action}</span> —{" "}
+                <span className="text-gray-700">{log.target}</span>
+              </p>
+              <p className="text-xs text-gray-500">
+                {new Date(log.timestamp?.toDate()).toLocaleString()}
+              </p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-gray-500">No activity logs yet.</p>
+      )}
     </div>
   );
 }

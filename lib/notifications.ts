@@ -10,10 +10,11 @@ import {
   onSnapshot,
   updateDoc,
   doc,
+  getDocs,
 } from "firebase/firestore";
 
 /**
- * Create a notification for a user
+ * Create a notification for a single user
  */
 export async function createNotification(
   userId: string,
@@ -31,6 +32,34 @@ export async function createNotification(
     read: false,
     createdAt: serverTimestamp(),
   });
+}
+
+/**
+ * Broadcast a notification to ALL users
+ */
+export async function broadcastNotification(
+  title: string,
+  message: string,
+  type: "info" | "offer" | "system" = "system"
+) {
+  // Assuming you store users in Firestore under "users" collection
+  const usersRef = collection(db, "users");
+  const usersSnapshot = await getDocs(usersRef);
+
+  const notificationsRef = collection(db, "notifications");
+
+  const batchPromises = usersSnapshot.docs.map((userDoc) =>
+    addDoc(notificationsRef, {
+      userId: userDoc.id,
+      title,
+      message,
+      type,
+      read: false,
+      createdAt: serverTimestamp(),
+    })
+  );
+
+  await Promise.all(batchPromises);
 }
 
 /**

@@ -64,7 +64,7 @@ export default function CheckoutPage() {
         disabled={loading}
         className="px-6 py-2 bg-emerald-600 text-white rounded-lg shadow"
       >
-        {loading ? "Processing..." : "Pay ₹500"}
+        {loading ? "Processing..." : "proceed to pay"}
       </button>
     </div>
   );

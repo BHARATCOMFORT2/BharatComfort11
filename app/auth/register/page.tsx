@@ -5,6 +5,12 @@ import { useRouter } from "next/navigation";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { sendVerificationEmail } from "@/hooks/useAuth";
+
+await createUserWithEmailAndPassword(auth, email, password);
+await sendVerificationEmail();
+
+alert("Verification email sent! Please check your inbox.");
 
 export default function RegisterPage() {
   const router = useRouter();

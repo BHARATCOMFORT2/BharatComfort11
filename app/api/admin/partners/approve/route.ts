@@ -1,7 +1,9 @@
 // app/api/admin/partners/approve/route.ts
 import { NextResponse } from "next/server";
-import { admin } from "@/lib/firebaseadmin"; // must export initialized admin SDK
-import * as adminAuth from "firebase-admin/auth";
+import { admin } from "@/lib/firebaseadmin";
+import sgMail from "@sendgrid/mail";
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export async function POST(req: Request) {
   try {
@@ -9,7 +11,6 @@ export async function POST(req: Request) {
     const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
     if (!token) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-    // Verify ID token and check custom claims/role
     const decoded = await admin.auth().verifyIdToken(token);
     if (!decoded || decoded.role !== "admin") {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
@@ -23,22 +24,23 @@ export async function POST(req: Request) {
     const partnerSnap = await partnerRef.get();
     if (!partnerSnap.exists) return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
 
-    // Update partner doc
+    const partnerData = partnerSnap.data() || {};
+
+    // Approve partner in Firestore
     await partnerRef.update({
       isActive: true,
       approvedBy: decoded.uid,
       approvedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Optionally: also set corresponding user doc active and give partner custom claim
-    // If partners also have a user record in 'users' collection:
+    // Also update user record if exists
     const userRef = admin.firestore().collection("users").doc(partnerId);
     const userSnap = await userRef.get();
     if (userSnap.exists) {
-      await userRef.ref.update({ isActive: true, role: "partner", emailVerified: true });
+      await userRef.ref.update({ isActive: true, role: "partner" });
     }
 
-    // Add an in-app notification for the partner
+    // Add notification
     await admin.firestore().collection("notifications").add({
       userId: partnerId,
       title: "✅ Partner Account Approved",
@@ -48,7 +50,29 @@ export async function POST(req: Request) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // (Optional) trigger email via existing sendEmailOnNotification cloud function (it listens to notifications)
+    // --- Send Welcome Email ---
+    if (partnerData.email) {
+      const msg = {
+        to: partnerData.email,
+        from: process.env.SENDGRID_FROM_EMAIL!,
+        subject: "Welcome to BharatComfort – Partner Account Approved",
+        html: `
+          <h2>Hi ${partnerData.name || "Partner"},</h2>
+          <p>🎉 Congratulations! Your <b>BharatComfort Partner Account</b> has been approved.</p>
+          <p>You can now log in and start creating listings, managing bookings, and growing your business with us.</p>
+          <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/partners/dashboard" 
+                style="background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">
+            Go to Dashboard
+          </a></p>
+          <p>Need help? Our support team is just one click away.</p>
+          <br/>
+          <p>Best Regards,<br/>Team BharatComfort</p>
+        `,
+      };
+
+      await sgMail.send(msg);
+    }
+
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error("Approve error:", err);

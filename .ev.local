@@ -18,11 +18,9 @@ FIREBASE_ADMIN_PRIVATE_KEY="YOUR_PRIVATE_KEY"
 # (⚠️ Make sure to wrap in quotes and replace \n with actual line breaks if copied from JSON)
 
 # =========================
-# Stripe Payments
-# =========================
-NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=YOUR_STRIPE_PUBLISHABLE_KEY
-STRIPE_SECRET_KEY=YOUR_STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET=YOUR_STRIPE_WEBHOOK_SECRET
+RAZORPAY_KEY_ID=your_razorpay_key_id
+RAZORPAY_KEY_SECRET=your_razorpay_secret
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
 
 # =========================
 # Map & Geolocation (optional)

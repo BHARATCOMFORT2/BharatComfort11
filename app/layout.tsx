@@ -1,4 +1,3 @@
-// app/layout.tsx
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "../styles/globals.css";
@@ -30,6 +29,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} bg-gray-50 text-gray-900`}>
+        <head><script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+</head>
         <Navbar />
         <main className="min-h-screen">{children}</main>
         <Footer />

@@ -1,1 +1,58 @@
+{
+  "name": "bharatcomfort",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "format": "prettier --write .",
+    "type-check": "tsc --noEmit",
+    "prepare": "husky install",
+    "seed": "ts-node script/seed-sample-data.ts",
+    "import:csv": "ts-node script/import-csv.ts"
+  },
+  "dependencies": {
+    "@headlessui/react": "^1.7.17",
+    "@heroicons/react": "^2.1.1",
+    "clsx": "^2.1.1",
+    "firebase": "^11.0.0",
+    "firebase-admin": "^12.7.0",
+    "i18next": "^23.10.1",
+    "next": "14.2.5",
+    "next-i18next": "^15.3.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-firebase-hooks": "^6.2.0",
+    "react-hook-form": "^7.52.0",
+    "react-i18next": "^13.5.0",
+    "tailwind-merge": "^2.2.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "20.12.7",
+    "@types/react": "18.3.3",
+    "@types/react-dom": "18.3.0",
+    "autoprefixer": "^10.4.20",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "14.2.5",
+    "husky": "^9.1.6",
+    "lint-staged": "^15.2.7",
+    "postcss": "^8.4.41",
+    "prettier": "^3.3.3",
+    "prettier-plugin-tailwindcss": "^0.6.6",
+    "tailwindcss": "^3.4.10",
+    "typescript": "^5.6.2"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,css}": [
+      "prettier --write"
+    ]
+  }
+}
 

@@ -6,6 +6,20 @@ import { createRazorpayOrder } from "@/lib/payments-razorpay";
 export async function POST(req: Request) {
   try {
     const { userId, listingId, amount, checkIn, checkOut } = await req.json();
+const res = await fetch("/api/bookings", {
+  method: "POST",
+  body: JSON.stringify({
+    userId: currentUser?.uid,
+    listingId: "listing_123",
+    amount: 500,
+    checkIn: "2025-09-20",
+    checkOut: "2025-09-22",
+  }),
+  headers: { "Content-Type": "application/json" },
+});
+
+const { order } = await res.json();
+// use order.id in Razorpay Checkout
 
     if (!userId || !listingId || !amount) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });

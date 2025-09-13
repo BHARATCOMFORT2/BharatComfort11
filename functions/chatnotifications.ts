@@ -4,13 +4,14 @@ import * as sgMail from "@sendgrid/mail";
 
 admin.initializeApp();
 const db = admin.firestore();
+const fcm = admin.messaging();
 
-// Set SendGrid API Key (via Firebase environment config)
+// Set SendGrid API Key (Firebase environment config)
 sgMail.setApiKey(functions.config().sendgrid.apikey);
 
 /**
  * Trigger: On new chat message
- * Sends Firestore notification + email (if recipient offline)
+ * Firestore + Email (if offline) + Push Notification (FCM)
  */
 export const chatNotifications = functions.firestore
   .document("chats/{chatId}/messages/{messageId}")
@@ -24,9 +25,8 @@ export const chatNotifications = functions.firestore
 
     try {
       const recipientId = message.recipientId;
-      const senderId = message.senderId;
 
-      // 🔹 Create Firestore notification
+      // 🔹 Always create Firestore notification
       await db.collection("notifications").add({
         title: "💬 New Message",
         message: `You have a new message from ${message.senderName || "someone"}.`,
@@ -39,20 +39,17 @@ export const chatNotifications = functions.firestore
 
       console.log(`📩 Firestore notification created for ${recipientId}`);
 
-      // 🔹 Check if recipient is online
+      // 🔹 Fetch recipient data
       const recipientDoc = await db.collection("users").doc(recipientId).get();
       const recipientData = recipientDoc.data();
 
-      if (recipientData && recipientData.isOnline === false) {
-        console.log(`📧 User ${recipientId} is offline → sending email`);
-
+      // 🔹 Check if offline → send email
+      if (recipientData && recipientData.isOnline === false && recipientData.email) {
         const msg = {
           to: recipientData.email,
-          from: "noreply@bharatcomfort.com", // Verified sender
+          from: "noreply@bharatcomfort.com",
           subject: "💬 New Message on BharatComfort",
-          text: `You received a new message from ${message.senderName || "someone"}: "${message.text}".
-          
-          Login to BharatComfort to reply.`,
+          text: `You received a new message from ${message.senderName || "someone"}: "${message.text}".`,
           html: `
             <h2>💬 New Message on BharatComfort</h2>
             <p>You received a new message from <b>${message.senderName || "someone"}</b>:</p>
@@ -63,6 +60,34 @@ export const chatNotifications = functions.firestore
 
         await sgMail.send(msg);
         console.log(`📧 Email sent to ${recipientData.email}`);
+      }
+
+      // 🔹 Send Push Notifications (FCM)
+      const tokensSnapshot = await db
+        .collection("users")
+        .doc(recipientId)
+        .collection("fcmTokens")
+        .get();
+
+      if (!tokensSnapshot.empty) {
+        const tokens = tokensSnapshot.docs.map((doc) => doc.id);
+
+        const payload: admin.messaging.MulticastMessage = {
+          notification: {
+            title: "💬 New Message",
+            body: `From ${message.senderName || "someone"}: ${message.text}`,
+          },
+          data: {
+            chatId,
+            senderId: message.senderId,
+          },
+          tokens,
+        };
+
+        const response = await fcm.sendEachForMulticast(payload);
+        console.log("📲 Push notifications sent:", response.successCount);
+      } else {
+        console.log("⚠️ No FCM tokens for user:", recipientId);
       }
     } catch (err) {
       console.error("❌ Error handling chat notification:", err);

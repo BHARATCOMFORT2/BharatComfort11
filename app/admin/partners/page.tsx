@@ -1,5 +1,107 @@
 "use client";
 
+import React, { useState } from "react";
+import { usePendingPartners } from "@/hooks/usePendingPartners";
+import { useAuth } from "@/hooks/useAuth"; // assume you have this
+import { getAuth } from "firebase/auth";
+
+export default function AdminPartnersPage() {
+  const { partners, loading } = usePendingPartners();
+  const [busyFor, setBusyFor] = useState<string | null>(null);
+
+  // helper to get ID token and call secure API
+  async function callAdminApi(path: string, body: any) {
+    const auth = (await import("@/lib/firebase")).auth; // client auth
+    const token = await auth.currentUser?.getIdToken(true);
+    const res = await fetch(path, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(body),
+    });
+    return res.json();
+  }
+
+  async function approve(partnerId: string) {
+    setBusyFor(partnerId);
+    try {
+      const resp = await callAdminApi("/api/admin/partners/approve", { partnerId });
+      if (resp.success) {
+        alert("Partner approved.");
+      } else {
+        alert("Error: " + (resp.error || "Unknown"));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Request failed");
+    } finally {
+      setBusyFor(null);
+    }
+  }
+
+  async function reject(partnerId: string) {
+    const reason = prompt("Enter rejection reason (optional):") || "";
+    setBusyFor(partnerId);
+    try {
+      const resp = await callAdminApi("/api/admin/partners/reject", { partnerId, reason });
+      if (resp.success) {
+        alert("Partner rejected.");
+      } else {
+        alert("Error: " + (resp.error || "Unknown"));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Request failed");
+    } finally {
+      setBusyFor(null);
+    }
+  }
+
+  if (loading) return <p className="p-6">Loading pending partners…</p>;
+
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Pending Partners (Approve / Reject)</h1>
+      {partners.length === 0 ? (
+        <p>No pending partners.</p>
+      ) : (
+        <ul className="space-y-4">
+          {partners.map((p) => (
+            <li key={p.id} className="bg-white p-4 rounded shadow flex justify-between items-start">
+              <div>
+                <p className="font-semibold">{p.name || p.id}</p>
+                <p className="text-sm text-gray-600">{p.email}</p>
+                <p className="text-sm text-gray-600">{p.phone}</p>
+                <p className="text-xs text-gray-400">Requested: {p.createdAt?.toDate ? p.createdAt.toDate().toLocaleString() : p.createdAt}</p>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => approve(p.id)}
+                  disabled={busyFor === p.id}
+                  className="px-3 py-2 bg-green-600 text-white rounded"
+                >
+                  {busyFor === p.id ? "Working…" : "Approve"}
+                </button>
+
+                <button
+                  onClick={() => reject(p.id)}
+                  disabled={busyFor === p.id}
+                  className="px-3 py-2 bg-red-600 text-white rounded"
+                >
+                  {busyFor === p.id ? "Working…" : "Reject"}
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import {

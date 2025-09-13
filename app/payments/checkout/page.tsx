@@ -1,85 +1,70 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { loadStripe } from "@stripe/stripe-js";
-import { auth } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-
-// ⚡ Load Stripe outside component to avoid recreating it
-const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!);
 
 export default function CheckoutPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  // These would be passed as query params or props
-  const listingId = searchParams.get("listingId");
-  const amount = Number(searchParams.get("amount") || 0);
-
   const [loading, setLoading] = useState(false);
 
-  const handleCheckout = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      router.push("/auth/login");
-      return;
-    }
-
+  const startPayment = async () => {
     setLoading(true);
+
     try {
-      const stripe = await stripePromise;
-
-      // Create payment session on backend (API route)
-      const res = await fetch("/api/payments/create-session", {
+      // 1. Create order from backend
+      const res = await fetch("/api/payments/razorpay", {
         method: "POST",
+        body: JSON.stringify({ amount: 500 }), // Example: ₹500
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          listingId,
-          amount,
-          userId: user.uid,
-          email: user.email,
-        }),
       });
+      const { order } = await res.json();
 
-      const session = await res.json();
+      // 2. Load Razorpay script if not loaded
+      const script = document.createElement("script");
+      script.src = "https://checkout.razorpay.com/v1/checkout.js";
+      script.async = true;
+      document.body.appendChild(script);
 
-      if (stripe) {
-        await stripe.redirectToCheckout({ sessionId: session.id });
-      }
+      script.onload = () => {
+        const options = {
+          key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
+          amount: order.amount,
+          currency: order.currency,
+          name: "BharatComfort",
+          description: "Booking Payment",
+          order_id: order.id,
+          handler: function (response: any) {
+            alert("Payment Success ✅: " + response.razorpay_payment_id);
+            // TODO: verify signature via backend webhook
+          },
+          prefill: {
+            name: "Test User",
+            email: "test@example.com",
+            contact: "9999999999",
+          },
+          theme: {
+            color: "#0d9488",
+          },
+        };
 
-      // Store pending payment in Firestore
-      await addDoc(collection(db, "payments"), {
-        listingId,
-        userId: user.uid,
-        amount,
-        status: "pending",
-        createdAt: serverTimestamp(),
-      });
+        // @ts-ignore
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+      };
     } catch (err) {
-      console.error("Checkout error:", err);
+      console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!listingId || !amount) {
-    return <p className="text-center py-12">Invalid checkout request.</p>;
-  }
-
   return (
-    <div className="container mx-auto px-4 py-12 text-center">
-      <h1 className="text-2xl font-bold mb-6">Checkout</h1>
-      <p className="mb-4">You’re booking for listing <strong>{listingId}</strong></p>
-      <p className="mb-8 text-xl">Amount: <strong>₹{amount.toLocaleString("en-IN")}</strong></p>
-
+    <div className="p-10">
+      <h1 className="text-2xl font-bold mb-4">Checkout</h1>
       <button
-        onClick={handleCheckout}
+        onClick={startPayment}
         disabled={loading}
-        className="bg-blue-600 text-white px-6 py-3 rounded-lg shadow hover:bg-blue-700 disabled:opacity-50"
+        className="px-6 py-2 bg-emerald-600 text-white rounded-lg shadow"
       >
-        {loading ? "Processing..." : "Proceed to Payment"}
+        {loading ? "Processing..." : "Pay ₹500"}
       </button>
     </div>
   );

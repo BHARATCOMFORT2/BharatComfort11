@@ -1,6 +1,9 @@
 // app/api/admin/partners/reject/route.ts
 import { NextResponse } from "next/server";
 import { admin } from "@/lib/firebaseadmin";
+import sgMail from "@sendgrid/mail";
+
+sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export async function POST(req: Request) {
   try {
@@ -13,29 +16,63 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
 
-    const { partnerId, reason } = await req.json();
-    if (!partnerId) return NextResponse.json({ success: false, error: "partnerId required" }, { status: 400 });
+    const body = await req.json();
+    const { partnerId, reason } = body;
+    if (!partnerId || !reason) {
+      return NextResponse.json({ success: false, error: "partnerId and reason required" }, { status: 400 });
+    }
 
     const partnerRef = admin.firestore().collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
-    if (!partnerSnap.exists) return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
+    if (!partnerSnap.exists) {
+      return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
+    }
 
+    const partnerData = partnerSnap.data() || {};
+
+    // Update partner doc
     await partnerRef.update({
       isActive: false,
       rejectedBy: decoded.uid,
       rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
-      rejectedReason: reason || null,
+      rejectionReason: reason,
     });
 
-    // Notify partner
+    // Also update user doc if exists
+    const userRef = admin.firestore().collection("users").doc(partnerId);
+    const userSnap = await userRef.get();
+    if (userSnap.exists) {
+      await userRef.ref.update({ isActive: false });
+    }
+
+    // Add rejection notification
     await admin.firestore().collection("notifications").add({
       userId: partnerId,
-      title: "⛔ Partner Account Rejected",
-      message: `Your partner account has been rejected. ${reason ? `Reason: ${reason}` : ""}`,
-      type: "partner_rejected",
+      title: "❌ Partner Account Rejected",
+      message: `Your partner account request has been rejected. Reason: ${reason}`,
+      type: "partner_rejection",
       read: false,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    // --- Send Rejection Email ---
+    if (partnerData.email) {
+      const msg = {
+        to: partnerData.email,
+        from: process.env.SENDGRID_FROM_EMAIL!,
+        subject: "BharatComfort – Partner Account Rejected",
+        html: `
+          <h2>Hi ${partnerData.name || "Partner"},</h2>
+          <p>Unfortunately, your <b>BharatComfort Partner Account</b> request has been rejected.</p>
+          <p><b>Reason:</b> ${reason}</p>
+          <p>If you believe this was a mistake, you can reapply after making necessary corrections.</p>
+          <br/>
+          <p>Best Regards,<br/>Team BharatComfort</p>
+        `,
+      };
+
+      await sgMail.send(msg);
+    }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {

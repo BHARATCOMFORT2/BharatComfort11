@@ -8,7 +8,6 @@ import {
 } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { auth } from "@/lib/firebase";
 import { sendEmailVerification } from "firebase/auth";
 
 export async function sendVerificationEmail() {

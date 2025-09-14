@@ -113,7 +113,6 @@ import {
 } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
-export default function AdminPartnersPage() {
   const router = useRouter();
   const [partners, setPartners] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

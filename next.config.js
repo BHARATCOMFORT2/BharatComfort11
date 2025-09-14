@@ -41,7 +41,7 @@ const nextConfig = {
   // Experimental (optional)
   // =========================
   experimental: {
-    appDir: true,
+  
   },
 };
 

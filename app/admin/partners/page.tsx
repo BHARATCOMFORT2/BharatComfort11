@@ -161,7 +161,7 @@ import { useRouter } from "next/navigation";
     }
   }
 
-  if (loading) {
+  if (loading) 
     return <p className="text-center py-12">Loading partners...</p>;
     <div className="container mx-auto px-4 py-12">
       <h1 className="text-2xl font-bold mb-6">Manage Partners</h1>

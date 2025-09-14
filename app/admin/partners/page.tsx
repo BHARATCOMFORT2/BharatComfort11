@@ -159,7 +159,7 @@ import { useRouter } from "next/navigation";
     } catch (err) {
       console.error("Error updating partner status:", err);
     }
-  };
+  }
 
   if (loading) {
     return <p className="text-center py-12">Loading partners...</p>;

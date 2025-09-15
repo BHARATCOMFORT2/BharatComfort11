@@ -47,7 +47,6 @@ export default function PaymentSuccessPage() {
 
 "use client";
 
-export default function PaymentSuccessPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 p-6">
       <div className="bg-white p-10 rounded-2xl shadow-lg text-center max-w-md">

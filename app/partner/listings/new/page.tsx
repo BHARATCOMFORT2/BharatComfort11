@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Input } from "@/components/ui/Input";
-import { Textarea } from "@/components/ui/TextArea";
+import { Textarea } from "@/components/ui/Textarea";
 import { Button } from "@/components/ui/Button";
 import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/Card";
 import { Label } from "@/components/ui/Label";

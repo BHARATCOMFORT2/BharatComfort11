@@ -47,8 +47,6 @@ export default function PaymentSuccessPage() {
 
 "use client";
 
-import Link from "next/link";
-
 export default function PaymentSuccessPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-green-50 p-6">

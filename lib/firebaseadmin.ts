@@ -1,5 +1,10 @@
 import * as admin from "firebase-admin";
 
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.applicationDefault(),
+  });
+}
 let app: admin.app.App;
 
 // ✅ Prevent reinitialization in Next.js (hot reload issue)

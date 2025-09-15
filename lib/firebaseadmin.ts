@@ -1,4 +1,3 @@
-// lib/firebaseAdmin.ts
 import * as admin from "firebase-admin";
 
 let app: admin.app.App;
@@ -21,5 +20,5 @@ if (!admin.apps.length) {
 export const adminAuth = admin.auth(app);
 export const adminDb = admin.firestore(app);
 export const adminStorage = admin.storage(app);
-
+export const firebaseAdmin = admin;
 export default app;

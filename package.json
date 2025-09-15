@@ -16,6 +16,7 @@
   "dependencies": {
     "@headlessui/react": "^2.2.8",
     "@heroicons/react": "^2.1.1",
+    "@radix-ui/react-label": "^2.1.7",
     "@sendgrid/mail": "^8.1.5",
     "clsx": "^2.1.1",
     "firebase": "^11.0.0",

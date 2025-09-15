@@ -28,9 +28,15 @@ const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttribu
   )
 );
 CardDescription.displayName = "CardDescription";
-export const CardContent = ({ children }: { children: React.ReactNode }) => (
-  <div className="p-4">{children}</div>
-);
+interface CardContentProps extends React.HTMLAttributes<HTMLDivElement> {}
+
+export const CardContent: React.FC<CardContentProps> = ({ className, children, ...props }) => {
+  return (
+    <div className={cn("p-4", className)} {...props}>
+      {children}
+    </div>
+  );
+};
 export const CardFooter = ({ children }: { children: React.ReactNode }) => (
   <div className="px-4 py-2 border-t">{children}</div>
 );

@@ -34,4 +34,4 @@ export const CardContent = ({ children }: { children: React.ReactNode }) => (
 export const CardFooter = ({ children }: { children: React.ReactNode }) => (
   <div className="px-4 py-2 border-t">{children}</div>
 );
-export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter };
+export { Card, CardHeader, CardTitle, CardDescription, };

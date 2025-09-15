@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/Card";
 import { getFirestore, collection, getDocs, orderBy, query, limit } from "firebase/firestore";
 import { app } from "@/lib/firebase";
 

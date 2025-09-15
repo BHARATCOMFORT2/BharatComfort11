@@ -28,5 +28,10 @@ const CardDescription = React.forwardRef<HTMLParagraphElement, React.HTMLAttribu
   )
 );
 CardDescription.displayName = "CardDescription";
-
-export { Card, CardHeader, CardTitle, CardDescription };
+export const CardContent = ({ children }: { children: React.ReactNode }) => (
+  <div className="p-4">{children}</div>
+);
+export const CardFooter = ({ children }: { children: React.ReactNode }) => (
+  <div className="px-4 py-2 border-t">{children}</div>
+);
+export { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter };

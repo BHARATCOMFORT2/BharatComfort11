@@ -79,3 +79,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }
+import { admin } from "@/lib/firebaseAdmin";
+
+export async function POST(req: Request) {
+  try {
+    const token = req.headers.get("authorization")?.split("Bearer ")[1];
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
+
+    const decoded = await admin.auth().verifyIdToken(token);
+
+    if (!decoded || decoded.role !== "admin") {
+      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    }
+
+    // Continue with partner approval logic
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error("Error verifying token:", error);
+    return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
+  }
+}

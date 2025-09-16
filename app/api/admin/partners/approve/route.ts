@@ -1,46 +1,55 @@
 // app/api/admin/partners/approve/route.ts
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseadmin";
+import { admin } from "@/lib/firebaseadmin";
 import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export async function POST(req: Request) {
   try {
+    // --- 🔐 Verify Auth ---
     const bearer = req.headers.get("authorization") || "";
     const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
-    if (!token) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
 
     const decoded = await admin.auth().verifyIdToken(token);
     if (!decoded || decoded.role !== "admin") {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
 
+    // --- 📥 Parse Request Body ---
     const body = await req.json();
     const { partnerId } = body;
-    if (!partnerId) return NextResponse.json({ success: false, error: "partnerId required" }, { status: 400 });
+    if (!partnerId) {
+      return NextResponse.json({ success: false, error: "partnerId required" }, { status: 400 });
+    }
 
+    // --- 🔎 Fetch Partner ---
     const partnerRef = admin.firestore().collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
-    if (!partnerSnap.exists) return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
-
+    if (!partnerSnap.exists) {
+      return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
+    }
     const partnerData = partnerSnap.data() || {};
 
-    // Approve partner in Firestore
+    // --- ✅ Approve Partner ---
     await partnerRef.update({
       isActive: true,
       approvedBy: decoded.uid,
       approvedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // Also update user record if exists
+    // --- 👤 Update User Role ---
     const userRef = admin.firestore().collection("users").doc(partnerId);
     const userSnap = await userRef.get();
     if (userSnap.exists) {
       await userRef.ref.update({ isActive: true, role: "partner" });
     }
 
-    // Add notification
+    // --- 🔔 Add Notification ---
     await admin.firestore().collection("notifications").add({
       userId: partnerId,
       title: "✅ Partner Account Approved",
@@ -50,7 +59,7 @@ export async function POST(req: Request) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // --- Send Welcome Email ---
+    // --- 📧 Send Welcome Email ---
     if (partnerData.email) {
       const msg = {
         to: partnerData.email,
@@ -60,7 +69,7 @@ export async function POST(req: Request) {
           <h2>Hi ${partnerData.name || "Partner"},</h2>
           <p>🎉 Congratulations! Your <b>BharatComfort Partner Account</b> has been approved.</p>
           <p>You can now log in and start creating listings, managing bookings, and growing your business with us.</p>
-          <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/partners/dashboard" 
+          <p><a href="${process.env.NEXT_PUBLIC_APP_URL}/partner/dashboard" 
                 style="background:#2563eb;color:#fff;padding:10px 16px;border-radius:6px;text-decoration:none;">
             Go to Dashboard
           </a></p>
@@ -77,27 +86,5 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("Approve error:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
-  }
-}
-import { admin } from "@/lib/firebaseAdmin";
-
-export async function POST(req: Request) {
-  try {
-    const token = req.headers.get("authorization")?.split("Bearer ")[1];
-    if (!token) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
-
-    const decoded = await admin.auth().verifyIdToken(token);
-
-    if (!decoded || decoded.role !== "admin") {
-      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
-    }
-
-    // Continue with partner approval logic
-    return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error("Error verifying token:", error);
-    return NextResponse.json({ success: false, error: "Internal Server Error" }, { status: 500 });
   }
 }

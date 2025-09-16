@@ -1,5 +1,5 @@
 import * as admin from "firebase-admin";
-
+export { admin };
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.applicationDefault(),

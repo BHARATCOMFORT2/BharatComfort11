@@ -38,7 +38,7 @@ export default function InboxPage() {
 
     const unsub = onSnapshot(q, (snapshot) => {
       const convs: Conversation[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
+        doc.id,
         ...(doc.data() as Conversation),
       }));
       setConversations(convs);

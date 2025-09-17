@@ -1,6 +1,6 @@
 // app/api/bookings/route.ts
 import { NextResponse } from "next/server";
-import { admin } from "@/lib/firebaseAdmin";
+import { admin } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {

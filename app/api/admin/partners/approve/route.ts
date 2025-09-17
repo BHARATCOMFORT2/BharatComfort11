@@ -7,10 +7,9 @@ sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export async function POST(req: Request) {
   try {
-    // --- 🔐 Verify Auth ---
+    // --- Auth check ---
     const bearer = req.headers.get("authorization") || "";
     const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
-
     if (!token) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
@@ -20,37 +19,36 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
 
-    // --- 📥 Parse Request Body ---
+    // --- Input ---
     const body = await req.json();
     const { partnerId } = body;
     if (!partnerId) {
       return NextResponse.json({ success: false, error: "partnerId required" }, { status: 400 });
     }
 
-    // --- 🔎 Fetch Partner ---
     const partnerRef = admin.firestore().collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
     if (!partnerSnap.exists) {
       return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
     }
+
     const partnerData = partnerSnap.data() || {};
 
-    // --- ✅ Approve Partner ---
+    // --- Approve partner ---
     await partnerRef.update({
       isActive: true,
       approvedBy: decoded.uid,
       approvedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // --- 👤 Update User Role ---
- const userRef = admin.firestore().collection("users").doc(partnerId);
-const userSnap = await userRef.get();
-if (userSnap.exists) {
-  await userRef.ref.update({ isActive: true, role: "partner" });
-}
+    // --- Also update user record ---
+    const userRef = admin.firestore().collection("users").doc(partnerId);
+    const userSnap = await userRef.get();
+    if (userSnap.exists) {
+      await userRef.update({ isActive: true, role: "partner" }); // ✅ fixed line
+    }
 
-
-    // --- 🔔 Add Notification ---
+    // --- Notification ---
     await admin.firestore().collection("notifications").add({
       userId: partnerId,
       title: "✅ Partner Account Approved",
@@ -60,7 +58,7 @@ if (userSnap.exists) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // --- 📧 Send Welcome Email ---
+    // --- Send Welcome Email ---
     if (partnerData.email) {
       const msg = {
         to: partnerData.email,
@@ -85,7 +83,7 @@ if (userSnap.exists) {
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("Approve error:", err);
+    console.error("Approve partner error:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

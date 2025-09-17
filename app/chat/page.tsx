@@ -68,7 +68,8 @@ export default function ChatPage() {
     });
 
     return () => unsub();
-  }, [router, otherUserId]);
+  }
+[router, otherUserId]);
 
   const sendMessage = async () => {
     const user = auth.currentUser;

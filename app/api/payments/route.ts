@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   currency: "INR",
 });
 
-    return NextResponse.json({ orderId: order.id, amount: order.amount });
+    return NextResponse.json({ orderId: orderid, amount: order.amount });
   } catch (err: any) {
     console.error("Error creating Razorpay order:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });

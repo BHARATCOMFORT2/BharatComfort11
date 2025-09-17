@@ -98,5 +98,4 @@ export default function InboxPage() {
         </ul>
       )}
     </div>
-  );
-}
+    }

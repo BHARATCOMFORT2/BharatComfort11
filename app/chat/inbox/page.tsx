@@ -54,11 +54,10 @@ export default function InboxPage() {
     return () => unsub();
   }, [user]);
 
-  // 🔑 Protect routes
+  // ✅ This return check must be at the top-level, not inside useEffect
   if (!user) {
     return <p className="p-4">Please log in to see your inbox.</p>;
   }
-
   return (
     <div className="p-4">
       <h1 className="text-xl font-bold mb-4">Inbox</h1>

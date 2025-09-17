@@ -9,7 +9,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Amount is required" }, { status: 400 });
     }
 
-    const order = await createRazorpayOrder(amount, currency || "INR");
+    const order = await createOrder(amount, currency || "INR");
     return NextResponse.json(order, { status: 200 });
   } catch (error: any) {
     console.error("Razorpay order error:", error);

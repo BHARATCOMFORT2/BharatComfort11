@@ -12,7 +12,7 @@ import {
   DocumentData,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { useAuth } from "@/lib/useAuth";
+import { useAuth } from "@/hooks/useAuth";
 
 interface Conversation {
   id: string;
@@ -45,10 +45,11 @@ export default function InboxPage(): JSX.Element {
     const unsub = onSnapshot(
       q,
       (snapshot) => {
-        const convs: Conversation[] = snapshot.docs.map((doc) => ({
-  id: doc.id, // ✅ property name added
-  ...(doc.data() as Conversation),
-}));
+        const unsub = onSnapshot(q, (snapshot) => {
+      const convs: Conversation[] = snapshot.docs.map((doc) => {
+        const data = doc.data() as DocumentData;
+        return {
+          id: doc.id,
 
             participants: (data.participants as string[]) || [],
             lastMessage: data.lastMessage ?? "",

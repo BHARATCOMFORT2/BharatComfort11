@@ -42,7 +42,7 @@ export async function POST(req: Request) {
     const userRef = admin.firestore().collection("users").doc(partnerId);
     const userSnap = await userRef.get();
     if (userSnap.exists) {
-      await userRef.ref.update({ isActive: false });
+      await userRef.update({ isActive: false });
     }
 
     // Add rejection notification

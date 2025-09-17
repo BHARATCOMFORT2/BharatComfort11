@@ -27,7 +27,6 @@ export default function InboxPage(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    // if not signed in, clear and bail out
     if (!user) {
       setConversations([]);
       setLoading(false);
@@ -45,21 +44,18 @@ export default function InboxPage(): JSX.Element {
     const unsub = onSnapshot(
       q,
       (snapshot) => {
-        const unsub = onSnapshot(q, (snapshot) => {
-      const convs: Conversation[] = snapshot.docs.map((doc) => {
-        const data = doc.data() as DocumentData;
-        return {
-          id: doc.id,
-
+        const convs: Conversation[] = snapshot.docs.map((doc) => {
+          const data = doc.data() as DocumentData;
+          return {
+            id: doc.id,
             participants: (data.participants as string[]) || [],
             lastMessage: data.lastMessage ?? "",
             updatedAt: data.updatedAt
-              ? // Firestore Timestamp -> Date, but be defensive
-                typeof (data.updatedAt as any).toDate === "function"
+              ? typeof (data.updatedAt as any).toDate === "function"
                 ? (data.updatedAt as any).toDate()
                 : new Date(data.updatedAt)
               : null,
-          } as Conversation;
+          };
         });
 
         setConversations(convs);
@@ -74,7 +70,6 @@ export default function InboxPage(): JSX.Element {
     return () => unsub();
   }, [user]);
 
-  // Top-level return checks must be OUTSIDE useEffect
   if (!user) {
     return <p className="p-4">Please log in to see your inbox.</p>;
   }
@@ -104,7 +99,6 @@ export default function InboxPage(): JSX.Element {
                         {chat.lastMessage}
                       </p>
                     </div>
-
                     <span className="text-xs text-gray-400">
                       {chat.updatedAt
                         ? chat.updatedAt.toLocaleString("en-IN", {
@@ -123,3 +117,5 @@ export default function InboxPage(): JSX.Element {
         </ul>
       )}
     </div>
+  );
+}

@@ -11,7 +11,7 @@ export async function POST(req: Request) {
 
    const order = await createOrder({
   amount,
-  currency,
+  currency: "INR",
 });
 
     return NextResponse.json({ orderId: order.id, amount: order.amount });

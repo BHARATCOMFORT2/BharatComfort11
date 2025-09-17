@@ -43,11 +43,12 @@ export async function POST(req: Request) {
     });
 
     // --- 👤 Update User Role ---
-    const userRef = admin.firestore().collection("users").doc(partnerId);
-    const userSnap = await userRef.get();
-    if (userSnap.exists) {
-      await userRef.ref.update({ isActive: true, role: "partner" });
-    }
+ const userRef = admin.firestore().collection("users").doc(partnerId);
+const userSnap = await userRef.get();
+if (userSnap.exists) {
+  await userRef.ref.update({ isActive: true, role: "partner" });
+}
+
 
     // --- 🔔 Add Notification ---
     await admin.firestore().collection("notifications").add({

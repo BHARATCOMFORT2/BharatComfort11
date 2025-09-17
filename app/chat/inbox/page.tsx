@@ -123,4 +123,4 @@ export default function InboxPage(): JSX.Element {
         </ul>
       )}
     </div>
-  );
+  )

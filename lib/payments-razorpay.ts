@@ -1,4 +1,3 @@
-// lib/payments-razorpay.ts
 import Razorpay from "razorpay";
 
 const razorpay = new Razorpay({
@@ -6,16 +5,18 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET!,
 });
 
-export async function createOrder(options: {
-  amount: number;
-  currency: string;
-  receipt: string;
-}) {
-  try {
-    const order = await razorpay.orders.create(options);
-    return order; // ✅ return the order object
-  } catch (error) {
-    console.error("Razorpay order creation failed:", error);
-    throw error;
-  }
+/**
+ * Create a Razorpay order
+ * @param amount Amount in INR (without paise, e.g., 500 for ₹500)
+ * @param currency Currency code (default "INR")
+ */
+export async function createRazorpayOrder(amount: number, currency: string = "INR") {
+  const options = {
+    amount: amount * 100, // Razorpay needs amount in paise
+    currency,
+    receipt: `rcpt_${Date.now()}`,
+  };
+
+  const order = await razorpay.orders.create(options);
+  return order;
 }

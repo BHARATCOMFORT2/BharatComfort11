@@ -5,7 +5,7 @@ const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
   key_secret: process.env.RAZORPAY_KEY_SECRET!,
 });
-
+ export { createRazorpayOrder }
 export async function createOrder(options: {
   amount: number;
   currency: string;

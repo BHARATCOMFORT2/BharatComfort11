@@ -1,48 +1,47 @@
+// app/api/bookings/route.ts
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { createRazorpayOrder } from "@/lib/payments-razorpay";
+import { admin } from "@/lib/firebaseAdmin";
 
 export async function POST(req: Request) {
   try {
-    const { userId, listingId, amount, checkIn, checkOut } = await req.json();
-const res = await fetch("/api/bookings", {
-  method: "POST",
-  body: JSON.stringify({
-    userId: currentUser?.uid,
-    listingId: "listing_123",
-    amount: 500,
-    checkIn: "2025-09-20",
-    checkOut: "2025-09-22",
-  }),
-  headers: { "Content-Type": "application/json" },
-});
-
-const { order } = await res.json();
-// use order.id in Razorpay Checkout
-
-    if (!userId || !listingId || !amount) {
-      return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+    // --- Authenticate ---
+    const bearer = req.headers.get("authorization") || "";
+    const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    // 1. Create Razorpay order
-    const razorpayOrder = await createRazorpayOrder(amount);
+    const decoded = await admin.auth().verifyIdToken(token);
+    if (!decoded) {
+      return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 });
+    }
 
-    // 2. Save temp order in Firestore
-    await addDoc(collection(db, "orders"), {
-      userId,
+    // currentUser = decoded
+    const currentUserId = decoded.uid;
+
+    // --- Parse body ---
+    const body = await req.json();
+    const { listingId, startDate, endDate } = body;
+
+    if (!listingId || !startDate || !endDate) {
+      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+    }
+
+    // --- Save booking ---
+    const bookingRef = admin.firestore().collection("bookings").doc();
+    await bookingRef.set({
+      id: bookingRef.id,
+      userId: currentUserId,
       listingId,
-      orderId: razorpayOrder.id,
-      amount,
+      startDate,
+      endDate,
       status: "pending",
-      checkIn,
-      checkOut,
-      createdAt: serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    return NextResponse.json({ order: razorpayOrder });
-  } catch (error: any) {
-    console.error("Booking API error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true, bookingId: bookingRef.id });
+  } catch (err: any) {
+    console.error("Booking error:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

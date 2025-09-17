@@ -9,7 +9,11 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     }
 
-    const order = await createOrder(amount, "INR");
+   const order = await createOrder({
+  amount,
+  currency,
+});
+
     return NextResponse.json({ orderId: order.id, amount: order.amount });
   } catch (err: any) {
     console.error("Error creating Razorpay order:", err);

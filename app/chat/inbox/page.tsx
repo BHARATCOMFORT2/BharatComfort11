@@ -2,7 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "@/lib/useAuth"; // custom hook for Firebase auth
+import { useAuth } from "@/hooks/useAuth"; // custom hook for Firebase auth
 import { db } from "@/lib/firebase"; // your Firestore config
 import {
   collection,

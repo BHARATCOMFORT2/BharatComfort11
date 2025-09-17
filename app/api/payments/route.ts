@@ -1,24 +1,21 @@
-// app/api/payments/route.ts
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createOrder } from "@/lib/payments-razorpay";
 
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { amount } = await req.json();
+    const { amount, currency } = await req.json();
 
-    if (!amount) {
-      return NextResponse.json({ error: "Amount is required" }, { status: 400 });
-    }
+    // Call createOrder and await the result
+    const order = await createOrder(amount, currency);
 
-    const order = await createOrder({
-      amount: amount * 100, // convert to paisa
-      currency: "INR",
-      receipt: `receipt_${Date.now()}`
+    // Now you can safely access order.id
+    return NextResponse.json({
+      success: true,
+      orderId: order.id,
+      order,
     });
-
-    return NextResponse.json({ id: order.id, currency: order.currency, amount: order.amount });
-  } catch (error) {
-    console.error("Payment API Error:", error);
-    return NextResponse.json({ error: "Order creation failed" }, { status: 500 });
+  } catch (error: any) {
+    console.error("Payment order creation failed:", error);
+    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
   }
 }

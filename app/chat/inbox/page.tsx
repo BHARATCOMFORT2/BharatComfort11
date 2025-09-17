@@ -24,7 +24,6 @@ interface Conversation {
 export default function InboxPage() {
   const { firebaseUser: user } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  ...
 }
 
   useEffect(() => {

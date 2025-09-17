@@ -3,17 +3,16 @@ import { createRazorpayOrder } from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   try {
-    const { amount } = await req.json();
+    const { amount, currency } = await req.json();
 
     if (!amount) {
-      return NextResponse.json({ error: "Amount required" }, { status: 400 });
+      return NextResponse.json({ error: "Amount is required" }, { status: 400 });
     }
 
-    const order = await createRazorpayOrder(amount);
-
-    return NextResponse.json({ order });
+    const order = await createRazorpayOrder(amount, currency || "INR");
+    return NextResponse.json(order, { status: 200 });
   } catch (error: any) {
-    console.error("Error creating Razorpay order:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error("Razorpay order error:", error);
+    return NextResponse.json({ error: "Failed to create order" }, { status: 500 });
   }
 }

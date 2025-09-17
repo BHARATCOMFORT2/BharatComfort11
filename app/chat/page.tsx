@@ -59,11 +59,11 @@ export default function ChatPage() {
     const msgsRef = collection(db, "conversations", convId, "messages");
     const q = query(msgsRef, orderBy("createdAt", "asc"));
 
-    const unsub = onSnapshot(q, (snapshot) => {
-      const msgs: Message[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Message),
-      }));
+   const msgs: Message[] =
+  snapshot.docs.map((doc) => ({
+    ...doc.data(),
+    id: doc.id,
+  })) as Message[];
       setMessages(msgs);
     });
 

@@ -2,8 +2,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useAuth } from "@/hooks/useAuth"; // custom hook for Firebase auth
-import { db } from "@/lib/firebase"; // your Firestore config
+import { useAuth } from "@/hooks/useAuth";
+import { db } from "@/lib/firebase";
 import {
   collection,
   query,
@@ -26,6 +26,8 @@ export default function InboxPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
 }
 
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
     if (!user) return;
 
@@ -46,11 +48,13 @@ export default function InboxPage() {
         };
       });
       setConversations(convs);
+      setLoading(false); // ✅ stop loading once data arrives
     });
 
     return () => unsub();
   }, [user]);
 
+  // 🔑 Protect routes
   if (!user) {
     return <p className="p-4">Please log in to see your inbox.</p>;
   }
@@ -58,7 +62,10 @@ export default function InboxPage() {
   return (
     <div className="p-4">
       <h1 className="text-xl font-bold mb-4">Inbox</h1>
-      {conversations.length === 0 ? (
+
+      {loading ? (
+        <p>Loading conversations...</p> // ✅ loading state
+      ) : conversations.length === 0 ? (
         <p>No conversations yet.</p>
       ) : (
         <ul className="space-y-3">

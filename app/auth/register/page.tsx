@@ -1,31 +1,23 @@
+// app/auth/register/page.tsx
 "use client";
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { auth, db } from "@/lib/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { doc, setDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
-import { sendVerificationEmail } from "@/hooks/useAuth";
-
-await sendVerificationEmail();
-
-alert("Verification email sent! Please check your inbox.");
 
 export default function RegisterPage() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-
-  const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+  const router = useRouter();
+  const [form, setForm] = useState({
     name: "",
     email: "",
+    phone: "",
     password: "",
     role: "user", // default role
   });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -33,29 +25,30 @@ export default function RegisterPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
     setLoading(true);
+    setError("");
 
     try {
       // Create user in Firebase Auth
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        form.email,
-        form.password
-      );
+      const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
 
-      const user = userCredential.user;
-
-      // Save profile in Firestore
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
+      // Store profile in Firestore
+      await setDoc(doc(db, "users", cred.user.uid), {
+        uid: cred.user.uid,
         name: form.name,
         email: form.email,
-        role: form.role, // user | partner | superadmin (manually assigned later)
-        createdAt: new Date().toISOString(),
+        phone: form.phone,
+        role: form.role, // user | partner | admin
+        isActive: form.role === "partner" ? false : true, // partners need approval
+        createdAt: new Date(),
       });
 
-      router.push("/"); // redirect to homepage
+      // Redirect based on role
+      if (form.role === "partner") {
+        router.push("/partner/onboarding");
+      } else {
+        router.push("/user/dashboard");
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -64,30 +57,39 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="container mx-auto px-4 py-12 max-w-md">
-      <h1 className="text-2xl font-bold mb-6 text-center">Create Account</h1>
-      
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-6 rounded-lg shadow space-y-4"
-      >
+    <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded-lg shadow">
+      <h1 className="text-2xl font-bold mb-4 text-center">Register</h1>
+
+      {error && <p className="text-red-500 text-sm mb-3">{error}</p>}
+
+      <form onSubmit={handleSubmit} className="space-y-4">
         <input
           type="text"
           name="name"
           placeholder="Full Name"
+          className="w-full border p-2 rounded"
           value={form.name}
           onChange={handleChange}
-          className="w-full p-3 border rounded"
           required
         />
 
         <input
           type="email"
           name="email"
-          placeholder="Email Address"
+          placeholder="Email"
+          className="w-full border p-2 rounded"
           value={form.email}
           onChange={handleChange}
-          className="w-full p-3 border rounded"
+          required
+        />
+
+        <input
+          type="tel"
+          name="phone"
+          placeholder="Phone Number"
+          className="w-full border p-2 rounded"
+          value={form.phone}
+          onChange={handleChange}
           required
         />
 
@@ -95,39 +97,30 @@ export default function RegisterPage() {
           type="password"
           name="password"
           placeholder="Password"
+          className="w-full border p-2 rounded"
           value={form.password}
           onChange={handleChange}
-          className="w-full p-3 border rounded"
           required
         />
 
         <select
           name="role"
+          className="w-full border p-2 rounded"
           value={form.role}
           onChange={handleChange}
-          className="w-full p-3 border rounded"
         >
           <option value="user">User</option>
           <option value="partner">Partner</option>
         </select>
 
-        {error && <p className="text-red-500 text-sm">{error}</p>}
-
         <button
           type="submit"
           disabled={loading}
-          className="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700"
+          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
         >
           {loading ? "Registering..." : "Register"}
         </button>
       </form>
-
-      <p className="text-center text-sm mt-4">
-        Already have an account?{" "}
-        <a href="/auth/login" className="text-blue-600 hover:underline">
-          Login
-        </a>
-      </p>
     </div>
   );
 }

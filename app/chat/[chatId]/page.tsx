@@ -40,7 +40,7 @@ export default function ChatPage({ params }: { params: { chatId: string } }) {
 
     const unsub = onSnapshot(q, (snapshot) => {
       const msgs: Message[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
+        <Component id={chatId} {...otherProps} />
         ...(doc.data() as Message),
       }));
       setMessages(msgs);

@@ -1,96 +1,72 @@
+// app/auth/verify/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
-import { auth, db } from "@/lib/firebase";
-import { sendEmailVerification } from "firebase/auth";
-import { doc, updateDoc, getDoc } from "firebase/firestore";
-import PhoneVerificationForm from "@/components/forms/PhoneVerificationForm";
+import { useEffect, useState } from "react";
+import { auth } from "@/lib/firebase";
+import { sendEmailVerification, onAuthStateChanged } from "firebase/auth";
 
 export default function VerifyPage() {
   const [user, setUser] = useState<any>(null);
-  const [emailVerified, setEmailVerified] = useState(false);
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const [role, setRole] = useState("user");
+  const [emailSent, setEmailSent] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (u) => {
-      if (u) {
-        setUser(u);
-        setEmailVerified(u.emailVerified);
-
-        // Get Firestore profile
-        const snap = await getDoc(doc(db, "users", u.uid));
-        if (snap.exists()) {
-          const data = snap.data();
-          setPhoneVerified(data.phoneVerified || false);
-          setRole(data.role || "user");
-        }
-      }
+    const unsubscribe = onAuthStateChanged(auth, (u) => {
+      if (u) setUser(u);
     });
     return () => unsubscribe();
   }, []);
 
-  async function sendVerification() {
-    if (auth.currentUser && !auth.currentUser.emailVerified) {
-      await sendEmailVerification(auth.currentUser);
-      alert("Verification email sent! Check your inbox.");
+  const handleSendVerification = async () => {
+    if (auth.currentUser) {
+      await sendEmailVerification(auth.currentUser, {
+        url: `${process.env.NEXT_PUBLIC_APP_URL}/auth/verify`,
+      });
+      setEmailSent(true);
     }
-  }
+  };
 
-  async function markPhoneVerified() {
-    if (user) {
-      await updateDoc(doc(db, "users", user.uid), { phoneVerified: true });
-      setPhoneVerified(true);
-    }
-  }
-
-  async function markActive() {
-    if (user && (emailVerified || phoneVerified)) {
-      await updateDoc(doc(db, "users", user.uid), { isActive: true });
-      alert("Verification complete! Redirecting...");
-      window.location.href = role === "partner" ? "/partner/dashboard" : "/user/dashboard";
-    }
+  if (!user) {
+    return (
+      <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow">
+        <h1 className="text-xl font-bold">Not logged in</h1>
+        <p>Please register or login first.</p>
+      </div>
+    );
   }
 
   return (
-    <div className="p-6 max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Account Verification</h1>
+    <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-4">
+      <h1 className="text-2xl font-bold text-center">Verify Your Account</h1>
 
-      <div className="mb-6">
-        <h2 className="font-semibold">Email Verification</h2>
-        {emailVerified ? (
-          <p className="text-green-600">✅ Your email is verified</p>
-        ) : (
-          <>
-            <p className="text-red-600">❌ Not verified</p>
-            <button
-              onClick={sendVerification}
-              className="mt-2 bg-blue-500 text-white px-4 py-2 rounded"
-            >
-              Send Verification Email
-            </button>
-          </>
-        )}
-      </div>
-
-      {role === "partner" && (
-        <div className="mb-6">
-          <h2 className="font-semibold">Phone Verification</h2>
-          {phoneVerified ? (
-            <p className="text-green-600">✅ Phone verified</p>
-          ) : (
-            <PhoneVerificationForm onVerified={markPhoneVerified} />
-          )}
+      {/* ✅ Email Verification */}
+      {!user.emailVerified ? (
+        <div className="p-4 border rounded bg-yellow-50">
+          <p className="mb-2">Your email <b>{user.email}</b> is not verified.</p>
+          <button
+            onClick={handleSendVerification}
+            disabled={emailSent}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            {emailSent ? "Verification Sent ✔" : "Send Verification Email"}
+          </button>
+        </div>
+      ) : (
+        <div className="p-4 border rounded bg-green-50">
+          <p>✅ Your email is verified.</p>
         </div>
       )}
 
-      <button
-        onClick={markActive}
-        disabled={!emailVerified || (role === "partner" && !phoneVerified)}
-        className="bg-green-600 text-white px-6 py-2 rounded disabled:opacity-50"
-      >
-        Complete Verification
-      </button>
+      {/* ✅ Phone Verification (if phone linked) */}
+      {user.phoneNumber ? (
+        <div className="p-4 border rounded bg-green-50">
+          <p>✅ Your phone <b>{user.phoneNumber}</b> is verified.</p>
+        </div>
+      ) : (
+        <div className="p-4 border rounded bg-gray-50">
+          <p>You haven’t verified your phone number yet.</p>
+          <p className="text-sm text-gray-600">Phone verification happens during login with OTP.</p>
+        </div>
+      )}
     </div>
   );
 }

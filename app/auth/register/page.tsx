@@ -7,14 +7,18 @@ import { doc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { sendVerificationEmail } from "@/hooks/useAuth";
 
-await createUserWithEmailAndPassword(auth, email, password);
 await sendVerificationEmail();
 
 alert("Verification email sent! Please check your inbox.");
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const [form, setForm] = useState({
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     name: "",
     email: "",
     password: "",

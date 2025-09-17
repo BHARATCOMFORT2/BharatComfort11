@@ -51,9 +51,6 @@ export default function InboxPage() {
       setLoading(false); // ✅ stop loading once data arrives
     });
 
-    return () => unsub();
-  }, [user]);
-
   // ✅ This return check must be at the top-level, not inside useEffect
   if (!user) {
     return <p className="p-4">Please log in to see your inbox.</p>;

@@ -1,0 +1,94 @@
+{
+  "common": {
+    "appName": "BHARATCOMFORT11",
+    "welcome": "Welcome to BHARATCOMFORT11",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "yes": "Yes",
+    "no": "No",
+    "save": "Save",
+    "search": "Search",
+    "submit": "Submit",
+    "back": "Back",
+    "next": "Next"
+  },
+  "auth": {
+    "login": "Login",
+    "logout": "Logout",
+    "signup": "Sign Up",
+    "verifyEmail": "Verify your email",
+    "verifyPhone": "Verify your phone",
+    "email": "Email",
+    "password": "Password",
+    "forgotPassword": "Forgot password?",
+    "resetPassword": "Reset Password",
+    "continueWith": "Continue with {{provider}}"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "welcomeUser": "Welcome, {{name}}",
+    "userDashboard": "User Dashboard",
+    "partnerDashboard": "Partner Dashboard",
+    "adminDashboard": "Admin Dashboard"
+  },
+  "bookings": {
+    "title": "Bookings",
+    "newBooking": "New Booking",
+    "myBookings": "My Bookings",
+    "bookingDetails": "Booking Details",
+    "confirmBooking": "Confirm Booking",
+    "cancelBooking": "Cancel Booking",
+    "noBookings": "No bookings yet"
+  },
+  "payments": {
+    "title": "Payments",
+    "payNow": "Pay Now",
+    "paymentSuccess": "Payment Successful",
+    "paymentFailed": "Payment Failed",
+    "razorpayProcessing": "Processing via Razorpay..."
+  },
+  "partners": {
+    "title": "Partners",
+    "partnerList": "Partner List",
+    "pendingApproval": "Pending Approval",
+    "approvePartner": "Approve Partner",
+    "rejectPartner": "Reject Partner"
+  },
+  "chat": {
+    "title": "Chat",
+    "loginPrompt": "Please log in to use the chat.",
+    "inputPlaceholder": "Type a message...",
+    "sendButton": "Send",
+    "noMessages": "No messages yet"
+  },
+  "ai": {
+    "title": "AI Travel Assistant",
+    "recommendations": "Recommended for you",
+    "loading": "Fetching personalized suggestions...",
+    "noResults": "No recommendations found"
+  },
+  "travelPlanner": {
+    "title": "Travel Planner",
+    "chooseMode": "Choose your mode of travel",
+    "roadways": "Roadways",
+    "railways": "Railways",
+    "airways": "Airways",
+    "planTrip": "Plan My Trip"
+  },
+  "notifications": {
+    "title": "Notifications",
+    "newMessage": "You have a new message",
+    "bookingUpdate": "Your booking has been updated",
+    "paymentUpdate": "Your payment status has changed"
+  },
+  "ui": {
+    "trendingDestinations": "Trending Destinations",
+    "newsletterSignup": "Sign up for our newsletter",
+    "promotions": "Promotions",
+    "quickActions": "Quick Actions",
+    "recentStories": "Recent Stories",
+    "filters": "Filters"
+  }
+}

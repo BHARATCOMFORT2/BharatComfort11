@@ -20,7 +20,7 @@ interface Message {
 }
 
 export default function ChatPage(): JSX.Element {
-  const { user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const router = useRouter();
   const searchParams = useSearchParams();
 

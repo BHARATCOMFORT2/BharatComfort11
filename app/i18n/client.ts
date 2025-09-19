@@ -8,12 +8,17 @@ export function useTranslation(locale: string) {
   const [dict, setDict] = useState<any>(null);
 
   useEffect(() => {
-    async function load() {
+  async function load() {
+    if (locale === "en" || locale === "hi") {
       const dictionary = await getDictionary(locale);
       setDict(dictionary);
+    } else {
+      console.error("Unsupported locale:", locale);
     }
-    load();
-  }, [locale]);
+  }
+  load();
+}, [locale]);
+
 
   function t(path: string): string {
     if (!dict) return path;

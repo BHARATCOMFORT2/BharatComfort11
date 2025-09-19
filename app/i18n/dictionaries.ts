@@ -12,12 +12,6 @@ const dictionaries = {
   // add more locales here
 };
 
-export const getDictionary = async (locale: keyof typeof dictionaries) =>
-  dictionaries[locale]();
-
-  // add more locales here
-};
-
 // Loader function
 export const getDictionary = async (locale: Locale) => {
   if (!dictionaries[locale]) {

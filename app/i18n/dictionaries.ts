@@ -1,11 +1,22 @@
-// Loads translation files dynamically
-import "server-only";
+// app/i18n/dictionaries.ts
 
+import 'server-only';
+
+// Define available locales
+export const locales = ['en', 'hi'] as const;
+export type Locale = (typeof locales)[number];
+
+// Dynamic import of dictionaries
 const dictionaries = {
-  en: () => import("/locales/en.json").then((m) => m.default),
-  hi: () => import("/locales/hi.json").then((m) => m.default),
-  fr: () => import("/locales/fr.json").then((m) => m.default),
+  en: () => import('@/app/locales/en.json').then((module) => module.default),
+  hi: () => import('@/app/locales/hi.json').then((module) => module.default),
+  // add more locales here
 };
 
-export const getDictionary = async (locale: string) =>
-  dictionaries[locale as keyof typeof dictionaries]?.() ?? dictionaries.en();
+// Loader function
+export const getDictionary = async (locale: Locale) => {
+  if (!dictionaries[locale]) {
+    throw new Error(`Dictionary for locale "${locale}" not found`);
+  }
+  return dictionaries[locale]();
+};

@@ -6,10 +6,15 @@ import 'server-only';
 export const locales = ['en', 'hi'] as const;
 export type Locale = (typeof locales)[number];
 
-// Dynamic import of dictionaries
 const dictionaries = {
-  en: () => import('app/locales/en.json').then((module) => module.default),
-  hi: () => import('app/locales/hi.json').then((module) => module.default),
+  en: () => import("../locales/en.json").then((module) => module.default),
+  hi: () => import("../locales/hi.json").then((module) => module.default),
+  // add more locales here
+};
+
+export const getDictionary = async (locale: keyof typeof dictionaries) =>
+  dictionaries[locale]();
+
   // add more locales here
 };
 

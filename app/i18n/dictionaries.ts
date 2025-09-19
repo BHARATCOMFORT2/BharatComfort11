@@ -8,8 +8,8 @@ export type Locale = (typeof locales)[number];
 
 // Dynamic import of dictionaries
 const dictionaries = {
-  en: () => import('@/app/locales/en.json').then((module) => module.default),
-  hi: () => import('@/app/locales/hi.json').then((module) => module.default),
+  en: () => import('app/locales/en.json').then((module) => module.default),
+  hi: () => import('app/locales/hi.json').then((module) => module.default),
   // add more locales here
 };
 

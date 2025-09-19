@@ -1,17 +1,26 @@
-// app/i18n/clients.ts
-
 "use client";
 
-import { useEffect, useState } from "react";
-import { getDictionary, Locale } from "./dictionaries";
+import { useState, useEffect } from "react";
+import { getDictionary } from "./dictionaries";
 
-// Hook to load translations for a given locale
-export function useDictionary(locale: Locale) {
-  const [dict, setDict] = useState<Record<string, string> | null>(null);
+export function useTranslation(locale: string) {
+  // allow nested JSON objects
+  const [dict, setDict] = useState<any>(null);
 
   useEffect(() => {
-    getDictionary(locale).then((d) => setDict(d));
+    async function load() {
+      const dictionary = await getDictionary(locale);
+      setDict(dictionary);
+    }
+    load();
   }, [locale]);
 
-  return dict;
+  function t(path: string): string {
+    if (!dict) return path;
+
+    // support nested keys like "common.welcome"
+    return path.split(".").reduce((acc, key) => acc?.[key], dict) ?? path;
+  }
+
+  return { t };
 }

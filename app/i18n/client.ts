@@ -1,19 +1,17 @@
+// app/i18n/clients.ts
+
 "use client";
 
-import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getDictionary } from "./dictionaries";
-import { Locale, i18n } from "./settings";
+import { getDictionary, Locale } from "./dictionaries";
 
-export function useI18n() {
-  const params = useParams();
-  const locale = (params?.locale as Locale) || i18n.defaultLocale;
-
-  const [dict, setDict] = useState<Record<string, string>>({});
+// Hook to load translations for a given locale
+export function useDictionary(locale: Locale) {
+  const [dict, setDict] = useState<Record<string, string> | null>(null);
 
   useEffect(() => {
-    getDictionary(locale).then(setDict);
+    getDictionary(locale).then((d) => setDict(d));
   }, [locale]);
 
-  return { dict, locale };
+  return dict;
 }

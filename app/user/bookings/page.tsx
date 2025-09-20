@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useBookings } from "@/hooks/useBookings";
 
 export default function BookingsPage() {
-  const { user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const { bookings, loading } = useBookings(user?.uid);
 
   if (!user) {

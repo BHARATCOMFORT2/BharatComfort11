@@ -7,7 +7,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 export default function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { firebaseUser: user, loading } = useAuth();
   const [isActive, setIsActive] = useState<boolean | null>(null);
   const router = useRouter();
 

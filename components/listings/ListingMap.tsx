@@ -1,39 +1,65 @@
 "use client";
 
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
-import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
+interface Listing {
+  id: string;
+  name: string;
+  category: string;
+  location: string;
+  price: string;
+  rating: number;
+  image: string;
+  lat: number; // required for map
+  lng: number; // required for map
+}
+
+interface ListingMapProps {
+  listings: Listing[];
+}
+
+const defaultCenter: [number, number] = [20.5937, 78.9629]; // India center
+
+// Custom marker icon (fixes missing default marker issue in Leaflet + Next.js)
 const markerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-  shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
 
-type ListingMapProps = {
-  lat: number;
-  lng: number;
-  title: string;
-};
-
-export default function ListingMap({ lat, lng, title }: ListingMapProps) {
+export default function ListingMap({ listings }: ListingMapProps) {
   return (
-    <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
-      <MapContainer
-        center={[lat, lng]}
-        zoom={13}
-        scrollWheelZoom={false}
-        style={{ height: "100%", width: "100%" }}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-        />
-        <Marker position={[lat, lng]} icon={markerIcon}>
-          <Popup>{title}</Popup>
+    <MapContainer
+      center={listings.length > 0 ? [listings[0].lat, listings[0].lng] : defaultCenter}
+      zoom={5}
+      className="w-full h-full rounded-lg"
+      scrollWheelZoom={false}
+    >
+      {/* Map background tiles */}
+      <TileLayer
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution="&copy; <a href='https://www.openstreetmap.org/'>OpenStreetMap</a> contributors"
+      />
+
+      {/* Markers */}
+      {listings.map((listing) => (
+        <Marker
+          key={listing.id}
+          position={[listing.lat, listing.lng]}
+          icon={markerIcon}
+        >
+          <Popup>
+            <div className="text-sm">
+              <strong>{listing.name}</strong>
+              <br />
+              {listing.location}
+              <br />
+              ₹{listing.price} • ⭐ {listing.rating}
+            </div>
+          </Popup>
         </Marker>
-      </MapContainer>
-    </div>
+      ))}
+    </MapContainer>
   );
 }

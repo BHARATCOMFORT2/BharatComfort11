@@ -22,12 +22,14 @@ export default function ManagePaymentsPage() {
   const [filter, setFilter] = useState<"all" | "success" | "failed">("all");
 
   useEffect(() => {
-    const fetchPayments = async () => {
-      const querySnapshot = await getDocs(collection(db, "payments"));
-      const data = querySnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Payment),
-      }));
+    const data = querySnapshot.docs.map((doc) => {
+  const paymentData = doc.data() as Payment;
+  return {
+    id: doc.id, // Firestore doc ID
+    ...paymentData,
+    paymentId: paymentData.id // rename the field from Firestore
+  };
+});
       setPayments(data);
     };
 

@@ -1,31 +1,38 @@
-"use client";
-
 import Link from "next/link";
-import { Button } from "@/components/ui/Button";
 
-type ListingCardProps = {
+interface ListingCardProps {
   id: string;
-  title: string;
-  image: string;
+  name: string;
+  category: string;
   location: string;
-  price?: string;
-};
+  price: string;
+  rating: number;
+  image: string;
+}
 
-export default function ListingCard({ id, title, image, location, price }: ListingCardProps) {
+export default function ListingCard({
+  id,
+  name,
+  category,
+  location,
+  price,
+  rating,
+  image,
+}: ListingCardProps) {
   return (
-    <div className="border rounded-lg shadow-sm overflow-hidden hover:shadow-md transition">
-      <img src={image} alt={title} className="w-full h-48 object-cover" />
-      <div className="p-4 space-y-2">
-        <h3 className="text-lg font-semibold">{title}</h3>
-        <p className="text-gray-500">{location}</p>
-        {price && <p className="font-bold">{price}</p>}
-        <div className="flex gap-2 mt-3">
-          <Button variant="primary" asChild>
-            <Link href={`/listings/${id}`}>View</Link>
-          </Button>
-          <Button variant="secondary">Book Now</Button>
-        </div>
+    <Link href={`/listings/${id}`}>
+      <div className="border rounded-lg shadow p-4 bg-white hover:shadow-lg transition cursor-pointer">
+        <img
+          src={image}
+          alt={name}
+          className="w-full h-40 object-cover rounded-md mb-4"
+        />
+        <h3 className="text-lg font-semibold">{name}</h3>
+        <p className="text-sm text-gray-600">{location}</p>
+        <p className="text-sm">{category}</p>
+        <p className="font-bold mt-2">₹{price}</p>
+        <p className="text-yellow-500">⭐ {rating}</p>
       </div>
-    </div>
+    </Link>
   );
 }

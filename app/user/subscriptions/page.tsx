@@ -46,10 +46,10 @@ setSubscriptions(subsData);
       const payRef = collection(db, "payments");
       const payQuery = query(payRef, where("userId", "==", user.uid));
       const paySnap = await getDocs(payQuery);
-      const payData = paySnap.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Payment),
-      }));
+     const payData = paySnap.docs.map((doc) => ({
+  ...(doc.data() as Payment),
+  id: doc.id, // safely overwrites any existing id
+}));
       setPayments(payData);
     };
 

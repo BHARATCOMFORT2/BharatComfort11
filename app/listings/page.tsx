@@ -48,9 +48,9 @@ export default function ListingsPage() {
       <section className="w-full lg:w-3/4 flex flex-col gap-8">
         {/* Listings Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">
-          {listings.map((listing) => (
-            <ListingCard key={listing.id} listing={listing} />
-          ))}
+         {listings.map((listing) => (
+  <ListingCard key={listing.id} {...listing} />
+))}
         </div>
 
         {/* Map Section */}

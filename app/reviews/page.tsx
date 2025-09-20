@@ -23,10 +23,10 @@ export default function ReviewsPage() {
         const q = query(collection(db, "reviews"), orderBy("createdAt", "desc"));
         const snapshot = await getDocs(q);
 
-        const data: Review[] = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Review),
-        }));
+       const data: Review[] = snapshot.docs.map((doc) => ({
+  ...(doc.data() as Review),
+  id: doc.id, // now this overwrites any id inside doc.data()
+}));
         setReviews(data);
       } catch (err) {
         console.error("Error fetching reviews:", err);

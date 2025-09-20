@@ -111,3 +111,4 @@ export async function getUserNotifications(userId: string) {
   const snapshot = await getDocs(q);
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
+export const db = getFirestore(app);

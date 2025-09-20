@@ -60,9 +60,9 @@ export default function PartnerReviewsPage() {
         );
 
         const data: Review[] = reviewsSnap.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Review),
-        }));
+  ...(doc.data() as Review),
+  id: doc.id,
+}));
 
         setReviews(data);
       } catch (err) {

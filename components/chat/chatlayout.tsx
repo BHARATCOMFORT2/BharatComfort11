@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import ChatSidebar from "@/components/chat/Chatsidebar";
-import ChatWindow from "@/components/chat/Chatwindow";
+import ChatSidebar from "@/components/chat/ChatSidebar";
+import ChatWindow from "@/components/chat/ChatWindow";
 
 type Message = {
   id: string;

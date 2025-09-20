@@ -29,9 +29,9 @@ export default function UserInvoicesPage() {
       const q = query(ref, where("userId", "==", user.uid));
       const snap = await getDocs(q);
       const data = snap.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Invoice),
-      }));
+  ...(doc.data() as Invoice),
+  id: doc.id, // this now safely overwrites any id inside doc.data()
+}));
       setInvoices(data);
       setLoading(false);
     };

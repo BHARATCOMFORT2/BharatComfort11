@@ -35,11 +35,13 @@ export default function UserSubscriptionsPage() {
       const subsRef = collection(db, "subscriptions");
       const subsQuery = query(subsRef, where("userId", "==", user.uid));
       const subsSnap = await getDocs(subsQuery);
-      const subsData = subsSnap.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Subscription),
-      }));
-      setSubscriptions(subsData);
+    const subsData = subsSnap.docs.map((doc) => ({
+  ...(doc.data() as Subscription),
+  id: doc.id, // now overwrites any existing id safely
+}));
+
+setSubscriptions(subsData);
+
 
       const payRef = collection(db, "payments");
       const payQuery = query(payRef, where("userId", "==", user.uid));

@@ -54,9 +54,11 @@ export default function ListingsPage() {
         </div>
 
         {/* Map Section */}
-        <div className="w-full h-[400px]">
-          <ListingMap listings={listings} />
-        </div>
+        <section>
+  <div className="w-full h-[400px]">
+    <ListingMap listings={listings} />
+  </div>
+</section>
       </section>
     </div>
   );

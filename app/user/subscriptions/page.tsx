@@ -24,7 +24,7 @@ interface Payment {
 }
 
 export default function UserSubscriptionsPage() {
-  const { user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
 

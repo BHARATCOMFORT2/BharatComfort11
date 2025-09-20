@@ -2,111 +2,120 @@
 
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
-import { getFirestore } from "firebase/firestore";
-import { db } from "@/lib/firebase"; // ✅ correct
-import { collection, query, where, getDocs } from "firebase/firestore";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase"; // ✅ single db
 
-interface Subscription {
+interface Payment {
   id: string;
-  plan: string;
-  status: string;
-  end: number;
+  userId: string;
+  bookingId: string;
+  amount: number;
+  status: "success" | "failed";
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  createdAt: string;
 }
 
-export default function ManageSubscriptionsPage() {
-  const { firebaseUser: user } = useAuth();
-  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
-  const [loading, setLoading] = useState(false);
+export default function ManagePaymentsPage() {
+  const { user } = useAuth();
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [filter, setFilter] = useState<"all" | "success" | "failed">("all");
 
   useEffect(() => {
-    if (!user) return;
-
-    const fetchSubs = async () => {
-      const subsRef = collection(db, "subscriptions");
-      const subsQuery = query(subsRef, where("userId", "==", user.uid));
-      const subsSnap = await getDocs(subsQuery);
-      const subsData = subsSnap.docs.map((doc) => ({
+    const fetchPayments = async () => {
+      const querySnapshot = await getDocs(collection(db, "payments"));
+      const data = querySnapshot.docs.map((doc) => ({
         id: doc.id,
-        ...(doc.data() as Subscription),
+        ...(doc.data() as Payment),
       }));
-      setSubscriptions(subsData);
+      setPayments(data);
     };
 
-    fetchSubs();
-  }, [user]);
-
-  const handleCancel = async (subId: string) => {
-    try {
-      setLoading(true);
-      const res = await fetch("/api/payments/cancel-subscription", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriptionId: subId }),
-      });
-      if (!res.ok) throw new Error("Failed to cancel subscription");
-
-      alert("Subscription cancelled successfully");
-      setSubscriptions((prev) =>
-        prev.map((s) =>
-          s.id === subId ? { ...s, status: "cancelled" } : s
-        )
-      );
-    } catch (err) {
-      console.error(err);
-      alert("Error cancelling subscription");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpgrade = (subId: string, newPlan: string) => {
-    // Redirect to a plan selection page
-    window.location.href = `/payments/upgrade?subscriptionId=${subId}&plan=${newPlan}`;
-  };
+    fetchPayments();
+  }, []);
 
   if (!user) {
-    return <p className="text-center text-gray-600">Please log in to manage subscriptions.</p>;
+    return <p className="p-4">Please log in to manage payments.</p>;
   }
 
-  return (
-    <div className="max-w-3xl mx-auto p-6 space-y-8">
-      <h1 className="text-3xl font-bold">Manage Subscriptions</h1>
+  // ✅ Apply filter
+  const filteredPayments =
+    filter === "all"
+      ? payments
+      : payments.filter((p) => p.status === filter);
 
-      {subscriptions.length === 0 ? (
-        <p className="text-gray-500">You have no subscriptions.</p>
-      ) : (
-        <ul className="divide-y divide-gray-200">
-          {subscriptions.map((sub) => (
-            <li key={sub.id} className="py-4 flex justify-between items-center">
-              <div>
-                <p className="font-medium">Plan: {sub.plan}</p>
-                <p className="text-sm text-gray-500">Status: {sub.status}</p>
-                <p className="text-sm text-gray-500">
-                  Ends on: {new Date(sub.end * 1000).toLocaleDateString()}
-                </p>
-              </div>
-              <div className="space-x-3">
-                {sub.status === "active" && (
-                  <>
-                    <button
-                      onClick={() => handleCancel(sub.id)}
-                      disabled={loading}
-                      className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => handleUpgrade(sub.id, "premium")}
-                      className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      Upgrade
-                    </button>
-                  </>
-                )}
-              </div>
-            </li>
+  return (
+    <div className="p-6">
+      <h1 className="text-2xl font-semibold mb-6">Manage Payments</h1>
+
+      {/* Filter Buttons */}
+      <div className="mb-4 flex gap-3">
+        <button
+          onClick={() => setFilter("all")}
+          className={`px-4 py-2 rounded ${
+            filter === "all" ? "bg-blue-600 text-white" : "bg-gray-200"
+          }`}
+        >
+          All
+        </button>
+        <button
+          onClick={() => setFilter("success")}
+          className={`px-4 py-2 rounded ${
+            filter === "success" ? "bg-green-600 text-white" : "bg-gray-200"
+          }`}
+        >
+          Success
+        </button>
+        <button
+          onClick={() => setFilter("failed")}
+          className={`px-4 py-2 rounded ${
+            filter === "failed" ? "bg-red-600 text-white" : "bg-gray-200"
+          }`}
+        >
+          Failed
+        </button>
+      </div>
+
+      {/* Payments Table */}
+      <table className="w-full border-collapse border border-gray-200">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="p-3 border">Booking ID</th>
+            <th className="p-3 border">User ID</th>
+            <th className="p-3 border">Amount</th>
+            <th className="p-3 border">Status</th>
+            <th className="p-3 border">Payment ID</th>
+            <th className="p-3 border">Order ID</th>
+            <th className="p-3 border">Created At</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredPayments.map((payment) => (
+            <tr key={payment.id} className="text-center">
+              <td className="p-3 border">{payment.bookingId}</td>
+              <td className="p-3 border">{payment.userId}</td>
+              <td className="p-3 border">₹{payment.amount}</td>
+              <td
+                className={`p-3 border font-semibold ${
+                  payment.status === "success"
+                    ? "text-green-600"
+                    : "text-red-600"
+                }`}
+              >
+                {payment.status}
+              </td>
+              <td className="p-3 border">{payment.razorpay_payment_id}</td>
+              <td className="p-3 border">{payment.razorpay_order_id}</td>
+              <td className="p-3 border">
+                {new Date(payment.createdAt).toLocaleString()}
+              </td>
+            </tr>
           ))}
-        </ul>
+        </tbody>
+      </table>
+
+      {filteredPayments.length === 0 && (
+        <p className="text-gray-500 mt-4">No payments found.</p>
       )}
     </div>
   );

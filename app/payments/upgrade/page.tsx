@@ -11,7 +11,7 @@ declare global {
 }
 
 export default function UpgradeSubscriptionPage() {
-  const { user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const searchParams = useSearchParams();
   const subscriptionId = searchParams.get("subscriptionId");
   const plan = searchParams.get("plan") || "premium";

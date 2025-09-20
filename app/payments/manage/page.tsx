@@ -3,7 +3,7 @@
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import { getFirestore } from "firebase/firestore";
-import { app } from "/firebase";
+import { db } from "@/lib/firebase"; // ✅ correct
 export const db = getFirestore(app);
 import { collection, query, where, getDocs } from "firebase/firestore";
 

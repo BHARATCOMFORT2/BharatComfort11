@@ -17,7 +17,7 @@ interface Payment {
 }
 
 export default function ManagePaymentsPage() {
-  const { firbaseUser: user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const [payments, setPayments] = useState<Payment[]>([]);
   const [filter, setFilter] = useState<"all" | "success" | "failed">("all");
 

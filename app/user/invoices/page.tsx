@@ -16,7 +16,7 @@ interface Invoice {
 }
 
 export default function UserInvoicesPage() {
-  const { user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
 

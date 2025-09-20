@@ -14,7 +14,7 @@ interface Subscription {
 }
 
 export default function ManageSubscriptionsPage() {
-  const { user } = useAuth();
+  const { firebaseUser: user } = useAuth();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(false);
 

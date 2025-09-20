@@ -43,10 +43,10 @@ export default function ListingReviewsPage({
         );
         const snapshot = await getDocs(q);
 
-        const data: Review[] = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Review),
-        }));
+       const data: Review[] = snapshot.docs.map((doc) => ({
+  ...(doc.data() as Review),
+  id: doc.id, // now this will overwrite any existing id
+}));
         setReviews(data);
       } catch (err) {
         console.error("Error fetching reviews:", err);

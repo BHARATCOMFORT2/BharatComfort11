@@ -34,10 +34,10 @@ export default function PaymentHistoryPage() {
         );
         const snapshot = await getDocs(q);
 
-        const data: Payment[] = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...(doc.data() as Payment),
-        }));
+       const data: Payment[] = snapshot.docs.map((doc) => ({
+  ...(doc.data() as Payment),
+  id: doc.id, // overrides if Firestore doc already had "id"
+}));
         setPayments(data);
       } catch (err) {
         console.error("Error fetching payments:", err);

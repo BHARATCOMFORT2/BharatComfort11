@@ -39,11 +39,11 @@ export default function NotificationsPage() {
     );
 
     const unsub = onSnapshot(q, (snapshot) => {
-      const notifs: Notification[] = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Notification),
-      }));
-      setNotifications(notifs);
+     const notifs: Notification[] = snapshot.docs.map((doc) => ({
+  ...(doc.data() as Notification),
+  id: doc.id, // this overrides any `id` in doc.data()
+}));
+  setNotifications(notifs);
     });
 
     return () => unsub();

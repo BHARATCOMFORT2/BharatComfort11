@@ -5,7 +5,8 @@ import { Card, CardContent } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { ArrowRight } from "lucide-react";
 import { getFirestore, collection, getDocs } from "firebase/firestore";
-import { app } from "@/lib/firebase";
+import app from "@/lib/firebase";
+
 
 interface Promotion {
   id: string;

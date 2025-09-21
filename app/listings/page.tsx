@@ -11,17 +11,17 @@ export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+   useEffect(() => {
     const fetchListings = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, "listings"));
-        const data = querySnapshot.docs.map(
-          (doc) =>
-            ({
-              id: doc.id,
-              ...(doc.data() as Listing),
-            } as Listing)
-        );
+        const data = querySnapshot.docs.map((doc) => {
+          const rawData = doc.data() as Omit<Listing, "id">;
+          return {
+            id: doc.id, // ✅ only here
+            ...rawData, // ✅ no duplicate id now
+          };
+        });
         setListings(data);
       } catch (error) {
         console.error("Error fetching listings:", error);

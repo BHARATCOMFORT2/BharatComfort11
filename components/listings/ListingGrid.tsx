@@ -2,13 +2,17 @@
 
 import ListingCard from "./ListingCard";
 
-type Listing = {
+type ListingCardProps = {
   id: string;
   title: string;
   image: string;
   location: string;
   price?: string;
+  name?: string;
+  category?: string;
+  rating?: number;
 };
+
 
 type ListingGridProps = {
   listings: Listing[];

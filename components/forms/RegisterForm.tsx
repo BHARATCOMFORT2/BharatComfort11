@@ -59,17 +59,17 @@ export default function RegisterForm({ onSubmit }: RegisterFormProps) {
         placeholder="••••••••"
       />
 
-      <InputField
-        label="Confirm Password"
-        name="confirmPassword"
-        type="password"
-        register={register({
-          validate: (value: string) =>
-            value === password || "Passwords do not match",
-        })}
-        error={errors.confirmPassword}
-        placeholder="••••••••"
-      />
+     <InputField
+  label="Confirm Password"
+  name="confirmPassword"
+  type="password"
+  register={register("confirmPassword", {
+    validate: (value: string) =>
+      value === password || "Passwords do not match",
+  })}
+  error={errors.confirmPassword}
+  placeholder="Confirm your password"
+/>
 
       <div className="flex flex-col">
         <label className="mb-2 font-medium">Account Type</label>

@@ -25,7 +25,7 @@ export default function ListingDetail({
       {price && <p className="text-xl font-semibold">{price}</p>}
       <p className="text-gray-700">{description}</p>
       <div className="flex gap-4 mt-6">
-        <Button variant="primary">Book Now</Button>
+        <Button variant="default">Book Now</Button>
         <Button variant="secondary">Get Directions</Button>
       </div>
     </div>

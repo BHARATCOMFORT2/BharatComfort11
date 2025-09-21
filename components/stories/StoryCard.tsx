@@ -1,35 +1,25 @@
-import React from "react";
+"use client";
 
-// Define the shape of a single story
-export interface Story {
+type StoryCardProps = {
   id: string;
   title: string;
+  image: string;
   excerpt: string;
   author: string;
   date: string;
-  image: string;
-}
+};
 
-// Props for the StoryCard component
-export interface StoryCardProps {
-  story: Story;
-}
-
-const StoryCard: React.FC<StoryCardProps> = ({ story }) => {
+export default function StoryCard({ title, image, excerpt, author, date }: StoryCardProps) {
   return (
-    <div className="border rounded-lg overflow-hidden shadow hover:shadow-lg transition p-4 flex flex-col">
-      <img
-        src={story.image}
-        alt={story.title}
-        className="w-full h-48 object-cover mb-4 rounded"
-      />
-      <h2 className="text-xl font-semibold mb-2">{story.title}</h2>
-      <p className="text-gray-600 mb-2">{story.excerpt}</p>
-      <div className="text-sm text-gray-500 mt-auto">
-        By {story.author} | {story.date}
+    <div className="border rounded-lg overflow-hidden shadow hover:shadow-lg transition">
+      <img src={image} alt={title} className="w-full h-40 object-cover" />
+      <div className="p-4">
+        <h3 className="font-bold text-lg">{title}</h3>
+        <p className="text-sm text-gray-600">{excerpt}</p>
+        <div className="mt-2 text-xs text-gray-500">
+          By {author} • {date}
+        </div>
       </div>
     </div>
   );
-};
-
-export default StoryCard;
+}

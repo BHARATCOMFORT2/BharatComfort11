@@ -1,64 +1,59 @@
 "use client";
 
-import { useState } from "react";
-import ListingFilters from "@/components/listings/ListingFilters";
-import ListingCard from "@/components/listings/ListingCard";
+import { useEffect, useState } from "react";
+import { collection, getDocs } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import ListingGrid from "@/components/listings/ListingGrid";
 import ListingMap from "@/components/listings/ListingMap";
+import { Listing } from "@/components/listings/ListingCard";
 
 export default function ListingsPage() {
-  // Mock data — later this will come from Firestore
-  const [listings] = useState([
-    {
-      id: "1",
-      name: "Taj Hotel",
-      category: "Hotel",
-      location: "Mumbai, India",
-      price: "₹8,500/night",
-      rating: 4.7,
-      image: "/images/sample-hotel.jpg",
-    },
-    {
-      id: "2",
-      name: "Royal Dine",
-      category: "Restaurant",
-      location: "Delhi, India",
-      price: "₹1,200 avg",
-      rating: 4.5,
-      image: "/images/sample-restaurant.jpg",
-    },
-    {
-      id: "3",
-      name: "Goa Beach Escape",
-      category: "Travel Package",
-      location: "Goa, India",
-      price: "₹25,000 / 3N 4D",
-      rating: 4.8,
-      image: "/images/sample-travel.jpg",
-    },
-  ]);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchListings = async () => {
+      try {
+        const querySnapshot = await getDocs(collection(db, "listings"));
+        const data = querySnapshot.docs.map(
+          (doc) =>
+            ({
+              id: doc.id,
+              ...(doc.data() as Listing),
+            } as Listing)
+        );
+        setListings(data);
+      } catch (error) {
+        console.error("Error fetching listings:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchListings();
+  }, []);
+
+  if (loading) {
+    return <p className="p-6">Loading listings...</p>;
+  }
+
+  if (listings.length === 0) {
+    return <p className="p-6">No listings available.</p>;
+  }
 
   return (
-    <div className="container mx-auto px-4 py-12 flex flex-col lg:flex-row gap-8">
-      {/* Filters Sidebar */}
-      <aside className="w-full lg:w-1/4">
-        <ListingFilters />
-      </aside>
+    <div className="p-6 space-y-8">
+      <h1 className="text-2xl font-semibold">Available Listings</h1>
 
-      {/* Listings + Map */}
-      <section className="w-full lg:w-3/4 flex flex-col gap-8">
-        {/* Listings Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 gap-6">
-         {listings.map((listing) => (
-  <ListingCard key={listing.id} {...listing} />
-))}
+      {/* Grid Section */}
+      <ListingGrid listings={listings} />
+
+      {/* Map Section */}
+      <section>
+        <h2 className="text-xl font-semibold mb-4">Explore on Map</h2>
+        <div className="w-full h-[400px]">
+          <ListingMap listings={listings} />
         </div>
-
-        {/* Map Section */}
-        <section>
-  <div className="w-full h-[400px]">
-    <ListingMap listings={listings} />
-  </div>
-</section>
       </section>
     </div>
   );

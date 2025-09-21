@@ -1,77 +1,65 @@
-"use client";
-
-import { useEffect, useState } from "react";
-import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
+import { useState, useEffect } from "react";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  Query,
+  DocumentData,
+  WhereFilterOp,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
-export interface MapPin {
+interface MapPin {
   id: string;
-  lat: number;
-  lng: number;
-  title?: string;
-  description?: string;
-  type?: string; // e.g., "listing", "story", "event"
-  referenceId?: string; // link to related listing/story
-  createdAt?: any;
+  type: string;
+  referenceId: string;
+  // Add other fields your map pin has
 }
 
-/**
- * Hook for fetching all map pins (optionally filtered by type or referenceId).
- */
-export function useMapPins(type?: string, referenceId?: string) {
+// Filter type: key = field name, value = [operator, value]
+type MapPinFilters = {
+  [field: string]: [WhereFilterOp, any];
+};
+
+export const useMapPins = (filters?: MapPinFilters) => {
   const [pins, setPins] = useState<MapPin[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    let q = collection(db, "mapPins");
+    const fetchPins = async () => {
+      setLoading(true);
 
-    if (type && referenceId) {
-      q = query(
-        collection(db, "mapPins"),
-        where("type", "==", type),
-        where("referenceId", "==", referenceId)
-      );
-    } else if (type) {
-      q = query(collection(db, "mapPins"), where("type", "==", type));
-    }
+      try {
+        const collectionRef = collection(db, "mapPins");
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map(
-        (doc) => ({ id: doc.id, ...doc.data() } as MapPin)
-      );
-      setPins(items);
-      setLoading(false);
-    });
+        // Dynamically build where clauses
+        let q: Query<DocumentData> = collectionRef;
 
-    return () => unsubscribe();
-  }, [type, referenceId]);
+        if (filters && Object.keys(filters).length > 0) {
+          const whereClauses = Object.entries(filters).map(
+            ([field, [op, value]]) => where(field, op, value)
+          );
+          q = query(collectionRef, ...whereClauses);
+        }
+
+        const snapshot = await getDocs(q);
+
+        const data: MapPin[] = snapshot.docs.map((doc) => ({
+          id: doc.id,
+          ...(doc.data() as Omit<MapPin, "id">),
+        }));
+
+        setPins(data);
+      } catch (error) {
+        console.error("Error fetching map pins:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchPins();
+  }, [filters]);
 
   return { pins, loading };
-}
-
-/**
- * Hook for fetching a single map pin by ID.
- */
-export function useMapPin(id: string) {
-  const [pin, setPin] = useState<MapPin | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!id) return;
-
-    const ref = doc(db, "mapPins", id);
-
-    const unsubscribe = onSnapshot(ref, (docSnap) => {
-      if (docSnap.exists()) {
-        setPin({ id: docSnap.id, ...docSnap.data() } as MapPin);
-      } else {
-        setPin(null);
-      }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, [id]);
-
-  return { pin, loading };
-}
+};

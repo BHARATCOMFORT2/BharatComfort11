@@ -1,20 +1,8 @@
-import Link from "next/link";
-type Listing = {
-  id: string;
-  title: string;
-  image: string;
-  location: string;
-  price?: string;
-  name?: string;
-  category?: string;
-  rating?: number;
-};
+"use client";
 
-type ListingGridProps = {
-  listings: Listing[];
-};
+import Image from "next/image";
 
-interface ListingCardProps {
+export interface Listing {
   id: string;
   name: string;
   category: string;
@@ -22,31 +10,29 @@ interface ListingCardProps {
   price: string;
   rating: number;
   image: string;
+  lat: number;
+  lng: number;
 }
 
-export default function ListingCard({
-  id,
-  name,
-  category,
-  location,
-  price,
-  rating,
-  image,
-}: ListingCardProps) {
+interface ListingCardProps {
+  listing: Listing;
+}
+
+export default function ListingCard({ listing }: ListingCardProps) {
   return (
-    <Link href={`/listings/${id}`}>
-      <div className="border rounded-lg shadow p-4 bg-white hover:shadow-lg transition cursor-pointer">
-        <img
-          src={image}
-          alt={name}
-          className="w-full h-40 object-cover rounded-md mb-4"
-        />
-        <h3 className="text-lg font-semibold">{name}</h3>
-        <p className="text-sm text-gray-600">{location}</p>
-        <p className="text-sm">{category}</p>
-        <p className="font-bold mt-2">₹{price}</p>
-        <p className="text-yellow-500">⭐ {rating}</p>
-      </div>
-    </Link>
+    <div className="border rounded-lg shadow hover:shadow-lg transition p-4 bg-white">
+      <Image
+        src={listing.image}
+        alt={listing.name}
+        width={400}
+        height={250}
+        className="rounded-lg mb-3 object-cover"
+      />
+      <h2 className="text-lg font-semibold">{listing.name}</h2>
+      <p className="text-gray-600">{listing.location}</p>
+      <p className="text-sm text-gray-500">{listing.category}</p>
+      <p className="mt-2 font-bold text-blue-600">₹{listing.price}</p>
+      <p className="text-yellow-600 text-sm">⭐ {listing.rating}</p>
+    </div>
   );
 }

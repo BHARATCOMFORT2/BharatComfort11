@@ -1,16 +1,14 @@
 "use client";
-
-import { FieldError } from "react-hook-form";
+import { FieldError, FieldErrorsImpl, Merge } from "react-hook-form";
 
 type InputFieldProps = {
   label: string;
-  type?: string;
   name: string;
-  register?: any;
-  error?: FieldError;
+  type?: string;
   placeholder?: string;
+  register: any; // still fine
+  error?: FieldError | Merge<FieldError, FieldErrorsImpl<any>> | undefined;
 };
-
 export default function InputField({
   label,
   type = "text",

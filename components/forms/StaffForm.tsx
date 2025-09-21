@@ -63,9 +63,11 @@ export default function StaffForm({
             </option>
           ))}
         </select>
-        {errors.role && (
-          <span className="text-red-500 text-sm">{errors.role.message}</span>
-        )}
+       {errors.role && (
+  <span className="text-red-500 text-sm">
+    {typeof errors.role?.message === "string" ? errors.role.message : "Invalid role"}
+  </span>
+)}
       </div>
 
       <Button type="submit" className="w-full">

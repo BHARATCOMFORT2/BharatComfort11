@@ -1,0 +1,75 @@
+{
+  "common": {
+    "welcome": "Welcome",
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Retry",
+    "search": "Search",
+    "cancel": "Cancel",
+    "save": "Save",
+    "submit": "Submit",
+    "close": "Close"
+  },
+  "auth": {
+    "login": "Log In",
+    "logout": "Log Out",
+    "register": "Register",
+    "email": "Email",
+    "password": "Password",
+    "confirmPassword": "Confirm Password",
+    "forgotPassword": "Forgot Password?",
+    "verifyEmail": "Please verify your email",
+    "phoneVerification": "Phone Verification"
+  },
+  "navigation": {
+    "home": "Home",
+    "listings": "Listings",
+    "chat": "Chat",
+    "bookings": "Bookings",
+    "payments": "Payments",
+    "dashboard": "Dashboard",
+    "stories": "Stories",
+    "admin": "Admin"
+  },
+  "listings": {
+    "title": "Listings",
+    "noResults": "No listings found",
+    "location": "Location",
+    "price": "Price",
+    "rating": "Rating",
+    "viewDetails": "View Details",
+    "bookNow": "Book Now"
+  },
+  "chat": {
+    "title": "Chat",
+    "startConversation": "Start a conversation",
+    "sendMessage": "Send Message",
+    "placeholder": "Type a message..."
+  },
+  "payments": {
+    "title": "Payments",
+    "manage": "Manage Payments",
+    "success": "Payment successful",
+    "failed": "Payment failed",
+    "amount": "Amount",
+    "payNow": "Pay Now"
+  },
+  "reviews": {
+    "title": "Reviews",
+    "averageRating": "Average Rating",
+    "writeReview": "Write a Review",
+    "submitReview": "Submit Review",
+    "noReviews": "No reviews yet"
+  },
+  "stories": {
+    "title": "Travel Stories",
+    "readMore": "Read More",
+    "byAuthor": "by {{author}}",
+    "publishedOn": "Published on {{date}}"
+  },
+  "newsletter": {
+    "signup": "Sign up for our Newsletter",
+    "subscribe": "Subscribe",
+    "emailPlaceholder": "Enter your email"
+  }
+}

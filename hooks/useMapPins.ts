@@ -1,12 +1,14 @@
+// hooks/useMapPins.ts
 import { useState, useEffect } from "react";
 import {
   collection,
   query,
   where,
-  getDocs,
+  onSnapshot,
   Query,
   DocumentData,
   WhereFilterOp,
+  Unsubscribe,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 
@@ -27,38 +29,38 @@ export const useMapPins = (filters?: MapPinFilters) => {
   const [loading, setLoading] = useState<boolean>(true);
 
   useEffect(() => {
-    const fetchPins = async () => {
-      setLoading(true);
+    setLoading(true);
 
-      try {
-        const collectionRef = collection(db, "mapPins");
+    const collectionRef = collection(db, "mapPins");
 
-        // Dynamically build where clauses
-        let q: Query<DocumentData> = collectionRef;
+    // Build dynamic query
+    let q: Query<DocumentData> = collectionRef;
+    if (filters && Object.keys(filters).length > 0) {
+      const whereClauses = Object.entries(filters).map(
+        ([field, [op, value]]) => where(field, op, value)
+      );
+      q = query(collectionRef, ...whereClauses);
+    }
 
-        if (filters && Object.keys(filters).length > 0) {
-          const whereClauses = Object.entries(filters).map(
-            ([field, [op, value]]) => where(field, op, value)
-          );
-          q = query(collectionRef, ...whereClauses);
-        }
-
-        const snapshot = await getDocs(q);
-
+    // Listen to real-time updates
+    const unsubscribe: Unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
         const data: MapPin[] = snapshot.docs.map((doc) => ({
           id: doc.id,
           ...(doc.data() as Omit<MapPin, "id">),
         }));
-
         setPins(data);
-      } catch (error) {
+        setLoading(false);
+      },
+      (error) => {
         console.error("Error fetching map pins:", error);
-      } finally {
         setLoading(false);
       }
-    };
+    );
 
-    fetchPins();
+    // Cleanup listener on unmount
+    return () => unsubscribe();
   }, [filters]);
 
   return { pins, loading };

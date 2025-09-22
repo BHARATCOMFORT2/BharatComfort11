@@ -110,4 +110,7 @@ export async function getUserNotifications(userId: string) {
   const snapshot = await getDocs(q);
   return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
-export const db = getFirestore(app);
+const app: FirebaseApp = !getApps().length ? initializeApp(firebaseConfig) : getApps()[0];
+
+// ✅ Export Firestore instance
+export const db: Firestore = getFirestore(app);

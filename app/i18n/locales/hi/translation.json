@@ -1,0 +1,75 @@
+{
+  "common": {
+    "welcome": "स्वागत है",
+    "loading": "लोड हो रहा है...",
+    "error": "कुछ गलत हो गया",
+    "retry": "पुनः प्रयास करें",
+    "search": "खोजें",
+    "cancel": "रद्द करें",
+    "save": "सहेजें",
+    "submit": "जमा करें",
+    "close": "बंद करें"
+  },
+  "auth": {
+    "login": "लॉगिन करें",
+    "logout": "लॉगआउट",
+    "register": "रजिस्टर करें",
+    "email": "ईमेल",
+    "password": "पासवर्ड",
+    "confirmPassword": "पासवर्ड की पुष्टि करें",
+    "forgotPassword": "पासवर्ड भूल गए?",
+    "verifyEmail": "कृपया अपना ईमेल सत्यापित करें",
+    "phoneVerification": "फोन सत्यापन"
+  },
+  "navigation": {
+    "home": "होम",
+    "listings": "सूचियाँ",
+    "chat": "चैट",
+    "bookings": "बुकिंग",
+    "payments": "भुगतान",
+    "dashboard": "डैशबोर्ड",
+    "stories": "कहानियाँ",
+    "admin": "एडमिन"
+  },
+  "listings": {
+    "title": "सूचियाँ",
+    "noResults": "कोई सूची नहीं मिली",
+    "location": "स्थान",
+    "price": "मूल्य",
+    "rating": "रेटिंग",
+    "viewDetails": "विवरण देखें",
+    "bookNow": "अभी बुक करें"
+  },
+  "chat": {
+    "title": "चैट",
+    "startConversation": "वार्तालाप शुरू करें",
+    "sendMessage": "संदेश भेजें",
+    "placeholder": "संदेश लिखें..."
+  },
+  "payments": {
+    "title": "भुगतान",
+    "manage": "भुगतान प्रबंधित करें",
+    "success": "भुगतान सफल",
+    "failed": "भुगतान असफल",
+    "amount": "राशि",
+    "payNow": "अभी भुगतान करें"
+  },
+  "reviews": {
+    "title": "समीक्षाएँ",
+    "averageRating": "औसत रेटिंग",
+    "writeReview": "समीक्षा लिखें",
+    "submitReview": "समीक्षा जमा करें",
+    "noReviews": "अभी तक कोई समीक्षा नहीं"
+  },
+  "stories": {
+    "title": "यात्रा कहानियाँ",
+    "readMore": "और पढ़ें",
+    "byAuthor": "{{author}} द्वारा",
+    "publishedOn": "{{date}} को प्रकाशित"
+  },
+  "newsletter": {
+    "signup": "हमारे न्यूज़लेटर के लिए साइन अप करें",
+    "subscribe": "सब्सक्राइब करें",
+    "emailPlaceholder": "अपना ईमेल दर्ज करें"
+  }
+}

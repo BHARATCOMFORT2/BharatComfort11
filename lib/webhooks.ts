@@ -1,106 +1,47 @@
-// lib/webhooks.ts
-import Stripe from "stripe";
-import { addNotification, addDocument } from "./firestore";
+import { NextRequest, NextResponse } from "next/server";
+import crypto from "crypto";
+import { addNotification } from "@/lib/firestore";
 
-if (!process.env.STRIPE_SECRET_KEY || !process.env.STRIPE_WEBHOOK_SECRET) {
-  throw new Error("⚠️ Missing Stripe environment variables");
-}
+// ✅ Razorpay webhook handler
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json();
+    const signature = req.headers.get("x-razorpay-signature");
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2024-06-20",
-});
-
-/**
- * Verify and construct Stripe event from webhook payload
- */
-export function constructStripeEvent(
-  rawBody: Buffer,
-  signature: string
-): Stripe.Event {
-  return stripe.webhooks.constructEvent(
-    rawBody,
-    signature,
-    process.env.STRIPE_WEBHOOK_SECRET!
-  );
-}
-
-/**
- * Handle different webhook event types
- */
-export async function handleStripeEvent(event: Stripe.Event) {
-  switch (event.type) {
-    case "checkout.session.completed": {
-      const session = event.data.object as Stripe.Checkout.Session;
-
-      // ✅ Save payment record in Firestore
-      await addDocument("payments", {
-        sessionId: session.id,
-        customerEmail: session.customer_email,
-        amountTotal: session.amount_total,
-        currency: session.currency,
-        paymentStatus: session.payment_status,
-        createdAt: new Date(),
-      });
-
-      // ✅ Notify user about successful payment
-      if (session.customer_email) {
-        await addNotification(
-          session.customer_email,
-          "🎉 Payment successful! Your booking is confirmed."
-        );
-      }
-
-      console.log("✅ Checkout session recorded:", session.id);
-      break;
+    if (!signature) {
+      return NextResponse.json({ error: "Missing Razorpay signature" }, { status: 400 });
     }
 
-    case "payment_intent.payment_failed": {
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
+    const expectedSignature = crypto
+      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET!)
+      .update(JSON.stringify(body))
+      .digest("hex");
 
-      // Store failed attempt for reference
-      await addDocument("payments", {
-        paymentIntentId: paymentIntent.id,
-        amount: paymentIntent.amount,
-        currency: paymentIntent.currency,
-        status: "failed",
-        createdAt: new Date(),
-      });
-
-      console.error("❌ Payment failed:", paymentIntent.id);
-      break;
+    if (signature !== expectedSignature) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    case "charge.refunded": {
-      const charge = event.data.object as Stripe.Charge;
+    // ✅ Handle events
+    switch (body.event) {
+      case "payment.captured":
+        await addNotification("Payment captured", body.payload.payment.entity.id);
+        break;
 
-      await addDocument("refunds", {
-        chargeId: charge.id,
-        amount: charge.amount,
-        currency: charge.currency,
-        createdAt: new Date(),
-      });
+      case "payment.failed":
+        await addNotification("Payment failed", body.payload.payment.entity.id);
+        break;
 
-      console.log("🔄 Payment refunded:", charge.id);
-      break;
+      case "order.paid":
+        await addNotification("Order paid", body.payload.order.entity.id);
+        break;
+
+      default:
+        console.log(`Unhandled event: ${body.event}`);
     }
 
-    case "charge.dispute.created": {
-      const dispute = event.data.object as Stripe.Dispute;
-
-      await addDocument("disputes", {
-        disputeId: dispute.id,
-        amount: dispute.amount,
-        currency: dispute.currency,
-        status: dispute.status,
-        createdAt: new Date(),
-      });
-
-      console.warn("⚠️ Dispute created:", dispute.id);
-      break;
-    }
-
-    default: {
-      console.log(`Unhandled event type: ${event.type}`);
-    }
+    return NextResponse.json({ received: true }, { status: 200 });
+  } catch (err) {
+    console.error("Webhook error:", err);
+    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
   }
 }

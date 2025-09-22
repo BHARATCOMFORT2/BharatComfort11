@@ -12,6 +12,7 @@ import {
   orderBy,
   serverTimestamp,
 } from "firebase/firestore";
+import { getFirestore } from "firebase/firestore";
 
 /**
  * Generic Firestore Helpers

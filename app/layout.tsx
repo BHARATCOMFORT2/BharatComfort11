@@ -28,28 +28,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${inter.className} bg-gray-50 text-gray-900`}>
-        <head><script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-          import Footer from "@/components/layout/footer";
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>
-        {children}
-        <Footer />
-  );
-import Header from "@/components/layout/Header";
-import Footer from "@/components/layout/Footer";
-
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="en">
-      <body>
-        <Header />
-        <main className="min-h-screen">{children}</main>
-        <Footer />
+      <head>
+        <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
       </head>
+      <body className={`${inter.className} bg-gray-50 text-gray-900`}>
         <Navbar />
         <main className="min-h-screen">{children}</main>
         <Footer />
@@ -57,5 +39,3 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     </html>
   );
 }
-
-      

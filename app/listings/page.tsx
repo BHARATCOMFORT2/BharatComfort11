@@ -15,6 +15,9 @@ export default function ListingsPage() {
 
   useEffect(() => {
     setMounted(true);
+if (typeof window !== "undefined") {
+  // safe to use window here
+}
 
     // Safe access to localStorage
     const storedUser = localStorage.getItem("user");

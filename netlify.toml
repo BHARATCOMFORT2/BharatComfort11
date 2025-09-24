@@ -1,0 +1,7 @@
+[build]
+  command = "next build"
+  publish = ".next"
+
+[build.environment]
+  RAZORPAY_KEY_ID = "rzp_test_RLLXPFy8ccQnkb" 
+  RAZORPAY_KEY_SECRET = "VWujaCB0uEuuM4PfONs2gF8g"          

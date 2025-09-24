@@ -30,7 +30,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${inter.className} bg-gray-50 text-gray-900`}>
         <head><script src="https://checkout.razorpay.com/v1/checkout.js"></script>
-          import Footer from "@/components/layout/Footer";
+          import Footer from "@/components/layout/footer";
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

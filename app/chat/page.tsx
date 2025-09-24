@@ -1,15 +1,7 @@
 'use client';
 
 import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  orderBy,
-  Timestamp,
-} from "firebase/firestore";
+import { collection, query, where, onSnapshot, orderBy, Timestamp } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -20,18 +12,23 @@ interface Message {
   createdAt: Timestamp | null;
 }
 
-export default function ChatPage(): JSX.Element {
+export default function ChatPage() {
   const { firebaseUser: user } = useAuth();
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const otherUserId = searchParams.get("user");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [otherUserId, setOtherUserId] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
+  // Only run client-side logic
   useEffect(() => {
-    if (!user || !otherUserId) return;
+    setMounted(true);
 
-    // Query messages between current user and other user
+    // Grab userId from URL query params safely
+    const params = new URLSearchParams(window.location.search);
+    const otherUser = params.get("user");
+    setOtherUserId(otherUser);
+
+    if (!user || !otherUser) return;
+
     const q = query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid),
@@ -41,22 +38,18 @@ export default function ChatPage(): JSX.Element {
     const unsub = onSnapshot(q, (snapshot) => {
       const msgs: Message[] = snapshot.docs.map((doc) => ({
         ...(doc.data() as Omit<Message, "id">),
-        id: doc.id, // ensure doc.id wins
-        createdAt: (doc.data() as any).createdAt || null, // safe fallback
+        id: doc.id,
+        createdAt: (doc.data() as any).createdAt || null,
       }));
       setMessages(msgs);
     });
 
     return () => unsub();
-  }, [user, otherUserId]);
+  }, [user]);
 
-  if (!user) {
-    return <p className="p-4">Please log in to see your chat.</p>;
-  }
-
-  if (!otherUserId) {
-    return <p className="p-4">Select a user to start chatting.</p>;
-  }
+  if (!mounted) return null; // wait for client mount
+  if (!user) return <p className="p-4">Please log in to see your chat.</p>;
+  if (!otherUserId) return <p className="p-4">Select a user to start chatting.</p>;
 
   return (
     <div className="p-4">
@@ -71,9 +64,7 @@ export default function ChatPage(): JSX.Element {
           >
             <p>{msg.text}</p>
             <span className="text-xs text-gray-500">
-              {msg.createdAt?.toDate
-                ? msg.createdAt.toDate().toLocaleString()
-                : ""}
+              {msg.createdAt?.toDate ? msg.createdAt.toDate().toLocaleString() : ""}
             </span>
           </li>
         ))}

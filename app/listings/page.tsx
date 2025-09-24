@@ -10,10 +10,13 @@ import { Listing } from "@/components/listings/ListingCard";
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userData, setUserData] = useState<string | null>(null); // 👈 move here
+  const [userData, setUserData] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    // 👇 now only runs on client
+    setMounted(true);
+
+    // Safe access to localStorage
     const storedUser = localStorage.getItem("user");
     setUserData(storedUser);
 
@@ -38,15 +41,14 @@ export default function ListingsPage() {
     fetchListings();
   }, []);
 
+  if (!mounted) return null; // wait for client mount
   if (loading) return <p className="p-6">Loading listings...</p>;
   if (listings.length === 0) return <p className="p-6">No listings available.</p>;
 
   return (
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-semibold">Available Listings</h1>
-
       <ListingGrid listings={listings} />
-
       <section>
         <h2 className="text-xl font-semibold mb-4">Explore on Map</h2>
         <div className="w-full h-[400px]">

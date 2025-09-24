@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -8,6 +8,7 @@ import {
   where,
   onSnapshot,
   orderBy,
+  Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { useAuth } from "@/hooks/useAuth";
@@ -16,7 +17,7 @@ interface Message {
   id: string;
   text: string;
   sender: string;
-  createdAt: any; // you can refine with Firestore Timestamp type if needed
+  createdAt: Timestamp | null;
 }
 
 export default function ChatPage(): JSX.Element {
@@ -30,7 +31,7 @@ export default function ChatPage(): JSX.Element {
   useEffect(() => {
     if (!user || !otherUserId) return;
 
-    // query messages between current user and other user
+    // Query messages between current user and other user
     const q = query(
       collection(db, "messages"),
       where("participants", "array-contains", user.uid),
@@ -39,8 +40,9 @@ export default function ChatPage(): JSX.Element {
 
     const unsub = onSnapshot(q, (snapshot) => {
       const msgs: Message[] = snapshot.docs.map((doc) => ({
-        ...(doc.data() as Omit<Message, "id">), // spread data except id
+        ...(doc.data() as Omit<Message, "id">),
         id: doc.id, // ensure doc.id wins
+        createdAt: (doc.data() as any).createdAt || null, // safe fallback
       }));
       setMessages(msgs);
     });

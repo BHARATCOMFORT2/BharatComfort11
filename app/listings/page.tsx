@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
@@ -7,22 +7,22 @@ import ListingGrid from "@/components/listings/ListingGrid";
 import ListingMap from "@/components/listings/ListingMap";
 import { Listing } from "@/components/listings/ListingCard";
 
+// ✅ Force this page to be client-rendered (no prerendering on Netlify build)
+export const dynamic = "force-dynamic";
+
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
   const [userData, setUserData] = useState<string | null>(null);
-  const [mounted, setMounted] = useState(false);
+
+  // ✅ Only access localStorage on the client
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      setUserData(localStorage.getItem("user"));
+    }
+  }, []);
 
   useEffect(() => {
-    setMounted(true);
-if (typeof window !== "undefined") {
-  // safe to use window here
-}
-
-    // Safe access to localStorage
-    const storedUser = localStorage.getItem("user");
-    setUserData(storedUser);
-
     const fetchListings = async () => {
       try {
         const querySnapshot = await getDocs(collection(db, "listings"));
@@ -44,14 +44,22 @@ if (typeof window !== "undefined") {
     fetchListings();
   }, []);
 
-  if (!mounted) return null; // wait for client mount
-  if (loading) return <p className="p-6">Loading listings...</p>;
-  if (listings.length === 0) return <p className="p-6">No listings available.</p>;
+  if (loading) {
+    return <p className="p-6">Loading listings...</p>;
+  }
+
+  if (listings.length === 0) {
+    return <p className="p-6">No listings available.</p>;
+  }
 
   return (
     <div className="p-6 space-y-8">
       <h1 className="text-2xl font-semibold">Available Listings</h1>
+
+      {/* Grid Section */}
       <ListingGrid listings={listings} />
+
+      {/* Map Section */}
       <section>
         <h2 className="text-xl font-semibold mb-4">Explore on Map</h2>
         <div className="w-full h-[400px]">

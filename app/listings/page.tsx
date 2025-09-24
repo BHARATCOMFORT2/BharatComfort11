@@ -10,7 +10,9 @@ import { Listing } from "@/components/listings/ListingCard";
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
-
+const userData = typeof window !== "undefined"
+    ? localStorage.getItem("user")
+    : null;
    useEffect(() => {
     const fetchListings = async () => {
       try {

@@ -1,53 +1,105 @@
-import { NextResponse } from "next/server";
-import Razorpay from "razorpay";
+'use client';
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+import { useAuth } from "@/hooks/useAuth";
+import { useState, useEffect } from "react";
 
-
-export async function POST(req: Request) {
-  try {
-    const { subscriptionId, plan, userId } = await req.json();
-
-    // Here you would map `plan` to your Razorpay plan IDs
-    const planMap: Record<string, string> = {
-      premium: process.env.RAZORPAY_PLAN_PREMIUM!,
-      basic: process.env.RAZORPAY_PLAN_BASIC!,
-    };
-
-    if (!planMap[plan]) {
-      return NextResponse.json(
-        { success: false, error: "Invalid plan selected" },
-        { status: 400 }
-      );
-    }
-
-    // Cancel old subscription
-    if (subscriptionId) {
-      try {
-        await razorpay.subscriptions.cancel(subscriptionId);
-      } catch (err) {
-        console.warn("⚠️ Unable to cancel old subscription:", err);
-      }
-    }
-
-    // Create new subscription
-    const subscription = await razorpay.subscriptions.create({
-      plan_id: planMap[plan],
-      customer_notify: 1,
-      total_count: 12, // 12 months
-      notes: { userId },
-    });
-
-    return NextResponse.json({
-      success: true,
-      razorpaySubscriptionId: subscription.id,
-      key: process.env.RAZORPAY_KEY_ID,
-    });
-  } catch (error: any) {
-    console.error("❌ Upgrade error:", error.message);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+declare global {
+  interface Window {
+    Razorpay: any;
   }
+}
+
+const loadRazorpayScript = (): Promise<boolean> =>
+  new Promise((resolve) => {
+    if (document.getElementById("razorpay-script")) return resolve(true);
+    const script = document.createElement("script");
+    script.id = "razorpay-script";
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.body.appendChild(script);
+  });
+
+export default function UpgradeSubscriptionPage() {
+  const { firebaseUser: user } = useAuth();
+  const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
+  const [plan, setPlan] = useState<string>("premium");
+  const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false); // track client mount
+
+  useEffect(() => {
+    setMounted(true); // mark as mounted
+
+    // now safe to use browser APIs
+    const params = new URLSearchParams(window.location.search);
+    setSubscriptionId(params.get("subscriptionId"));
+    setPlan(params.get("plan") || "premium");
+  }, []);
+
+  const handleUpgrade = async () => {
+    if (!user) {
+      alert("Please log in to upgrade.");
+      return;
+    }
+    if (!subscriptionId) return alert("Invalid subscription");
+
+    try {
+      setLoading(true);
+
+      const loaded = await loadRazorpayScript();
+      if (!loaded) return alert("Failed to load Razorpay script");
+
+      const res = await fetch("/api/payments/upgrade-subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ subscriptionId, plan, userId: user.uid }),
+      });
+
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Failed to create subscription");
+
+      const { razorpaySubscriptionId, key } = data;
+
+      const options = {
+        key,
+        subscription_id: razorpaySubscriptionId,
+        name: "BharatComfort",
+        description: `Upgrade to ${plan} plan`,
+        handler: function (response: any) {
+          alert("✅ Subscription upgraded successfully!");
+          window.location.href = "/user/subscriptions";
+        },
+        prefill: { email: user.email },
+        theme: { color: "#0f172a" },
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.open();
+    } catch (err: any) {
+      console.error(err);
+      alert("Error upgrading subscription: " + (err.message || err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!mounted) return null; // wait until client mount
+  if (!user) return <p className="text-center text-gray-600">Please log in to upgrade your plan.</p>;
+
+  return (
+    <div className="max-w-lg mx-auto p-6 space-y-6">
+      <h1 className="text-2xl font-bold">Upgrade Subscription</h1>
+      <p className="text-gray-600">
+        You are upgrading subscription <strong>{subscriptionId}</strong> to the <strong>{plan}</strong> plan.
+      </p>
+
+      <button
+        onClick={handleUpgrade}
+        disabled={loading}
+        className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+      >
+        {loading ? "Processing..." : "Upgrade Now"}
+      </button>
+    </div>
+  );
 }

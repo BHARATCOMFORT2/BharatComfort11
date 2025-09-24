@@ -13,6 +13,7 @@ export default function Header() {
     { label: "Chat", href: "/chat" },
     { label: "Bookings", href: "/bookings" },
     { label: "Payments", href: "/payments/manage" },
+    { label: "Contact", href: "mailto:bharatcomfort85@gmail.com" }, // ✨ New Contact Us
   ];
 
   return (
@@ -30,6 +31,7 @@ export default function Header() {
             <Link
               key={item.href}
               href={item.href}
+              target={item.href.startsWith("mailto:") ? "_blank" : undefined}
               className={`hover:text-blue-400 ${
                 pathname === item.href ? "text-blue-400" : ""
               }`}

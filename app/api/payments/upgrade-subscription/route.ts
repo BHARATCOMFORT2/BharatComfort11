@@ -9,6 +9,7 @@ declare global {
   }
 }
 
+// Dynamically load Razorpay checkout script
 const loadRazorpayScript = (): Promise<boolean> =>
   new Promise((resolve) => {
     if (document.getElementById("razorpay-script")) return resolve(true);
@@ -25,12 +26,11 @@ export default function UpgradeSubscriptionPage() {
   const [subscriptionId, setSubscriptionId] = useState<string | null>(null);
   const [plan, setPlan] = useState<string>("premium");
   const [loading, setLoading] = useState(false);
-  const [mounted, setMounted] = useState(false); // track client mount
+  const [mounted, setMounted] = useState(false); // ensure client-side
 
+  // Get query params safely on client
   useEffect(() => {
-    setMounted(true); // mark as mounted
-
-    // now safe to use browser APIs
+    setMounted(true);
     const params = new URLSearchParams(window.location.search);
     setSubscriptionId(params.get("subscriptionId"));
     setPlan(params.get("plan") || "premium");
@@ -41,14 +41,22 @@ export default function UpgradeSubscriptionPage() {
       alert("Please log in to upgrade.");
       return;
     }
-    if (!subscriptionId) return alert("Invalid subscription");
+    if (!subscriptionId) {
+      alert("Invalid subscription ID");
+      return;
+    }
 
     try {
       setLoading(true);
 
+      // Load Razorpay script dynamically
       const loaded = await loadRazorpayScript();
-      if (!loaded) return alert("Failed to load Razorpay script");
+      if (!loaded) {
+        alert("Failed to load Razorpay script. Try again later.");
+        return;
+      }
 
+      // Call API to create Razorpay subscription
       const res = await fetch("/api/payments/upgrade-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -60,12 +68,13 @@ export default function UpgradeSubscriptionPage() {
 
       const { razorpaySubscriptionId, key } = data;
 
+      // Open Razorpay checkout
       const options = {
         key,
         subscription_id: razorpaySubscriptionId,
         name: "BharatComfort",
         description: `Upgrade to ${plan} plan`,
-        handler: function (response: any) {
+        handler: function () {
           alert("✅ Subscription upgraded successfully!");
           window.location.href = "/user/subscriptions";
         },

@@ -48,11 +48,30 @@ export async function POST(req: Request) {
           orderId: payment.order_id || null,
         };
 
-        // ✅ Save to Firestore using Admin SDK
         await db.collection("payments").doc(payment.id).set(paymentData, { merge: true });
         console.log("✅ Payment saved:", paymentData);
         break;
       }
 
       case "payment.failed": {
-        console.warn("❌ Payment failed:", event.pay
+        console.warn("❌ Payment failed:", event.payload.payment.entity);
+        break;
+      }
+
+      case "subscription.charged": {
+        console.log("🔄 Subscription renewed:", event.payload.subscription.entity);
+        break;
+      }
+
+      default: {
+        console.log(`⚠️ Unhandled event: ${event.event}`);
+        break;
+      }
+    }
+
+    return NextResponse.json({ received: true });
+  } catch (err: any) {
+    console.error("Webhook error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
+  }
+}

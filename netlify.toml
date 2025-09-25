@@ -11,3 +11,14 @@
   from = "/*"
   to = "/index.html"
   status = 200
+[build]
+  ignore = "git diff --quiet HEAD^ HEAD"
+
+[build.environment]
+  NODE_VERSION = "18"
+
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+[build]
+  environment = { NEXT_DISABLE_ENV_INJECTION = "true" }

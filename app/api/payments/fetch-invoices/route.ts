@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
 import Razorpay from "razorpay";
+export const dynamic = "force-dynamic";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
-
+export async function GET() {
+  if (!razorpay) {
+    return NextResponse.json(
+      { error: "Razorpay not configured" },
+      { status: 500 }
+    );
+  }
 export async function GET() {
   try {
     const invoices = await razorpay.invoices.all({ count: 20 });

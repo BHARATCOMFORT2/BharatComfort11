@@ -5,21 +5,29 @@ import { addNotification } from "@/lib/firestore";
 // ✅ Razorpay webhook handler
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
+    const rawBody = await req.text(); // Use raw body for signature verification
     const signature = req.headers.get("x-razorpay-signature");
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
     if (!signature) {
       return NextResponse.json({ error: "Missing Razorpay signature" }, { status: 400 });
     }
+    if (!webhookSecret) {
+      console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET in environment");
+      return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
+    }
 
     const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_WEBHOOK_SECRET!)
-      .update(JSON.stringify(body))
+      .createHmac("sha256", webhookSecret)
+      .update(rawBody)
       .digest("hex");
 
     if (signature !== expectedSignature) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
+
+    // ✅ Only parse body after signature verification
+    const body = JSON.parse(rawBody);
 
     // ✅ Handle events
     switch (body.event) {
@@ -28,20 +36,4 @@ export async function POST(req: NextRequest) {
         break;
 
       case "payment.failed":
-        await addNotification("Payment failed", body.payload.payment.entity.id);
-        break;
-
-      case "order.paid":
-        await addNotification("Order paid", body.payload.order.entity.id);
-        break;
-
-      default:
-        console.log(`Unhandled event: ${body.event}`);
-    }
-
-    return NextResponse.json({ received: true }, { status: 200 });
-  } catch (err) {
-    console.error("Webhook error:", err);
-    return NextResponse.json({ error: "Internal Server Error" }, { status: 500 });
-  }
-}
+        await addNotification("Payment failed", body.payload.paymen

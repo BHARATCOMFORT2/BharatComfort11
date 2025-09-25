@@ -5,10 +5,10 @@ import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ListingGrid from "@/components/listings/ListingGrid";
 import { Listing } from "@/components/listings/ListingCard";
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic"; // 👈 renamed here
 
 // ✅ Dynamically import Leaflet-based map so it only renders in browser
-const ListingMap = dynamic(() => import("@/components/listings/ListingMap"), {
+const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
   ssr: false,
 });
 

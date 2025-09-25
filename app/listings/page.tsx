@@ -4,8 +4,13 @@ import { useEffect, useState } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ListingGrid from "@/components/listings/ListingGrid";
-import ListingMap from "@/components/listings/ListingMap";
 import { Listing } from "@/components/listings/ListingCard";
+import dynamic from "next/dynamic";
+
+// ✅ Dynamically import Leaflet-based map so it only renders in browser
+const ListingMap = dynamic(() => import("@/components/listings/ListingMap"), {
+  ssr: false,
+});
 
 // ✅ Force this page to be client-rendered (no prerendering on Netlify build)
 export const dynamic = "force-dynamic";

@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
-import Razorpay from "razorpay";
+import { razorpay } from "@/lib/payments-razorpay";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID!,
-  key_secret: process.env.RAZORPAY_KEY_SECRET!,
-});
+export const dynamic = "force-dynamic"; // 🚀
 
 export async function POST(req: Request) {
+  if (!razorpay) {
+    return NextResponse.json(
+      { error: "Razorpay not configured" },
+      { status: 500 }
+    );
+ 
   try {
     const { subscriptionId } = await req.json();
 
@@ -17,4 +20,4 @@ export async function POST(req: Request) {
     console.error("❌ Cancel subscription error:", error.message);
     return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
-}
+

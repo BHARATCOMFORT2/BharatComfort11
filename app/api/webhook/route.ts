@@ -1,22 +1,27 @@
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-
-export const dynamic = "force-dynamic";
+import { verifyWebhookSignature } from "@/lib/webhooks";
 
 export async function POST(req: Request) {
   try {
     const body = await req.text();
     const signature = req.headers.get("x-razorpay-signature");
 
-    if (!signature) return NextResponse.json({ error: "No signature" }, { status: 400 });
+    if (!signature) {
+      return NextResponse.json({ error: "No signature" }, { status: 400 });
+    }
 
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    if (!webhookSecret) return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
+    // ✅ Only access secret inside server route
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET as string;
 
-    const expectedSignature = crypto.createHmac("sha256", webhookSecret).update(body).digest("hex");
-    if (signature !== expectedSignature) return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    const isValid = verifyWebhookSignature(body, signature, webhookSecret);
+
+    if (!isValid) {
+      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+    }
 
     const event = JSON.parse(body);
+
     switch (event.event) {
       case "payment.captured":
         console.log("✅ Payment captured:", event.payload.payment.entity);
@@ -31,6 +36,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ received: true });
   } catch (err: any) {
+    console.error("Webhook error:", err);
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

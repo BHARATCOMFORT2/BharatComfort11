@@ -1,39 +1,41 @@
-import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { addNotification } from "@/lib/firestore";
 
-// ✅ Razorpay webhook handler
-export async function POST(req: NextRequest) {
-  try {
-    const rawBody = await req.text(); // Use raw body for signature verification
-    const signature = req.headers.get("x-razorpay-signature");
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+export async function handleRazorpayWebhook(body: any, signature: string | null) {
+  if (!signature) {
+    throw new Error("Missing Razorpay signature");
+  }
 
-    if (!signature) {
-      return NextResponse.json({ error: "Missing Razorpay signature" }, { status: 400 });
-    }
-    if (!webhookSecret) {
-      console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET in environment");
-      return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
-    }
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    throw new Error("Webhook secret not configured");
+  }
 
-    const expectedSignature = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(rawBody)
-      .digest("hex");
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(JSON.stringify(body))
+    .digest("hex");
 
-    if (signature !== expectedSignature) {
-      return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
-    }
+  if (signature !== expectedSignature) {
+    throw new Error("Invalid signature");
+  }
 
-    // ✅ Only parse body after signature verification
-    const body = JSON.parse(rawBody);
+  // ✅ Handle events
+  switch (body.event) {
+    case "payment.captured":
+      await addNotification("Payment captured", body.payload.payment.entity.id);
+      break;
 
-    // ✅ Handle events
-    switch (body.event) {
-      case "payment.captured":
-        await addNotification("Payment captured", body.payload.payment.entity.id);
-        break;
+    case "payment.failed":
+      await addNotification("Payment failed", body.payload.payment.entity.id);
+      break;
 
-      case "payment.failed":
-        await addNotification("Payment failed", body.payload.paymen
+    case "order.paid":
+      await addNotification("Order paid", body.payload.order.entity.id);
+      break;
+
+    default:
+      console.log(`⚠️ Unhandled event: ${body.event}`);
+      break;
+  }
+}

@@ -9,13 +9,23 @@ const db = admin.firestore();
 
 export const paymentWebhook = functions.https.onRequest(async (req, res) => {
   try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
-    const signature = req.headers["x-razorpay-signature"] as string;
+    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    const body = JSON.stringify(req.body);
+    if (!webhookSecret) {
+      console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET in environment");
+      return res.status(500).send("Webhook secret not configured");
+    }
+
+    const signature = req.headers["x-razorpay-signature"] as string;
+    if (!signature) {
+      console.error("❌ Missing Razorpay signature");
+      return res.status(400).send("Signature missing");
+    }
+
+    // ✅ Use rawBody for signature verification (not req.body)
     const expectedSignature = crypto
-      .createHmac("sha256", secret)
-      .update(body)
+      .createHmac("sha256", webhookSecret)
+      .update((req as any).rawBody) // Firebase provides rawBody
       .digest("hex");
 
     if (signature !== expectedSignature) {
@@ -24,7 +34,8 @@ export const paymentWebhook = functions.https.onRequest(async (req, res) => {
     }
 
     const event = req.body.event;
-    const payload = req.body.payload?.payment?.entity || req.body.payload?.invoice?.entity;
+    const payload =
+      req.body.payload?.payment?.entity || req.body.payload?.invoice?.entity;
 
     if (!payload) {
       console.error("❌ No payload in webhook");
@@ -40,17 +51,20 @@ export const paymentWebhook = functions.https.onRequest(async (req, res) => {
         createdAt: payload.created_at || Math.floor(Date.now() / 1000),
         paymentId: payload.id,
         orderId: payload.order_id || null,
-        invoiceUrl: payload.invoice_url || null, // ✅ Store official Razorpay invoice
+        invoiceUrl: payload.invoice_url || null, // ✅ Store Razorpay invoice
       };
 
-      await db.collection("payments").doc(payload.id).set(paymentData, { merge: true });
+      await db
+        .collection("payments")
+        .doc(payload.id)
+        .set(paymentData, { merge: true });
 
       console.log("✅ Payment saved:", paymentData);
     }
 
     return res.status(200).send("Webhook received");
   } catch (error: any) {
-    console.error("❌ Webhook error:", error.message);
+    console.error("❌ Webhook error:", error.message, error.stack || "");
     return res.status(500).send("Server error");
   }
 });

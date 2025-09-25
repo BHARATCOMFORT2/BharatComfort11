@@ -1,20 +1,23 @@
 import crypto from "crypto";
 import { addNotification } from "@/lib/firestore";
 
-export function verifyWebhookSignature(body: any, signature: string | null) {
-  if (!signature) throw new Error("Missing Razorpay signature");
-
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (!secret) throw new Error("Webhook secret not configured");
+/**
+ * ✅ Verify Razorpay webhook signature
+ */
+export function verifyWebhookSignature(body: string, signature: string | null, secret: string): boolean {
+  if (!signature) return false;
 
   const expectedSignature = crypto
     .createHmac("sha256", secret)
-    .update(JSON.stringify(body))
+    .update(body) // body must be raw text, not JSON.stringify again
     .digest("hex");
 
-  if (signature !== expectedSignature) throw new Error("Invalid signature");
+  return signature === expectedSignature;
 }
 
+/**
+ * ✅ Handle webhook events
+ */
 export async function handleRazorpayWebhook(body: any) {
   switch (body.event) {
     case "payment.captured":
@@ -34,4 +37,3 @@ export async function handleRazorpayWebhook(body: any) {
       break;
   }
 }
-

@@ -2,11 +2,11 @@
   command = "npm run build"
   publish = ".next"
 
-# Ensure Next.js runs in Netlify’s runtime
 [functions]
   node_bundler = "esbuild"
+  external_node_modules = ["razorpay"]
 
-# Redirects (optional, for clean routes)
+# Redirect all unmatched routes to Next.js
 [[redirects]]
   from = "/*"
   to = "/index.html"

@@ -1,6 +1,6 @@
 import Razorpay from "razorpay";
 
-export const razorpay =
+export const razorpay: Razorpay | null =
   process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET
     ? new Razorpay({
         key_id: process.env.RAZORPAY_KEY_ID,
@@ -8,28 +8,16 @@ export const razorpay =
       })
     : null;
 
-// Match the SDK type (allow string | number)
-export interface RazorpayOrder {
-  id: string;
-  amount: number | string;
-  currency: string;
-  status: string;
-}
+export async function createOrder(amount: number, currency: string) {
+  if (!razorpay) {
+    throw new Error("Razorpay not configured"); // ✅ runtime check
+  }
 
-export async function createOrder(
-  amount: number,
-  currency: string
-): Promise<RazorpayOrder> {
+  // TypeScript now knows razorpay is not null
   const order = await razorpay.orders.create({
     amount,
     currency,
   });
 
-  // Cast amount safely to number (Razorpay uses paise)
-  return {
-    id: order.id,
-    amount: Number(order.amount),
-    currency: order.currency,
-    status: order.status,
-  };
+  return order;
 }

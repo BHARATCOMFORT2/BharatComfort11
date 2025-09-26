@@ -1,21 +1,25 @@
-import { NextRequest, NextResponse } from "next/server";
-import createOrder from "@/lib/payments-razorpay";
+// app/api/payments/route.ts
+import { NextResponse } from "next/server";
+import { createOrder } from "@/lib/payments-razorpay";
 
-export async function POST(req: NextRequest) {
+export async function POST(req: Request) {
   try {
-    const { amount, currency } = await req.json();
+    const body = await req.json();
+    const { amount } = body;
 
-    // Call createOrder and await the result
-    const order = await createOrder(amount, currency);
+    if (!amount || isNaN(amount)) {
+      return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
+    }
 
-    // Now you can safely access order.id
-    return NextResponse.json({
-      success: true,
-      orderId: order.id,
-      order,
-    });
+    // ✅ Create Razorpay order
+    const order = await createOrder(amount);
+
+    return NextResponse.json(order, { status: 200 });
   } catch (error: any) {
-    console.error("Payment order creation failed:", error);
-    return NextResponse.json({ success: false, message: error.message }, { status: 500 });
+    console.error("Error creating Razorpay order:", error);
+    return NextResponse.json(
+      { error: "Failed to create order", details: error.message },
+      { status: 500 }
+    );
   }
 }

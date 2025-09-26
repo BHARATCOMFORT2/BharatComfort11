@@ -1,38 +1,31 @@
+// lib/webhooks.ts
 import crypto from "crypto";
-import { addNotification } from "@/lib/firestore";
 
-export function verifyWebhookSignature(body: any, signature: string | null) {
-  if (!signature) throw new Error("Missing Razorpay signature");
+/**
+ * Verify webhook signature.
+ *
+ * @param body - The raw request body string (must be unparsed text).
+ * @param signature - The value from "x-razorpay-signature" header.
+ * @param secret - Your Razorpay webhook secret (passed in from server route).
+ *
+ * @returns true if valid, false otherwise
+ */
+export function verifyWebhookSignature(
+  body: string,
+  signature: string | null,
+  secret: string
+): boolean {
+  if (!signature) return false;
 
-  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-  if (!secret) throw new Error("Webhook secret not configured");
+  try {
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(body)
+      .digest("hex");
 
-  const expectedSignature = crypto
-    .createHmac("sha256", secret)
-    .update(typeof body === "string" ? body : JSON.stringify(body))
-    .digest("hex");
-
-  if (signature !== expectedSignature) throw new Error("Invalid signature");
-
-  return true;
-}
-
-export async function handleRazorpayWebhook(body: any) {
-  switch (body.event) {
-    case "payment.captured":
-      await addNotification("Payment captured", body.payload.payment.entity.id);
-      break;
-
-    case "payment.failed":
-      await addNotification("Payment failed", body.payload.payment.entity.id);
-      break;
-
-    case "order.paid":
-      await addNotification("Order paid", body.payload.order.entity.id);
-      break;
-
-    default:
-      console.log(`⚠️ Unhandled event: ${body.event}`);
-      break;
+    return expected === signature;
+  } catch (err) {
+    console.error("Error verifying webhook signature:", err);
+    return false;
   }
 }

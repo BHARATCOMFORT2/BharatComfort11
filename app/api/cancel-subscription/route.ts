@@ -1,28 +1,24 @@
 import { NextResponse } from "next/server";
-import { razorpay } from "@/lib/payments-razorpay";
-
-export const dynamic = "force-dynamic";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
-  try {
-    if (!razorpay) {
-      return NextResponse.json(
-        { success: false, error: "Razorpay not configured" },
-        { status: 500 }
-      );
-    }
+  const { adminDb } = getFirebaseAdmin();
 
+  try {
     const { subscriptionId } = await req.json();
 
-    // Cancel subscription
-    const canceled = await razorpay.subscriptions.cancel(subscriptionId);
+    if (!subscriptionId) {
+      return NextResponse.json({ success: false, error: "subscriptionId is required" }, { status: 400 });
+    }
 
-    return NextResponse.json({ success: true, canceled });
-  } catch (error: any) {
-    console.error("❌ Cancel subscription error:", error.message);
-    return NextResponse.json(
-      { success: false, error: error.message },
-      { status: 500 }
-    );
-  } // ✅ closes try/catch
-} // ✅ closes POST function
+    await adminDb.collection("subscriptions").doc(subscriptionId).update({
+      status: "cancelled",
+      cancelledAt: new Date(),
+    });
+
+    return NextResponse.json({ success: true, message: "Subscription cancelled successfully" });
+  } catch (err: any) {
+    console.error("Error cancelling subscription:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+  }
+}

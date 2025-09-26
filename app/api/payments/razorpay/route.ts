@@ -1,19 +1,25 @@
 import { NextResponse } from "next/server";
-import { createOrder } from "@/lib/payments-razorpay";
-export const dynamic = "force-dynamic";
+import razorpay from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   try {
-    const { amount, currency } = await req.json();
+    const { amount, currency = "INR" } = await req.json();
 
     if (!amount) {
-      return NextResponse.json({ error: "Amount is required" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Amount is required" }, { status: 400 });
     }
 
-    const order = await createOrder(amount, currency || "INR");
-    return NextResponse.json(order, { status: 200 });
-  } catch (error: any) {
-    console.error("Razorpay order error:", error);
-    return NextResponse.json({ error: "Failed to create order" }, { status: 500 });
+    const options = {
+      amount: amount * 100, // in paise
+      currency,
+      receipt: `rcpt_${Date.now()}`,
+    };
+
+    const order = await razorpay.orders.create(options);
+
+    return NextResponse.json({ success: true, order });
+  } catch (err: any) {
+    console.error("Error creating Razorpay order:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

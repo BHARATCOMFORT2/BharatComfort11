@@ -1,12 +1,13 @@
+// lib/firebaseAdmin.ts
 import * as admin from "firebase-admin";
 
-// ✅ Prevent reinitialization in Next.js (hot reload safe)
+// Initialize once (safe for Next.js hot reload)
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID!,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL!,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
+      projectId: process.env.FIREBASE_PROJECT_ID as string,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL as string,
+      privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
     }),
     storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
   });
@@ -14,7 +15,7 @@ if (!admin.apps.length) {
 
 const app = admin.app();
 
-// Firebase Admin services
+// Export admin services for server-only usage
 export const adminAuth = admin.auth(app);
 export const adminDb = admin.firestore(app);
 export const adminStorage = admin.storage(app);

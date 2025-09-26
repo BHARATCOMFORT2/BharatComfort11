@@ -1,6 +1,6 @@
 // app/api/admin/partners/reject/route.ts
 import { NextResponse } from "next/server";
-import { admin } from "@/lib/firebaseadmin";
+import { adminAuth, adminDb, firebaseAdmin } from "@/lib/firebaseadmin";
 import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
@@ -9,9 +9,11 @@ export async function POST(req: Request) {
   try {
     const bearer = req.headers.get("authorization") || "";
     const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
-    if (!token) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    if (!token) {
+      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    }
 
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await adminAuth.verifyIdToken(token);
     if (!decoded || decoded.role !== "admin") {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
@@ -22,7 +24,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "partnerId and reason required" }, { status: 400 });
     }
 
-    const partnerRef = admin.firestore().collection("partners").doc(partnerId);
+    const partnerRef = adminDb.collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
     if (!partnerSnap.exists) {
       return NextResponse.json({ success: false, error: "Partner not found" }, { status: 404 });
@@ -34,25 +36,25 @@ export async function POST(req: Request) {
     await partnerRef.update({
       isActive: false,
       rejectedBy: decoded.uid,
-      rejectedAt: admin.firestore.FieldValue.serverTimestamp(),
+      rejectedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
       rejectionReason: reason,
     });
 
     // Also update user doc if exists
-    const userRef = admin.firestore().collection("users").doc(partnerId);
+    const userRef = adminDb.collection("users").doc(partnerId);
     const userSnap = await userRef.get();
     if (userSnap.exists) {
       await userRef.update({ isActive: false });
     }
 
     // Add rejection notification
-    await admin.firestore().collection("notifications").add({
+    await adminDb.collection("notifications").add({
       userId: partnerId,
       title: "❌ Partner Account Rejected",
       message: `Your partner account request has been rejected. Reason: ${reason}`,
       type: "partner_rejection",
       read: false,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
     });
 
     // --- Send Rejection Email ---

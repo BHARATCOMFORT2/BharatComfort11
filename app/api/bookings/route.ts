@@ -1,6 +1,6 @@
 // app/api/bookings/route.ts
 import { NextResponse } from "next/server";
-import { admin } from "@/lib/firebaseadmin";
+import { adminAuth, adminDb, firebaseAdmin } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
@@ -11,7 +11,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     }
 
-    const decoded = await admin.auth().verifyIdToken(token);
+    const decoded = await adminAuth.verifyIdToken(token);
     if (!decoded) {
       return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 });
     }
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     }
 
     // --- Save booking ---
-    const bookingRef = admin.firestore().collection("bookings").doc();
+    const bookingRef = adminDb.collection("bookings").doc();
     await bookingRef.set({
       id: bookingRef.id,
       userId: currentUserId,
@@ -36,7 +36,7 @@ export async function POST(req: Request) {
       startDate,
       endDate,
       status: "pending",
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({ success: true, bookingId: bookingRef.id });

@@ -5,7 +5,7 @@ let adminDb: FirebaseFirestore.Firestore;
 let auth: admin.auth.Auth;
 
 /**
- * Lazy-initialize Firebase Admin SDK at runtime.
+ * Lazy-initialize Firebase Admin at runtime.
  * Call this inside your API routes to avoid build-time errors on Netlify.
  */
 export function getFirebaseAdmin() {

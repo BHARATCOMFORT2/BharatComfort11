@@ -1,33 +1,26 @@
+// app/api/admin/partners/approve/route.ts
 import { NextResponse } from "next/server";
-import admin, { adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
+  const { adminDb } = getFirebaseAdmin();
+
   try {
-    const bearer = req.headers.get("authorization") || "";
-    const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
-    if (!token) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const data = await req.json();
 
-    const decoded = await admin.auth().verifyIdToken(token);
-    if (!decoded || decoded.role !== "admin") {
-      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    if (!data.partnerId) {
+      return NextResponse.json({ success: false, error: "partnerId is required" }, { status: 400 });
     }
 
-    const body = await req.json();
-    const { partnerId } = body;
-
-    if (!partnerId) {
-      return NextResponse.json({ success: false, error: "partnerId required" }, { status: 400 });
-    }
-
-    await adminDb.collection("partners").doc(partnerId).update({
-      isActive: true,
-      approvedBy: decoded.uid,
-      approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+    // Update the partner document to mark as approved
+    await adminDb.collection("partners").doc(data.partnerId).update({
+      approved: true,
+      approvedAt: new Date(),
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, message: "Partner approved successfully" });
   } catch (err: any) {
-    console.error("Approve error:", err);
+    console.error("Error approving partner:", err);
     return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

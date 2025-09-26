@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/webhooks";
-import admin, { adminDb } from "@/lib/firebaseadmin";
+import { admin, adminDb } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {

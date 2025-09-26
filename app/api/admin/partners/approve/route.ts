@@ -1,6 +1,6 @@
 // app/api/admin/partners/approve/route.ts
 import { NextResponse } from "next/server";
-import { admin } from "@/lib/firebaseadmin";
+import { adminDb } from "@/lib/firebaseadmin";
 import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);

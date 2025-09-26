@@ -1,19 +1,22 @@
-// lib/firebaseadmin.ts
-import * as admin from "firebase-admin";
+import admin from "firebase-admin";
 
 if (!admin.apps.length) {
+  if (!process.env.FIREBASE_PROJECT_ID ||
+      !process.env.FIREBASE_CLIENT_EMAIL ||
+      !process.env.FIREBASE_PRIVATE_KEY) {
+    throw new Error("Firebase Admin credentials are missing!");
+  }
+
   admin.initializeApp({
     credential: admin.credential.cert({
-      projectId: process.env.FIREBASE_PROJECT_ID as string,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL as string,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n") as string,
+      projectId: process.env.FIREBASE_PROJECT_ID,
+      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+      privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
     }),
-    storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+    databaseURL: process.env.FIREBASE_DATABASE_URL,
   });
 }
 
-// Export Firebase Admin services
-export const adminAuth = admin.auth();
-export const adminDb = admin.firestore();
-export const adminStorage = admin.storage();
+export const firestore = admin.firestore();
+export const auth = admin.auth();
 export default admin;

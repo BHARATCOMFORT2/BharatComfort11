@@ -1,55 +1,33 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
-import * as admin from "firebase-admin";
-
-// ✅ Initialize Firebase Admin only once
-if (!admin.apps.length) {
-  admin.initializeApp();
-}
-const db = admin.firestore();
+import { verifyWebhookSignature } from "@/lib/webhooks";
+import { db } from "@/lib/firebase"; // adjust your Firestore import
 
 export async function POST(req: Request) {
   try {
     const body = await req.text();
     const signature = req.headers.get("x-razorpay-signature");
 
-    if (!signature) {
-      return NextResponse.json({ error: "No signature" }, { status: 400 });
-    }
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret) throw new Error("Webhook secret not configured");
 
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
-    if (!webhookSecret) {
-      return NextResponse.json({ error: "Webhook secret not configured" }, { status: 500 });
-    }
-
-    // ✅ Verify Razorpay signature
-    const expectedSignature = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(body)
-      .digest("hex");
-
-    if (signature !== expectedSignature) {
+    const isValid = verifyWebhookSignature(body, signature, secret);
+    if (!isValid) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    // Parse event
     const event = JSON.parse(body);
 
     switch (event.event) {
       case "payment.captured": {
         const payment = event.payload.payment.entity;
-        const paymentData = {
-          userId: payment.notes?.userId || null,
-          amount: payment.amount,
-          currency: payment.currency,
-          status: payment.status,
-          createdAt: payment.created_at || Math.floor(Date.now() / 1000),
-          paymentId: payment.id,
-          orderId: payment.order_id || null,
-        };
+        console.log("✅ Payment captured:", payment);
 
-        await db.collection("payments").doc(payment.id).set(paymentData, { merge: true });
-        console.log("✅ Payment saved:", paymentData);
+        // Example Firestore save
+        await db
+          .collection("payments")
+          .doc(payment.id)
+          .set(payment, { merge: true });
+
         break;
       }
 
@@ -58,15 +36,8 @@ export async function POST(req: Request) {
         break;
       }
 
-      case "subscription.charged": {
-        console.log("🔄 Subscription renewed:", event.payload.subscription.entity);
-        break;
-      }
-
-      default: {
+      default:
         console.log(`⚠️ Unhandled event: ${event.event}`);
-        break;
-      }
     }
 
     return NextResponse.json({ received: true });

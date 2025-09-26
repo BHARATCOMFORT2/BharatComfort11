@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/webhooks";
-import { db } from "@/lib/firebase"; // adjust your Firestore import
+import { adminDb } from "@/lib/firebaseAdmin";
+ // adjust your Firestore import
 
 export async function POST(req: Request) {
   try {

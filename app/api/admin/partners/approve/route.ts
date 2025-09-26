@@ -1,6 +1,6 @@
 // app/api/admin/partners/approve/route.ts
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
 

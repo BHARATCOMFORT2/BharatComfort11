@@ -1,22 +1,30 @@
+// lib/payments-razorpay.ts
 import Razorpay from "razorpay";
+import crypto from "crypto";
 
-// ✅ Initialize Razorpay instance
 const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID as string,
-  key_secret: process.env.RAZORPAY_KEY_SECRET as string,
+  key_id: process.env.RAZORPAY_KEY_ID!,
+  key_secret: process.env.RAZORPAY_KEY_SECRET!,
 });
 
-// ✅ Function to create an order
-export async function createOrder(amount: number, currency: string = "INR") {
+// ✅ Create a new Razorpay order
+export async function createOrder(amount: number) {
   const options = {
-    amount: amount * 100, // Razorpay accepts in paisa
-    currency,
-    receipt: `rcpt_${Date.now()}`,
+    amount: amount * 100,
+    currency: "INR",
+    receipt: `receipt_${Date.now()}`,
   };
-
-  const order = await razorpay.orders.create(options);
-  return order;
+  return await razorpay.orders.create(options);
 }
 
-// ✅ Export both
-export default razorpay;
+// ✅ Fetch invoices
+export async function fetchInvoices() {
+  return await razorpay.invoices.all({ count: 10 });
+}
+
+// ✅ Verify webhook signature
+export function verifySignature(payload: string, signature: string): boolean {
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET!;
+  const expected = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return expected === signature;
+}

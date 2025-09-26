@@ -1,45 +1,22 @@
 import crypto from "crypto";
-
-/**
- * Verifies a Razorpay webhook signature.
- * @param body - The raw request body (string).
- * @param signature - The signature from request headers.
- * @param secret - The webhook secret (passed from API route, not read here).
- */
-export function verifyWebhookSignature(
-  body: string,
-  signature: string | null,
-  secret: string
-): boolean {
-  if (!signature) throw new Error("Missing Razorpay signature");
-
-  const expectedSignature = crypto
-    .createHmac("sha256", secret)
-    .update(body)
-    .digest("hex");
-
-  return signature === expectedSignature;
-}
-import crypto from "crypto";
 import { addNotification } from "@/lib/firestore";
 
-/**
- * ✅ Verify Razorpay webhook signature
- */
-export function verifyWebhookSignature(body: string, signature: string | null, secret: string): boolean {
-  if (!signature) return false;
+export function verifyWebhookSignature(body: any, signature: string | null) {
+  if (!signature) throw new Error("Missing Razorpay signature");
+
+  const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) throw new Error("Webhook secret not configured");
 
   const expectedSignature = crypto
     .createHmac("sha256", secret)
-    .update(body) // body must be raw text, not JSON.stringify again
+    .update(typeof body === "string" ? body : JSON.stringify(body))
     .digest("hex");
 
-  return signature === expectedSignature;
+  if (signature !== expectedSignature) throw new Error("Invalid signature");
+
+  return true;
 }
 
-/**
- * ✅ Handle webhook events
- */
 export async function handleRazorpayWebhook(body: any) {
   switch (body.event) {
     case "payment.captured":

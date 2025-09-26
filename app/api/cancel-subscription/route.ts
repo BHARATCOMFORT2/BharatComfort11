@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import razorpay from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   const { adminDb } = getFirebaseAdmin();

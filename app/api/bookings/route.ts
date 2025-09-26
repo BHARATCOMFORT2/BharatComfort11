@@ -1,33 +1,25 @@
-// app/api/bookings/route.ts
 import { NextResponse } from "next/server";
-import admin, { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import admin, { adminDb } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
-    // --- Authenticate ---
     const bearer = req.headers.get("authorization") || "";
     const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
-    if (!token) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-    const decoded = await adminAuth.verifyIdToken(token);
+    const decoded = await admin.auth().verifyIdToken(token);
     if (!decoded) {
       return NextResponse.json({ success: false, error: "Invalid token" }, { status: 401 });
     }
 
-    // currentUser = decoded
     const currentUserId = decoded.uid;
-
-    // --- Parse body ---
     const body = await req.json();
     const { listingId, startDate, endDate } = body;
 
     if (!listingId || !startDate || !endDate) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "Missing fields" }, { status: 400 });
     }
 
-    // --- Save booking ---
     const bookingRef = adminDb.collection("bookings").doc();
     await bookingRef.set({
       id: bookingRef.id,
@@ -36,7 +28,7 @@ export async function POST(req: Request) {
       startDate,
       endDate,
       status: "pending",
-      createdAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({ success: true, bookingId: bookingRef.id });

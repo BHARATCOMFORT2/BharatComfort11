@@ -1,33 +1,33 @@
-// app/api/admin/partners/approve/route.ts
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
-
-export const dynamic = "force-dynamic";
+import admin, { adminDb } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
-    const { token, partnerId } = await req.json();
+    const bearer = req.headers.get("authorization") || "";
+    const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
+    if (!token) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-    if (!token) {
-      return NextResponse.json({ success: false, error: "Missing token" }, { status: 401 });
-    }
-
-    // use adminAuth to verify token
-    const decoded = await adminAuth.verifyIdToken(token);
-    if (!decoded || (decoded as any).role !== "admin") {
+    const decoded = await admin.auth().verifyIdToken(token);
+    if (!decoded || decoded.role !== "admin") {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
 
+    const body = await req.json();
+    const { partnerId } = body;
+
     if (!partnerId) {
-      return NextResponse.json({ success: false, error: "Missing partnerId" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "partnerId required" }, { status: 400 });
     }
 
-    // Approve partner in Firestore (adminDb)
-    await adminDb.collection("partners").doc(partnerId).set({ approved: true }, { merge: true });
+    await adminDb.collection("partners").doc(partnerId).update({
+      isActive: true,
+      approvedBy: decoded.uid,
+      approvedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
-    console.error("Approve partner error:", err);
-    return NextResponse.json({ success: false, error: err.message || "Server error" }, { status: 500 });
+    console.error("Approve error:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

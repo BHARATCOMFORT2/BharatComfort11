@@ -2,7 +2,7 @@
 import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseadmin";
 import sgMail from "@sendgrid/mail";
-import { adminAuth } from "@/lib/firebaseAdmin";
+import { adminAuth } from "@/lib/firebaseadmin";
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export async function POST(req: Request) {

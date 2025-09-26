@@ -1,20 +1,13 @@
+// app/api/payments/fetch-invoices/route.ts
 import { NextResponse } from "next/server";
-import razorpay from "@/lib/payments-razorpay";
-
-export const dynamic = "force-dynamic"; // 🚀
+import { fetchInvoices } from "@/lib/payments-razorpay";
 
 export async function GET() {
-  if (!razorpay) {
-    return NextResponse.json(
-      { error: "Razorpay not configured" },
-      { status: 500 }
-    );
-  }
-
   try {
-    const invoices = await razorpay.invoices.all();
-    return NextResponse.json(invoices);
+    const invoices = await fetchInvoices();
+    return NextResponse.json(invoices, { status: 200 });
   } catch (error: any) {
+    console.error("Error fetching invoices:", error);
     return NextResponse.json(
       { error: error.message || "Failed to fetch invoices" },
       { status: 500 }

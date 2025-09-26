@@ -1,4 +1,26 @@
 import crypto from "crypto";
+
+/**
+ * Verifies a Razorpay webhook signature.
+ * @param body - The raw request body (string).
+ * @param signature - The signature from request headers.
+ * @param secret - The webhook secret (passed from API route, not read here).
+ */
+export function verifyWebhookSignature(
+  body: string,
+  signature: string | null,
+  secret: string
+): boolean {
+  if (!signature) throw new Error("Missing Razorpay signature");
+
+  const expectedSignature = crypto
+    .createHmac("sha256", secret)
+    .update(body)
+    .digest("hex");
+
+  return signature === expectedSignature;
+}
+import crypto from "crypto";
 import { addNotification } from "@/lib/firestore";
 
 /**

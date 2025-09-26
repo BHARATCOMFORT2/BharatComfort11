@@ -1,37 +1,43 @@
+// app/api/payments/webhook/route.ts
 import { NextResponse } from "next/server";
-import { verifyWebhookSignature } from "@/lib/webhooks";
-import { admin, adminDb } from "@/lib/firebaseadmin";
+import { verifySignature } from "@/lib/payments-razorpay";
+import { adminDb } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.text();
-    const signature = req.headers.get("x-razorpay-signature");
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET as string;
+    const rawBody = await req.text();
+    const signature = req.headers.get("x-razorpay-signature") || "";
 
-    const isValid = verifyWebhookSignature(body, signature, secret);
-    if (!isValid) {
+    if (!verifySignature(rawBody, signature)) {
       return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
     }
 
-    const event = JSON.parse(body);
+    const event = JSON.parse(rawBody);
 
-    switch (event.event) {
-      case "payment.captured": {
-        const payment = event.payload.payment.entity;
-        await adminDb.collection("payments").doc(payment.id).set(payment, { merge: true });
-        break;
-      }
-      case "payment.failed": {
-        console.warn("❌ Payment failed:", event.payload.payment.entity);
-        break;
-      }
-      default:
-        console.log("Unhandled event:", event.event);
+    if (event.event === "payment.captured") {
+      const payment = event.payload.payment.entity;
+
+      await adminDb.collection("payments").doc(payment.id).set({
+        id: payment.id,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        order_id: payment.order_id,
+        method: payment.method,
+        email: payment.email,
+        contact: payment.contact,
+        created_at: new Date(payment.created_at * 1000),
+      });
+
+      console.log("💰 Payment saved to Firestore:", payment.id);
     }
 
-    return NextResponse.json({ received: true });
-  } catch (err: any) {
-    console.error("Webhook error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json({ status: "ok" }, { status: 200 });
+  } catch (error: any) {
+    console.error("Webhook error:", error);
+    return NextResponse.json(
+      { error: error.message || "Webhook failed" },
+      { status: 500 }
+    );
   }
 }

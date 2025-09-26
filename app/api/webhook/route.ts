@@ -1,7 +1,7 @@
 // app/api/webhook/route.ts
 import { NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/webhooks";
-import { adminDb } from "@/lib/firebaseAdmin";
+import { adminDb } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
 

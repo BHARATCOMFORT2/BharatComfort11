@@ -1,12 +1,13 @@
 // app/api/admin/partners/reject/route.ts
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb, firebaseAdmin } from "@/lib/firebaseadmin";
+import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 import sgMail from "@sendgrid/mail";
 
 sgMail.setApiKey(process.env.SENDGRID_API_KEY!);
 
 export async function POST(req: Request) {
   try {
+    // --- Auth check ---
     const bearer = req.headers.get("authorization") || "";
     const token = bearer.startsWith("Bearer ") ? bearer.split(" ")[1] : null;
     if (!token) {
@@ -18,6 +19,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
     }
 
+    // --- Parse body ---
     const body = await req.json();
     const { partnerId, reason } = body;
     if (!partnerId || !reason) {
@@ -32,32 +34,32 @@ export async function POST(req: Request) {
 
     const partnerData = partnerSnap.data() || {};
 
-    // Update partner doc
+    // --- Update partner doc ---
     await partnerRef.update({
       isActive: false,
       rejectedBy: decoded.uid,
-      rejectedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      rejectedAt: new Date(),
       rejectionReason: reason,
     });
 
-    // Also update user doc if exists
+    // --- Update user doc if exists ---
     const userRef = adminDb.collection("users").doc(partnerId);
     const userSnap = await userRef.get();
     if (userSnap.exists) {
       await userRef.update({ isActive: false });
     }
 
-    // Add rejection notification
+    // --- Add notification ---
     await adminDb.collection("notifications").add({
       userId: partnerId,
       title: "❌ Partner Account Rejected",
       message: `Your partner account request has been rejected. Reason: ${reason}`,
       type: "partner_rejection",
       read: false,
-      createdAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      createdAt: new Date(),
     });
 
-    // --- Send Rejection Email ---
+    // --- Send rejection email ---
     if (partnerData.email) {
       const msg = {
         to: partnerData.email,
@@ -72,7 +74,6 @@ export async function POST(req: Request) {
           <p>Best Regards,<br/>Team BharatComfort</p>
         `,
       };
-
       await sgMail.send(msg);
     }
 

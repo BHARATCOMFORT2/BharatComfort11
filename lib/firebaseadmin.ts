@@ -12,6 +12,7 @@ if (!admin.apps.length) {
   });
 }
 
+// Export Firebase Admin services
 export const adminAuth = admin.auth();
 export const adminDb = admin.firestore();
 export const adminStorage = admin.storage();

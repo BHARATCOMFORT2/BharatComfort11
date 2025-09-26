@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { razorpay } from "@/lib/payments-razorpay";
+import razorpay from "@/lib/payments-razorpay";
 
 export const dynamic = "force-dynamic"; // 🚀
 

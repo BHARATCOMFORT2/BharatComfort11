@@ -29,7 +29,8 @@ export default function HomePage() {
             Discover Hotels, Restaurants & Travel Experiences
           </h1>
           <p className="mt-4 text-lg text-gray-200 max-w-2xl mx-auto">
-            BharatComfort is your global platform to explore and book the best places.
+            BharatComfort is your global platform to explore and book the best
+            places.
           </p>
 
           <div className="mt-6 flex justify-center gap-4">
@@ -87,36 +88,6 @@ export default function HomePage() {
                 </div>
               </div>
 
-              {/* Promotions / Spot Discounts */}
-      <section className="container mx-auto px-4">
-        <PromotionsStrip />
-      </section>
-
-      {/* Recent Stories */}
-      <section className="bg-gray-50 py-12">
-        <div className="container mx-auto px-4">
-          <RecentStories />
-        </div>
-      </section>
-
-      {/* Trending Destinations */}
-      <section className="container mx-auto px-4">
-        <TrendingDestinations />
-      </section>
-
-      {/* Testimonials */}
-      <section className="bg-gray-100 py-12">
-        <div className="container mx-auto px-4">
-          <Testimonials />
-        </div>
-      </section>
-
-      {/* Newsletter Signup */}
-      <section className="bg-indigo-600 text-white py-16">
-        <div className="container mx-auto px-4">
-          <NewsletterSignup />
-        </div>
-      </section>
               {/* Card 2 */}
               <div className="card">
                 <h3 className="text-xl font-semibold">Beach Resort Goa</h3>
@@ -132,7 +103,38 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        {/* Promotions / Spot Discounts */}
+        <section className="container mx-auto px-4">
+          <PromotionsStrip />
+        </section>
+
+        {/* Recent Stories */}
+        <section className="bg-gray-50 py-12">
+          <div className="container mx-auto px-4">
+            <RecentStories />
+          </div>
+        </section>
+
+        {/* Trending Destinations */}
+        <section className="container mx-auto px-4">
+          <TrendingDestinations />
+        </section>
+
+        {/* Testimonials */}
+        <section className="bg-gray-100 py-12">
+          <div className="container mx-auto px-4">
+            <Testimonials />
+          </div>
+        </section>
+
+        {/* Newsletter Signup */}
+        <section className="bg-indigo-600 text-white py-16">
+          <div className="container mx-auto px-4">
+            <NewsletterSignup />
+          </div>
+        </section>
       </div>
     </div>
   );
-
+}

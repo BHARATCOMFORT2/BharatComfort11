@@ -4,9 +4,18 @@ import { createOrder } from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   try {
-    const { amount, currency = "INR" } = await req.json();
+    const body = await req.json();
+    const amount = Number(body.amount); // ✅ ensure it's a number
+    const currency = body.currency || "INR";
 
-    // ✅ Corrected: pass a single object to createOrder
+    if (isNaN(amount) || amount <= 0) {
+      return NextResponse.json(
+        { success: false, error: "Invalid amount" },
+        { status: 400 }
+      );
+    }
+
+    // ✅ Pass a single object with typed values
     const order = await createOrder({ amount, currency });
 
     return NextResponse.json({ success: true, order });

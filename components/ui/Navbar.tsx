@@ -22,7 +22,6 @@ export default function Navbar() {
         <Link href="/" className="text-2xl font-bold text-blue-600">
           BharatComfort
         </Link>
-import Link from "next/link";
 
 <Link href="/user/bookings" className="hover:underline">
   My Bookings

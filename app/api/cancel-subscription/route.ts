@@ -8,18 +8,16 @@ export async function POST(req: Request) {
   try {
     const { subscriptionId } = await req.json();
 
-    if (!subscriptionId) {
-      return NextResponse.json({ success: false, error: "subscriptionId is required" }, { status: 400 });
-    }
+    const response = await razorpay.subscriptions.cancel(subscriptionId);
 
     await adminDb.collection("subscriptions").doc(subscriptionId).update({
       status: "cancelled",
-      cancelledAt: new Date(),
+      cancelledAt: new Date().toISOString(),
     });
 
-    return NextResponse.json({ success: true, message: "Subscription cancelled successfully" });
-  } catch (err: any) {
-    console.error("Error cancelling subscription:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json({ success: true, response });
+  } catch (error: any) {
+    console.error("Cancel subscription error:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

@@ -1,23 +1,13 @@
 import { NextResponse } from "next/server";
 import { razorpay } from "@/lib/payments-razorpay";
 
-export const dynamic = "force-dynamic"; // 🚀
-
 export async function GET() {
-  if (!razorpay) {
-    return NextResponse.json(
-      { error: "Razorpay not configured" },
-      { status: 500 }
-    );
-  }
-
   try {
-    const invoices = await razorpay.invoices.all();
-    return NextResponse.json(invoices);
+    const invoices = await razorpay.invoices.all({});
+
+    return NextResponse.json({ success: true, invoices });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Failed to fetch invoices" },
-      { status: 500 }
-    );
+    console.error("Fetch invoices error:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

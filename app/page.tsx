@@ -8,7 +8,7 @@ import RecentStories from "@/components/home/RecentStories";
 import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
-import { sectionBackgrounds } from "@/config/backgrounds";
+import { sectionBackgrounds } from "config/backgrounds";
 
 export default function HomePage() {
   return (

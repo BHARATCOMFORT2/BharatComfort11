@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AnimatePresence, motion } from "framer-motion";
 
 const navLinks = [
   { href: "/", label: "Home" },
@@ -85,46 +86,90 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Menu */}
-      {isOpen && (
-        <div className="md:hidden bg-white shadow-lg px-6 pb-4 space-y-3">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
+      {/* Mobile Menu with Left Drawer + Backdrop */}
+      <AnimatePresence>
+        {isOpen && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              key="backdrop"
+              className="fixed inset-0 bg-black/40 z-30"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.3 }}
               onClick={() => setIsOpen(false)}
-              className={cn(
-                "block text-gray-700 hover:text-blue-600 transition-colors",
-                pathname === link.href && "text-blue-600 font-semibold"
-              )}
+            />
+
+            {/* Drawer Menu */}
+            <motion.div
+              key="drawer"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ duration: 0.3 }}
+              className="fixed top-0 left-0 z-40 h-full w-3/4 max-w-sm bg-white shadow-xl px-6 py-8 space-y-4 flex flex-col"
             >
-              {link.label}
-            </Link>
-          ))}
-          <hr className="my-2" />
-          <Link
-            href="/user/bookings"
-            onClick={() => setIsOpen(false)}
-            className="block text-gray-700 hover:text-blue-600"
-          >
-            My Bookings
-          </Link>
-          <Link
-            href="/auth/login"
-            onClick={() => setIsOpen(false)}
-            className="block px-4 py-2 text-sm rounded-xl border border-gray-300 hover:bg-gray-100 transition"
-          >
-            Login
-          </Link>
-          <Link
-            href="/auth/register"
-            onClick={() => setIsOpen(false)}
-            className="block px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition"
-          >
-            Register
-          </Link>
-        </div>
-      )}
+              {/* Drawer Header with Close Button */}
+              <div className="flex items-center justify-between mb-6">
+                <span className="text-xl font-bold" style={{ color: "var(--color-brand)" }}>
+                  BharatComfort
+                </span>
+                <button
+                  onClick={() => setIsOpen(false)}
+                  className="p-2 rounded-md hover:bg-gray-100"
+                  aria-label="Close menu"
+                >
+                  <X size={24} className="text-gray-700" />
+                </button>
+              </div>
+
+              {/* Navigation Links */}
+              <div className="space-y-3 flex-1">
+                {navLinks.map((link) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    onClick={() => setIsOpen(false)}
+                    className={cn(
+                      "block text-lg font-medium text-gray-700 hover:text-blue-600 transition",
+                      pathname === link.href && "text-blue-600 font-semibold"
+                    )}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+                <hr className="my-4" />
+                <Link
+                  href="/user/bookings"
+                  onClick={() => setIsOpen(false)}
+                  className="block text-gray-700 hover:text-blue-600"
+                >
+                  My Bookings
+                </Link>
+              </div>
+
+              {/* Actions at Bottom */}
+              <div className="space-y-2">
+                <Link
+                  href="/auth/login"
+                  onClick={() => setIsOpen(false)}
+                  className="block px-4 py-2 text-sm rounded-xl border border-gray-300 hover:bg-gray-100 transition text-center"
+                >
+                  Login
+                </Link>
+                <Link
+                  href="/auth/register"
+                  onClick={() => setIsOpen(false)}
+                  className="block px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition text-center"
+                >
+                  Register
+                </Link>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </header>
   );
 }

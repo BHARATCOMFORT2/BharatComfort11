@@ -1,15 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import Input from "@/components/forms/Input";
+import Button from "@/components/forms/Button";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "@/lib/firebase";
 
 export default function LoginPage() {
-  const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -17,64 +17,64 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
+    setError("");
     setLoading(true);
-
     try {
       await signInWithEmailAndPassword(auth, form.email, form.password);
-      router.push("/"); // later: route based on role
+      alert("✅ Logged in successfully!");
     } catch (err: any) {
-      setError("Invalid email or password. Please try again.");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="container mx-auto px-4 py-12 max-w-md">
-      <h1 className="text-2xl font-bold mb-6 text-center">Login</h1>
+    <div className="min-h-screen flex items-center justify-center bg-bg px-4">
+      <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
+        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
 
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white p-6 rounded-lg shadow space-y-4"
-      >
-        <input
-          type="email"
-          name="email"
-          placeholder="Email Address"
-          value={form.email}
-          onChange={handleChange}
-          className="w-full p-3 border rounded"
-          required
-        />
+        {error && (
+          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</p>
+        )}
 
-        <input
-          type="password"
-          name="password"
-          placeholder="Password"
-          value={form.password}
-          onChange={handleChange}
-          className="w-full p-3 border rounded"
-          required
-        />
+        <form onSubmit={handleSubmit} className="flex flex-col">
+          <Input
+            label="Email"
+            name="email"
+            type="email"
+            placeholder="Enter your email"
+            value={form.email}
+            onChange={handleChange}
+          />
+          <Input
+            label="Password"
+            name="password"
+            type="password"
+            placeholder="Enter your password"
+            value={form.password}
+            onChange={handleChange}
+          />
 
-        {error && <p className="text-red-500 text-sm">{error}</p>}
+          <Button type="submit" disabled={loading}>
+            {loading ? "Logging in..." : "Login"}
+          </Button>
+        </form>
 
-        <button
-          type="submit"
-          disabled={loading}
-          className="w-full bg-blue-600 text-white p-3 rounded hover:bg-blue-700"
-        >
-          {loading ? "Logging in..." : "Login"}
-        </button>
-      </form>
+        <p className="mt-4 text-center text-gray-500">
+          Forgot your password?{" "}
+          <a href="/auth/forgot-password" className="text-primary font-medium hover:underline">
+            Reset here
+          </a>
+        </p>
 
-      <p className="text-center text-sm mt-4">
-        Don’t have an account?{" "}
-        <a href="/auth/register" className="text-blue-600 hover:underline">
-          Register
-        </a>
-      </p>
+        <p className="mt-2 text-center text-gray-500">
+          Don't have an account?{" "}
+          <a href="/auth/register" className="text-primary font-medium hover:underline">
+            Register
+          </a>
+        </p>
+      </div>
     </div>
   );
 }

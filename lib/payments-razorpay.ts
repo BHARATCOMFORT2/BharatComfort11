@@ -1,16 +1,19 @@
 // lib/payments-razorpay.ts
 import Razorpay from "razorpay";
 
-if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-  throw new Error("Missing Razorpay environment variables");
-}
-
 export const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
+  key_id: process.env.RAZORPAY_KEY_ID as string,
+  key_secret: process.env.RAZORPAY_KEY_SECRET as string,
 });
 
-// helper to create order
-export async function createOrder(amount: number) {
-  return await razorpay.orders.create({ amount: amount * 100, currency: "INR" });
+interface CreateOrderInput {
+  amount: number;
+  currency?: string;
+}
+
+export async function createOrder({ amount, currency = "INR" }: CreateOrderInput) {
+  return await razorpay.orders.create({
+    amount: amount * 100, // ✅ convert to paise
+    currency,
+  });
 }

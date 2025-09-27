@@ -1,13 +1,12 @@
 import { NextResponse } from "next/server";
 import { razorpay } from "@/lib/payments-razorpay";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const invoices = await razorpay.invoices.all({});
-
-    return NextResponse.json({ success: true, invoices });
-  } catch (error: any) {
-    console.error("Fetch invoices error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const invoices = await razorpay.invoices.all();
+    return NextResponse.json({ invoices });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Failed to fetch invoices" }, { status: 500 });
   }
 }

@@ -67,10 +67,7 @@ export default function Navbar() {
           >
             My Bookings
           </Link>
-          <Link
-            href="/auth/login"
-            className="btn border border-gray-300"
-          >
+          <Link href="/auth/login" className="btn border border-gray-300">
             Login
           </Link>
           <Link href="/auth/register" className="btn btn-primary">
@@ -88,4 +85,46 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Menu */
+      {/* Mobile Menu */}
+      {isOpen && (
+        <div className="md:hidden bg-white shadow-lg px-6 pb-4 space-y-3">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setIsOpen(false)}
+              className={cn(
+                "block text-gray-700 hover:text-blue-600 transition-colors",
+                pathname === link.href && "text-blue-600 font-semibold"
+              )}
+            >
+              {link.label}
+            </Link>
+          ))}
+          <hr className="my-2" />
+          <Link
+            href="/user/bookings"
+            onClick={() => setIsOpen(false)}
+            className="block text-gray-700 hover:text-blue-600"
+          >
+            My Bookings
+          </Link>
+          <Link
+            href="/auth/login"
+            onClick={() => setIsOpen(false)}
+            className="block px-4 py-2 text-sm rounded-xl border border-gray-300 hover:bg-gray-100 transition"
+          >
+            Login
+          </Link>
+          <Link
+            href="/auth/register"
+            onClick={() => setIsOpen(false)}
+            className="block px-4 py-2 text-sm rounded-xl bg-blue-600 text-white hover:bg-blue-700 transition"
+          >
+            Register
+          </Link>
+        </div>
+      )}
+    </header>
+  );
+}

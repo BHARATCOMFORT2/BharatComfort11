@@ -1,26 +1,25 @@
-// app/api/cancel-subscription/route.ts
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { cancelSubscription } from "@/lib/payments-razorpay";
+import razorpay from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   const { adminDb } = getFirebaseAdmin();
-  const { subscriptionId } = await req.json();
 
   try {
-    const subscription = await cancelSubscription(subscriptionId);
+    const { subscriptionId } = await req.json();
+
+    if (!subscriptionId) {
+      return NextResponse.json({ success: false, error: "subscriptionId is required" }, { status: 400 });
+    }
 
     await adminDb.collection("subscriptions").doc(subscriptionId).update({
-      status: subscription.status,
-      canceledAt: new Date(),
+      status: "cancelled",
+      cancelledAt: new Date(),
     });
 
-    return NextResponse.json({ success: true, subscription }, { status: 200 });
-  } catch (error: any) {
-    console.error("Cancel subscription error:", error);
-    return NextResponse.json(
-      { error: error.message || "Failed to cancel subscription" },
-      { status: 500 }
-    );
+    return NextResponse.json({ success: true, message: "Subscription cancelled successfully" });
+  } catch (err: any) {
+    console.error("Error cancelling subscription:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

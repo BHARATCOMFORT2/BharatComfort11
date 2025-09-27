@@ -86,14 +86,14 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Menu with Left Drawer + Backdrop */}
+      {/* Mobile Drawer Menu */}
       <AnimatePresence>
         {isOpen && (
           <>
             {/* Backdrop */}
             <motion.div
               key="backdrop"
-              className="fixed inset-0 bg-black/40 z-30"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-30"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -101,18 +101,23 @@ export default function Navbar() {
               onClick={() => setIsOpen(false)}
             />
 
-            {/* Drawer Menu */}
+            {/* Drawer */}
             <motion.div
               key="drawer"
               initial={{ x: "-100%" }}
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
-              transition={{ duration: 0.3 }}
-              className="fixed top-0 left-0 z-40 h-full w-3/4 max-w-sm bg-white shadow-xl px-6 py-8 space-y-4 flex flex-col"
+              transition={{ type: "spring", stiffness: 100, damping: 20 }}
+              className="fixed top-0 left-0 z-40 h-full w-3/4 max-w-sm 
+                         bg-gradient-to-b from-blue-50 to-white 
+                         shadow-2xl rounded-r-2xl px-6 py-8 flex flex-col"
             >
-              {/* Drawer Header with Close Button */}
+              {/* Drawer Header */}
               <div className="flex items-center justify-between mb-6">
-                <span className="text-xl font-bold" style={{ color: "var(--color-brand)" }}>
+                <span
+                  className="text-xl font-bold"
+                  style={{ color: "var(--color-brand)" }}
+                >
                   BharatComfort
                 </span>
                 <button
@@ -132,14 +137,16 @@ export default function Navbar() {
                     href={link.href}
                     onClick={() => setIsOpen(false)}
                     className={cn(
-                      "block text-lg font-medium text-gray-700 hover:text-blue-600 transition",
-                      pathname === link.href && "text-blue-600 font-semibold"
+                      "block text-lg font-medium transition",
+                      pathname === link.href
+                        ? "text-blue-600 font-semibold"
+                        : "text-gray-700 hover:text-blue-600"
                     )}
                   >
                     {link.label}
                   </Link>
                 ))}
-                <hr className="my-4" />
+                <hr className="my-4 border-gray-300" />
                 <Link
                   href="/user/bookings"
                   onClick={() => setIsOpen(false)}

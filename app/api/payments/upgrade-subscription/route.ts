@@ -1,32 +1,20 @@
-import { NextRequest, NextResponse } from "next/server";
-export const dynamic = "force-dynamic";
-export async function POST(req: NextRequest) {
+import { NextResponse } from "next/server";
+import { razorpay } from "@/lib/payments-razorpay";
+
+export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { subscriptionId, plan, userId } = body;
-
-    if (!subscriptionId || !userId) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
-    }
-
-    // ---- RAZORPAY LOGIC ----
-    const key = process.env.RAZORPAY_KEY_ID ;
-    const secret = process.env.RAZORPAY_KEY_SECRET ;
-
-    // Normally here you would call Razorpay API to create a subscription
-    // For testing, we just return a dummy subscription ID
-    const razorpaySubscriptionId = `sub_dummy_${Math.floor(Math.random() * 1000000)}`;
-
-    return NextResponse.json({
-      success: true,
-      razorpaySubscriptionId,
-      key,
+    const { planId, customerId } = await req.json();
+    
+    const subscription = await razorpay.subscriptions.create({
+      plan_id: planId,
+      customer_notify: 1,
+      total_count: 12, // for example 12 months
+      customer_id: customerId,
     });
-  } catch (err: any) {
-    console.error("Error in upgrade-subscription API:", err);
-    return NextResponse.json({
-      success: false,
-      error: err.message || "Server error",
-    }, { status: 500 });
+
+    return NextResponse.json({ subscriptionId: subscription.id });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json({ error: "Failed to create subscription" }, { status: 500 });
   }
 }

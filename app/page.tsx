@@ -8,7 +8,7 @@ import RecentStories from "@/components/home/RecentStories";
 import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
-
+import { sectionBackgrounds } from "@/config/backgrounds";
 
 export default function HomePage() {
   return (
@@ -17,12 +17,10 @@ export default function HomePage() {
       <section
         className="relative min-h-[70vh] flex flex-col justify-center items-center text-center bg-cover bg-center"
         style={{
-          backgroundImage:
-            "url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80')",
+          backgroundImage: `url(${sectionBackgrounds.hero.image})`,
         }}
       >
-        {/* Overlay */}
-        <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-black/70"></div>
+        <div className={`absolute inset-0 ${sectionBackgrounds.hero.overlay}`}></div>
 
         <div className="relative z-10 px-6">
           <h1 className="text-4xl md:text-5xl font-bold text-white drop-shadow-lg">
@@ -50,13 +48,11 @@ export default function HomePage() {
       </section>
 
       {/* Quick Actions Section */}
-      <section className="relative py-16 bg-cover bg-center"
-        style={{
-          backgroundImage:
-            "url('https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1920&q=80')",
-        }}
+      <section
+        className="relative py-16 bg-cover bg-center"
+        style={{ backgroundImage: `url(${sectionBackgrounds.quickActions.image})` }}
       >
-        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/80 to-blue-600/60"></div>
+        <div className={`absolute inset-0 ${sectionBackgrounds.quickActions.overlay}`}></div>
 
         <div className="relative max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 px-6">
           {[
@@ -79,12 +75,9 @@ export default function HomePage() {
       {/* Featured Listings Section */}
       <section
         className="relative py-16 bg-cover bg-center"
-        style={{
-          backgroundImage:
-            "url('https://images.unsplash.com/photo-1501117716987-c8e1ecb2105d?auto=format&fit=crop&w=1920&q=80')",
-        }}
+        style={{ backgroundImage: `url(${sectionBackgrounds.featuredListings.image})` }}
       >
-        <div className="absolute inset-0 bg-gradient-to-b from-gray-900/80 via-gray-700/50 to-gray-900/80"></div>
+        <div className={`absolute inset-0 ${sectionBackgrounds.featuredListings.overlay}`}></div>
 
         <div className="relative bg-white/90 backdrop-blur-md rounded-2xl shadow-lg max-w-6xl mx-auto px-6 py-12">
           <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">

@@ -9,28 +9,27 @@ import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 
+
 export default function HomePage() {
   return (
-    <div
-      className="min-h-screen bg-cover bg-center relative"
-      style={{
-        backgroundImage:
-          "url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80')",
-      }}
-    >
-      {/* Overlay for readability */}
-      <div className="absolute inset-0 bg-black/40"></div>
+    <div className="min-h-screen">
+      {/* Hero Section */}
+      <section
+        className="relative min-h-[70vh] flex flex-col justify-center items-center text-center bg-cover bg-center"
+        style={{
+          backgroundImage:
+            "url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80')",
+        }}
+      >
+        {/* Overlay */}
+        <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/50 to-black/70"></div>
 
-      {/* Main content */}
-      <div className="relative z-10">
-        {/* Hero Section */}
-        <section className="text-center py-20 px-6">
+        <div className="relative z-10 px-6">
           <h1 className="text-4xl md:text-5xl font-bold text-white drop-shadow-lg">
             Discover Hotels, Restaurants & Travel Experiences
           </h1>
           <p className="mt-4 text-lg text-gray-200 max-w-2xl mx-auto">
-            BharatComfort is your global platform to explore and book the best
-            places.
+            BharatComfort is your global platform to explore and book the best places.
           </p>
 
           <div className="mt-6 flex justify-center gap-4">
@@ -47,10 +46,19 @@ export default function HomePage() {
               Join Now
             </Link>
           </div>
-        </section>
+        </div>
+      </section>
 
-        {/* Quick Actions */}
-        <section className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 px-6 pb-12">
+      {/* Quick Actions Section */}
+      <section className="relative py-16 bg-cover bg-center"
+        style={{
+          backgroundImage:
+            "url('https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=1920&q=80')",
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-r from-blue-900/80 to-blue-600/60"></div>
+
+        <div className="relative max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 px-6">
           {[
             { label: "Flights", icon: "✈️" },
             { label: "Trains", icon: "🚆" },
@@ -59,82 +67,59 @@ export default function HomePage() {
           ].map((item) => (
             <div
               key={item.label}
-              className="bg-white/90 rounded-xl shadow p-6 text-center hover:shadow-lg transition"
+              className="bg-white/90 backdrop-blur-md rounded-xl shadow p-6 text-center hover:shadow-lg transition"
             >
               <div className="text-3xl">{item.icon}</div>
               <p className="mt-2 font-semibold text-gray-800">{item.label}</p>
             </div>
           ))}
-        </section>
+        </div>
+      </section>
 
-        {/* Featured Listings */}
-        <section className="bg-white/95 py-12">
-          <div className="max-w-6xl mx-auto px-6">
-            <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">
-              🌟 Featured Listings
-            </h2>
+      {/* Featured Listings Section */}
+      <section
+        className="relative py-16 bg-cover bg-center"
+        style={{
+          backgroundImage:
+            "url('https://images.unsplash.com/photo-1501117716987-c8e1ecb2105d?auto=format&fit=crop&w=1920&q=80')",
+        }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-b from-gray-900/80 via-gray-700/50 to-gray-900/80"></div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Card 1 */}
-              <div className="card">
-                <h3 className="text-xl font-semibold">Luxury Hotel Mumbai</h3>
-                <p className="text-gray-600">Mumbai, India</p>
-                <p className="text-gray-800 font-bold mt-2">₹5000/night</p>
-                <div className="mt-4 flex gap-3">
-                  <Link href="/listings/1" className="btn btn-primary">
-                    View
-                  </Link>
-                  <button className="btn btn-accent">Book Now</button>
-                </div>
+        <div className="relative bg-white/90 backdrop-blur-md rounded-2xl shadow-lg max-w-6xl mx-auto px-6 py-12">
+          <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">
+            🌟 Featured Listings
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+            {/* Card 1 */}
+            <div className="card">
+              <h3 className="text-xl font-semibold">Luxury Hotel Mumbai</h3>
+              <p className="text-gray-600">Mumbai, India</p>
+              <p className="text-gray-800 font-bold mt-2">₹5000/night</p>
+              <div className="mt-4 flex gap-3">
+                <Link href="/listings/1" className="btn btn-primary">
+                  View
+                </Link>
+                <button className="btn btn-accent">Book Now</button>
               </div>
+            </div>
 
-              {/* Card 2 */}
-              <div className="card">
-                <h3 className="text-xl font-semibold">Beach Resort Goa</h3>
-                <p className="text-gray-600">Goa, India</p>
-                <p className="text-gray-800 font-bold mt-2">₹7000/night</p>
-                <div className="mt-4 flex gap-3">
-                  <Link href="/listings/2" className="btn btn-primary">
-                    View
-                  </Link>
-                  <button className="btn btn-accent">Book Now</button>
-                </div>
+            {/* Card 2 */}
+            <div className="card">
+              <h3 className="text-xl font-semibold">Beach Resort Goa</h3>
+              <p className="text-gray-600">Goa, India</p>
+              <p className="text-gray-800 font-bold mt-2">₹7000/night</p>
+              <div className="mt-4 flex gap-3">
+                <Link href="/listings/2" className="btn btn-primary">
+                  View
+                </Link>
+                <button className="btn btn-accent">Book Now</button>
               </div>
             </div>
           </div>
-        </section>
-
-        {/* Promotions / Spot Discounts */}
-        <section className="container mx-auto px-4">
-          <PromotionsStrip />
-        </section>
-
-        {/* Recent Stories */}
-        <section className="bg-gray-50 py-12">
-          <div className="container mx-auto px-4">
-            <RecentStories />
-          </div>
-        </section>
-
-        {/* Trending Destinations */}
-        <section className="container mx-auto px-4">
-          <TrendingDestinations />
-        </section>
-
-        {/* Testimonials */}
-        <section className="bg-gray-100 py-12">
-          <div className="container mx-auto px-4">
-            <Testimonials />
-          </div>
-        </section>
-
-        {/* Newsletter Signup */}
-        <section className="bg-indigo-600 text-white py-16">
-          <div className="container mx-auto px-4">
-            <NewsletterSignup />
-          </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

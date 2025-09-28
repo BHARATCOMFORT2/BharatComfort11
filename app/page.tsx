@@ -16,10 +16,10 @@ export default function HomePage() {
       <section
         className="relative min-h-[70vh] flex flex-col justify-center items-center text-center bg-cover bg-center"
         style={{
-          backgroundImage: `url(${sectionBackgrounds.hero.image})`,
+          backgroundImage: `url(${SectionBackground.hero.image})`,
         }}
       >
-        <div className={`absolute inset-0 ${sectionBackgrounds.hero.overlay}`}></div>
+        <div className={`absolute inset-0 ${SectionBackground.hero.overlay}`}></div>
 
         <div className="relative z-10 px-6">
           <h1 className="text-4xl md:text-5xl font-bold text-white drop-shadow-lg">
@@ -49,9 +49,9 @@ export default function HomePage() {
       {/* Quick Actions Section */}
       <section
         className="relative py-16 bg-cover bg-center"
-        style={{ backgroundImage: `url(${sectionBackgrounds.quickActions.image})` }}
+        style={{ backgroundImage: `url(${SectionBackground.quickActions.image})` }}
       >
-        <div className={`absolute inset-0 ${sectionBackgrounds.quickActions.overlay}`}></div>
+        <div className={`absolute inset-0 ${SectionBackground.quickActions.overlay}`}></div>
 
         <div className="relative max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 px-6">
           {[
@@ -74,9 +74,9 @@ export default function HomePage() {
       {/* Featured Listings Section */}
       <section
         className="relative py-16 bg-cover bg-center"
-        style={{ backgroundImage: `url(${sectionBackgrounds.featuredListings.image})` }}
+        style={{ backgroundImage: `url(${SectionBackground.featuredListings.image})` }}
       >
-        <div className={`absolute inset-0 ${sectionBackgrounds.featuredListings.overlay}`}></div>
+        <div className={`absolute inset-0 ${SectionBackground.featuredListings.overlay}`}></div>
 
         <div className="relative bg-white/90 backdrop-blur-md rounded-2xl shadow-lg max-w-6xl mx-auto px-6 py-12">
           <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">

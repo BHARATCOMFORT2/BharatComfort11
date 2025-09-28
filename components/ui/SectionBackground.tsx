@@ -1,6 +1,6 @@
 "use client";
 
-import { backgrounds } from "@/config/backgrounds";
+import { backgrounds } from "config/backgrounds";
 
 export default function SectionBackground({
   section,

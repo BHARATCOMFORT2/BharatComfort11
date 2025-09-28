@@ -1,11 +1,43 @@
 "use client";
 
 import Link from "next/link";
-import { Plane, Train, Bus, Headphones, MapPin, Facebook, Twitter, Instagram } from "lucide-react";
+import {
+  Plane,
+  Train,
+  Bus,
+  Headphones,
+  MapPin,
+  Facebook,
+  Twitter,
+  Instagram,
+} from "lucide-react";
 
 export default function HomePage() {
   return (
-   
+    <div className="font-sans">
+      {/* ✅ HEADER */}
+      <header className="fixed top-0 left-0 w-full bg-white/80 backdrop-blur-md shadow z-50">
+        <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
+          <h1 className="text-2xl font-bold text-indigo-600">BharatComfort</h1>
+
+          <nav className="hidden md:flex gap-8 text-gray-700 font-medium">
+            <Link href="/" className="hover:text-indigo-600">
+              Home
+            </Link>
+            <Link href="/listings" className="hover:text-indigo-600">
+              Listings
+            </Link>
+            <Link href="/stories" className="hover:text-indigo-600">
+              Stories
+            </Link>
+            <Link href="/partners" className="hover:text-indigo-600">
+              Partners
+            </Link>
+            <Link href="/about" className="hover:text-indigo-600">
+              About
+            </Link>
+          </nav>
+
           {/* Actions */}
           <div className="flex gap-4">
             <Link
@@ -26,19 +58,20 @@ export default function HomePage() {
 
       {/* ✅ HERO */}
       <section
-        className="relative min-h-[80vh] flex flex-col justify-center items-center text-center bg-cover bg-center"
+        className="relative min-h-screen flex flex-col justify-center items-center text-center bg-cover bg-center"
         style={{
           backgroundImage:
             "url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80')",
         }}
       >
-        <div className="absolute inset-0 bg-black/50"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/70 via-black/40 to-black/70"></div>
         <div className="relative z-10 px-6 mt-20">
-          <h1 className="text-4xl md:text-6xl font-bold text-white drop-shadow-lg">
+          <h1 className="text-4xl md:text-6xl font-extrabold text-white drop-shadow-lg">
             Discover Hotels, Restaurants & Travel Experiences
           </h1>
           <p className="mt-6 text-lg text-gray-200 max-w-2xl mx-auto">
-            BharatComfort is your trusted platform to explore and book the best places worldwide.
+            BharatComfort is your trusted platform to explore and book the best
+            places worldwide.
           </p>
           <div className="mt-8 flex justify-center gap-4">
             <Link
@@ -68,9 +101,9 @@ export default function HomePage() {
           ].map((item) => (
             <div
               key={item.label}
-              className="bg-white rounded-xl shadow p-6 text-center hover:shadow-lg transition"
+              className="bg-white rounded-xl shadow-lg p-6 text-center hover:shadow-xl transition transform hover:-translate-y-1"
             >
-              <item.icon className="mx-auto h-10 w-10 text-indigo-600" />
+              <item.icon className="mx-auto h-12 w-12 text-indigo-600" />
               <p className="mt-3 font-semibold text-gray-800">{item.label}</p>
             </div>
           ))}
@@ -79,13 +112,14 @@ export default function HomePage() {
 
       {/* ✅ FEATURED LISTINGS */}
       <section
-        className="py-20 bg-cover bg-center"
+        className="py-20 bg-cover bg-center relative"
         style={{
           backgroundImage:
             "url('https://images.unsplash.com/photo-1501117716987-c8e1ecb2105d?auto=format&fit=crop&w=1920&q=80')",
         }}
       >
-        <div className="bg-white/90 rounded-2xl shadow-lg max-w-6xl mx-auto px-8 py-12">
+        <div className="absolute inset-0 bg-black/50"></div>
+        <div className="relative bg-white/90 rounded-2xl shadow-lg max-w-6xl mx-auto px-8 py-12">
           <h2 className="text-3xl font-bold mb-10 text-gray-900 flex items-center gap-2">
             🌟 Featured Listings
           </h2>
@@ -107,9 +141,11 @@ export default function HomePage() {
             ].map((listing) => (
               <div
                 key={listing.title}
-                className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6"
+                className="bg-white rounded-xl shadow-md hover:shadow-xl transition p-6 border border-gray-100"
               >
-                <h3 className="text-xl font-semibold text-gray-900">{listing.title}</h3>
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {listing.title}
+                </h3>
                 <p className="text-gray-600">{listing.location}</p>
                 <p className="text-indigo-600 font-bold mt-2">{listing.price}</p>
                 <div className="mt-4 flex gap-3">
@@ -130,7 +166,7 @@ export default function HomePage() {
       </section>
 
       {/* ✅ TRENDING DESTINATIONS */}
-      <section className="py-20 bg-gray-100">
+      <section className="py-20 bg-gray-50">
         <div className="max-w-6xl mx-auto px-6">
           <h2 className="text-3xl font-bold mb-10 text-gray-900 flex items-center gap-2">
             🌍 Trending Destinations
@@ -160,7 +196,7 @@ export default function HomePage() {
                 <img
                   src={dest.image}
                   alt={dest.name}
-                  className="h-56 w-full object-cover group-hover:scale-105 transition-transform"
+                  className="h-56 w-full object-cover group-hover:scale-110 transition-transform duration-500"
                 />
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
                   <p className="text-white text-2xl font-bold">{dest.name}</p>
@@ -215,11 +251,12 @@ export default function HomePage() {
       </section>
 
       {/* ✅ NEWSLETTER */}
-      <section className="py-20 bg-indigo-600 text-white">
+      <section className="py-20 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white">
         <div className="max-w-3xl mx-auto text-center px-6">
           <h2 className="text-3xl font-bold">📧 Stay Updated</h2>
           <p className="mt-3 text-indigo-100">
-            Subscribe to our newsletter and never miss out on exclusive deals & travel tips.
+            Subscribe to our newsletter and never miss out on exclusive deals &
+            travel tips.
           </p>
           <div className="mt-6 flex flex-col sm:flex-row gap-4 justify-center">
             <input
@@ -241,7 +278,8 @@ export default function HomePage() {
           <div>
             <h3 className="text-xl font-bold text-white">BharatComfort</h3>
             <p className="mt-3 text-sm">
-              Your global partner for booking hotels, restaurants, and travel experiences.
+              Your global partner for booking hotels, restaurants, and travel
+              experiences.
             </p>
           </div>
 
@@ -249,10 +287,26 @@ export default function HomePage() {
           <div>
             <h4 className="text-lg font-semibold text-white">Quick Links</h4>
             <ul className="mt-3 space-y-2">
-              <li><Link href="/listings" className="hover:text-white">Listings</Link></li>
-              <li><Link href="/stories" className="hover:text-white">Stories</Link></li>
-              <li><Link href="/partners" className="hover:text-white">Partners</Link></li>
-              <li><Link href="/about" className="hover:text-white">About</Link></li>
+              <li>
+                <Link href="/listings" className="hover:text-white">
+                  Listings
+                </Link>
+              </li>
+              <li>
+                <Link href="/stories" className="hover:text-white">
+                  Stories
+                </Link>
+              </li>
+              <li>
+                <Link href="/partners" className="hover:text-white">
+                  Partners
+                </Link>
+              </li>
+              <li>
+                <Link href="/about" className="hover:text-white">
+                  About
+                </Link>
+              </li>
             </ul>
           </div>
 

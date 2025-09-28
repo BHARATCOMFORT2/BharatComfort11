@@ -8,8 +8,6 @@ import RecentStories from "@/components/home/RecentStories";
 import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
-
-"use client";
 import { ReactNode } from "react";
 
 // 🔹 Define SectionBackground with proper typing

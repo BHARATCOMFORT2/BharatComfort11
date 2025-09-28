@@ -9,26 +9,67 @@ import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 import SectionBackground from "@/components/ui/SectionBackground";
+"use client";
+import { ReactNode } from "react";
+
+// 🔹 Define SectionBackground with proper typing
+const SectionBackground: Record<
+  "hero" | "quickActions" | "featuredListings",
+  { image: string; overlay?: string }
+> = {
+  hero: {
+    image:
+      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=1920&q=80",
+    overlay: "bg-black/50",
+  },
+  quickActions: {
+    image: "",
+    overlay: "",
+  },
+  featuredListings: {
+    image:
+      "https://images.unsplash.com/photo-1501117716987-c8e1ecb2105d?auto=format&fit=crop&w=1920&q=80",
+    overlay: "bg-white/70 backdrop-blur-sm",
+  },
+};
+
+// 🔹 Wrapper Component
+function SectionWrapper({
+  section,
+  children,
+}: {
+  section: "hero" | "quickActions" | "featuredListings";
+  children: ReactNode;
+}) {
+  const config = SectionBackground[section];
+  return (
+    <section
+      className="relative py-16 bg-cover bg-center"
+      style={{
+        backgroundImage: config.image ? `url(${config.image})` : undefined,
+      }}
+    >
+      {config.overlay && (
+        <div className={`absolute inset-0 ${config.overlay}`}></div>
+      )}
+      <div className="relative z-10">{children}</div>
+    </section>
+  );
+}
+
 export default function HomePage() {
   return (
     <div className="min-h-screen">
-      {/* Hero Section */}
-      <section
-        className="relative min-h-[70vh] flex flex-col justify-center items-center text-center bg-cover bg-center"
-        style={{
-          backgroundImage: `url(${SectionBackground.hero.image})`,
-        }}
-      >
-        <div className={`absolute inset-0 ${SectionBackground.hero.overlay}`}></div>
-
-        <div className="relative z-10 px-6">
+      {/* ✅ Hero Section */}
+      <SectionWrapper section="hero">
+        <div className="min-h-[70vh] flex flex-col justify-center items-center text-center px-6">
           <h1 className="text-4xl md:text-5xl font-bold text-white drop-shadow-lg">
             Discover Hotels, Restaurants & Travel Experiences
           </h1>
           <p className="mt-4 text-lg text-gray-200 max-w-2xl mx-auto">
-            BharatComfort is your global platform to explore and book the best places.
+            BharatComfort is your global platform to explore and book the best
+            places.
           </p>
-
           <div className="mt-6 flex justify-center gap-4">
             <Link
               href="/listings"
@@ -44,16 +85,11 @@ export default function HomePage() {
             </Link>
           </div>
         </div>
-      </section>
+      </SectionWrapper>
 
-      {/* Quick Actions Section */}
-      <section
-        className="relative py-16 bg-cover bg-center"
-        style={{ backgroundImage: `url(${SectionBackground.quickActions.image})` }}
-      >
-        <div className={`absolute inset-0 ${SectionBackground.quickActions.overlay}`}></div>
-
-        <div className="relative max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 px-6">
+      {/* ✅ Quick Actions Section */}
+      <SectionWrapper section="quickActions">
+        <div className="max-w-6xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-6 px-6">
           {[
             { label: "Flights", icon: "✈️" },
             { label: "Trains", icon: "🚆" },
@@ -62,29 +98,22 @@ export default function HomePage() {
           ].map((item) => (
             <div
               key={item.label}
-              className="bg-white/90 backdrop-blur-md rounded-xl shadow p-6 text-center hover:shadow-lg transition"
+              className="bg-white rounded-xl shadow p-6 text-center hover:shadow-lg transition"
             >
               <div className="text-3xl">{item.icon}</div>
               <p className="mt-2 font-semibold text-gray-800">{item.label}</p>
             </div>
           ))}
         </div>
-      </section>
+      </SectionWrapper>
 
-      {/* Featured Listings Section */}
-      <section
-        className="relative py-16 bg-cover bg-center"
-        style={{ backgroundImage: `url(${SectionBackground.featuredListings.image})` }}
-      >
-        <div className={`absolute inset-0 ${SectionBackground.featuredListings.overlay}`}></div>
-
-        <div className="relative bg-white/90 backdrop-blur-md rounded-2xl shadow-lg max-w-6xl mx-auto px-6 py-12">
+      {/* ✅ Featured Listings Section */}
+      <SectionWrapper section="featuredListings">
+        <div className="bg-white/90 rounded-2xl shadow-lg max-w-6xl mx-auto px-6 py-12">
           <h2 className="text-2xl font-bold mb-6 text-gray-900 flex items-center gap-2">
             🌟 Featured Listings
           </h2>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            {/* Card 1 */}
             <div className="card">
               <h3 className="text-xl font-semibold">Luxury Hotel Mumbai</h3>
               <p className="text-gray-600">Mumbai, India</p>
@@ -96,8 +125,6 @@ export default function HomePage() {
                 <button className="btn btn-accent">Book Now</button>
               </div>
             </div>
-
-            {/* Card 2 */}
             <div className="card">
               <h3 className="text-xl font-semibold">Beach Resort Goa</h3>
               <p className="text-gray-600">Goa, India</p>
@@ -111,7 +138,7 @@ export default function HomePage() {
             </div>
           </div>
         </div>
-      </section>
+      </SectionWrapper>
     </div>
   );
 }

@@ -5,24 +5,7 @@ import { Plane, Train, Bus, Headphones, MapPin, Facebook, Twitter, Instagram } f
 
 export default function HomePage() {
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* ✅ NAVBAR */}
-      <header className="fixed top-0 left-0 w-full bg-white shadow z-50">
-        <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
-          {/* Logo */}
-          <Link href="/" className="text-2xl font-bold text-indigo-600">
-            BharatComfort
-          </Link>
-
-          {/* Nav Links */}
-          <nav className="hidden md:flex gap-6 text-gray-700 font-medium">
-            <Link href="/" className="hover:text-indigo-600 transition">Home</Link>
-            <Link href="/listings" className="hover:text-indigo-600 transition">Listings</Link>
-            <Link href="/stories" className="hover:text-indigo-600 transition">Stories</Link>
-            <Link href="/partners" className="hover:text-indigo-600 transition">Partners</Link>
-            <Link href="/about" className="hover:text-indigo-600 transition">About</Link>
-          </nav>
-
+   
           {/* Actions */}
           <div className="flex gap-4">
             <Link

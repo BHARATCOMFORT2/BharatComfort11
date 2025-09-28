@@ -1,6 +1,6 @@
 "use client";
 
-import { backgrounds } from "@/config/backgrounds";
+import { backgrounds } from "config/backgrounds";
 import { usePathname } from "next/navigation";
 
 export default function PageBackground({

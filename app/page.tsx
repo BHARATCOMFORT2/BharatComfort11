@@ -9,7 +9,7 @@ import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 import { sectionBackgrounds } from "config/backgrounds";
-
+import SectionBackground from "@/components/ui/SectionBackground";
 export default function HomePage() {
   return (
     <div className="min-h-screen">

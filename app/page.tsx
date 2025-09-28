@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { motion } from "framer-motion";
 import Hero from "@/components/home/Hero";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
 import FeaturedListings from "@/components/home/FeaturedListings";
@@ -18,7 +19,11 @@ export default function HomePage() {
         <Hero />
         <div className="absolute inset-0 bg-black/40" /> {/* overlay */}
         <div className="absolute inset-0 flex items-center justify-center text-center">
-          <div>
+          <motion.div
+            initial={{ opacity: 0, y: 40 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 1 }}
+          >
             <h1 className="text-5xl font-bold text-yellow-400 drop-shadow-lg">
               Welcome to BharatComfort
             </h1>
@@ -31,46 +36,88 @@ export default function HomePage() {
             >
               Explore Now
             </Link>
-          </div>
+          </motion.div>
         </div>
       </section>
 
       {/* Quick Actions */}
-      <section className="py-10 container mx-auto">
+      <motion.section
+        className="py-10 container mx-auto"
+        initial={{ opacity: 0, x: -60 }}
+        whileInView={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <QuickActionStrip />
-      </section>
+      </motion.section>
 
       {/* Featured Listings */}
-      <section className="py-10 container mx-auto">
+      <motion.section
+        className="py-10 container mx-auto"
+        initial={{ opacity: 0, y: 60 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <h2 className="text-3xl font-bold text-yellow-400 mb-6">Featured Trips</h2>
         <FeaturedListings />
-      </section>
+      </motion.section>
 
       {/* Promotions */}
-      <section className="py-10 container mx-auto bg-white/10 rounded-2xl shadow-xl">
+      <motion.section
+        className="py-10 container mx-auto bg-white/10 rounded-2xl shadow-xl"
+        initial={{ opacity: 0, scale: 0.9 }}
+        whileInView={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <PromotionsStrip />
-      </section>
+      </motion.section>
 
       {/* Trending Destinations */}
-      <section className="py-10 container mx-auto">
+      <motion.section
+        className="py-10 container mx-auto"
+        initial={{ opacity: 0, x: 60 }}
+        whileInView={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <h2 className="text-3xl font-bold text-yellow-400 mb-6">Trending Destinations</h2>
         <TrendingDestinations />
-      </section>
+      </motion.section>
 
       {/* Stories */}
-      <section className="py-10 container mx-auto">
+      <motion.section
+        className="py-10 container mx-auto"
+        initial={{ opacity: 0, y: 60 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <RecentStories />
-      </section>
+      </motion.section>
 
       {/* Testimonials */}
-      <section className="py-10 container mx-auto bg-white/10 rounded-2xl shadow-xl">
+      <motion.section
+        className="py-10 container mx-auto bg-white/10 rounded-2xl shadow-xl"
+        initial={{ opacity: 0, scale: 0.9 }}
+        whileInView={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <Testimonials />
-      </section>
+      </motion.section>
 
       {/* Newsletter */}
-      <section className="py-10 container mx-auto text-center">
+      <motion.section
+        className="py-10 container mx-auto text-center"
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
         <NewsletterSignup />
-      </section>
+      </motion.section>
 
       {/* Footer */}
       <footer className="bg-[#0a0f29] py-8 text-center border-t border-yellow-400/30">

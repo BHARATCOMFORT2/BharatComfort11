@@ -22,8 +22,6 @@ export default function RootLayout({
         {/* Page Content */}
         <main>{children}</main>
 
-        {/* Footer at bottom */}
-        <Footer />
       </body>
     </html>
   );

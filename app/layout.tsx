@@ -1,6 +1,6 @@
 // app/layout.tsx
 import type { Metadata } from "next";
-import "./globals.css"; // ✅ Make sure this is here
+import "@/styles/globals.css"; // ✅ Make sure this is here
 import Navbar from "@/components/ui/Navbar"; // ✅ your navbar
 
 export const metadata: Metadata = {

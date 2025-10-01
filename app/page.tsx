@@ -10,6 +10,7 @@ import RecentStories from "@/components/home/RecentStories";
 import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
+import Footer from "@/components/home/Footer";
 
 export default function HomePage() {
   return (
@@ -120,12 +121,7 @@ export default function HomePage() {
       </motion.section>
 
       {/* Footer */}
-      <footer className="bg-[#0a0f29] py-8 text-center border-t border-yellow-400/30">
-        <p className="text-gray-300">
-          © {new Date().getFullYear()} BharatComfort —{" "}
-          <span className="text-yellow-400">Royal Comforts of India</span>
-        </p>
-      </footer>
+      <Footer />
     </main>
   );
 }

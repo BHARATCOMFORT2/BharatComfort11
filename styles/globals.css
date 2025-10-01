@@ -2,12 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ====== Base Styles ====== */
+/* ===== Base Styles ===== */
 @layer base {
-  html {
-    scroll-behavior: smooth;
-  }
-
+  html { scroll-behavior: smooth; }
   body {
     @apply bg-neutral-100 text-neutral-900 font-sans antialiased;
     margin: 0;
@@ -18,72 +15,32 @@
     @apply font-heading;
   }
 
-  a {
-    @apply text-brand hover:underline;
-  }
+  a { @apply text-brand hover:underline; }
 
-  p {
-    @apply text-base md:text-lg text-neutral-700;
-  }
+  p { @apply text-base md:text-lg text-neutral-700; }
 }
 
-/* ====== Components ====== */
+/* ===== Components ===== */
 @layer components {
-  /* Buttons */
   .btn {
     @apply inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium transition-transform duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
   }
 
-  .btn-primary {
-    @apply btn bg-brand text-white hover:bg-brand-dark focus:ring-brand;
-  }
+  .btn-primary { @apply btn bg-brand text-white hover:bg-brand-dark focus:ring-brand; }
+  .btn-secondary { @apply btn bg-accent text-white hover:bg-accent-dark focus:ring-accent; }
 
-  .btn-secondary {
-    @apply btn bg-accent text-white hover:bg-accent-dark focus:ring-accent;
-  }
+  .card { @apply bg-white rounded-2xl p-6 shadow-card hover:shadow-lg transition-shadow; }
+  .input { @apply w-full rounded-xl border border-neutral-300 px-4 py-2 text-sm focus:border-brand focus:ring-1 focus:ring-brand outline-none; }
 
-  /* Card */
-  .card {
-    @apply bg-white rounded-2xl p-6 shadow-card hover:shadow-lg transition-shadow;
-  }
+  .navbar { @apply flex justify-between items-center px-6 py-4 bg-white shadow-md sticky top-0 z-50; }
+  .nav-links { @apply flex gap-6 list-none; }
+  .nav-link { @apply font-medium cursor-pointer hover:text-brand transition-colors; }
 
-  /* Input */
-  .input {
-    @apply w-full rounded-xl border border-neutral-300 px-4 py-2 text-sm focus:border-brand focus:ring-1 focus:ring-brand outline-none;
-  }
-
-  /* Navbar */
-  .navbar {
-    @apply flex justify-between items-center px-6 py-4 bg-white shadow-md sticky top-0 z-50;
-  }
-
-  .nav-links {
-    @apply flex gap-6 list-none;
-  }
-
-  .nav-link {
-    @apply font-medium cursor-pointer hover:text-brand transition-colors;
-  }
-
-  /* Hero Section */
-  .hero-section {
-    @apply text-center py-24 px-6 bg-gradient-to-r from-accent to-accent-dark text-white;
-  }
-
-  /* Search Tabs */
-  .search-tabs button {
-    @apply btn btn-secondary;
-  }
-
-  /* Trending Destinations */
-  .destination-card {
-    @apply px-6 py-4 rounded-xl cursor-pointer text-white bg-accent hover:opacity-80 transition-opacity;
-  }
+  .hero-section { @apply text-center py-24 px-6 bg-gradient-to-r from-accent to-accent-dark text-white; }
+  .destination-card { @apply px-6 py-4 rounded-xl cursor-pointer text-white bg-accent hover:opacity-80 transition-opacity; }
 }
 
-/* ====== Utilities ====== */
+/* ===== Utilities ===== */
 @layer utilities {
-  .text-balance {
-    text-wrap: balance;
-  }
+  .text-balance { text-wrap: balance; }
 }

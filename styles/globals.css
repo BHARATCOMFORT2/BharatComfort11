@@ -2,227 +2,88 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 🌍 Global Variables for BharatComfort */
-:root {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-  font-family: 'Poppins', sans-serif;
+/* ====== Base Styles ====== */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-neutral-100 text-neutral-900 font-sans antialiased;
+    margin: 0;
+    padding: 0;
+  }
+
+  h1, h2, h3 {
+    @apply font-heading;
+  }
+
+  a {
+    @apply text-brand hover:underline;
+  }
+
+  p {
+    @apply text-base md:text-lg text-neutral-700;
+  }
 }
 
-/* ====== Body ====== */
-body {
-  background-color: #f9f9f9;
-  color: #333;
-}
+/* ====== Components ====== */
+@layer components {
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-xl px-4 py-2 font-medium transition-transform duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
 
-/* ====== Navbar ====== */
-.navbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 1rem 4rem;
-  background-color: #fff;
-  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
-}
+  .btn-primary {
+    @apply btn bg-brand text-white hover:bg-brand-dark focus:ring-brand;
+  }
 
-.logo {
-  font-size: 1.8rem;
-  font-weight: 700;
-  color: #ff4b2b;
-}
+  .btn-secondary {
+    @apply btn bg-accent text-white hover:bg-accent-dark focus:ring-accent;
+  }
 
-.nav-links {
-  display: flex;
-  gap: 2rem;
-  list-style: none;
-}
+  /* Card */
+  .card {
+    @apply bg-white rounded-2xl p-6 shadow-card hover:shadow-lg transition-shadow;
+  }
 
-.nav-links li {
-  cursor: pointer;
-  font-weight: 500;
-}
+  /* Input */
+  .input {
+    @apply w-full rounded-xl border border-neutral-300 px-4 py-2 text-sm focus:border-brand focus:ring-1 focus:ring-brand outline-none;
+  }
 
-.auth-buttons button {
-  margin-left: 1rem;
-  padding: 0.5rem 1.2rem;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-weight: 500;
-}
-
-.auth-buttons button:first-child {
-  background-color: transparent;
-  color: #333;
-}
-
-.auth-buttons button:last-child {
-  background-color: #ff4b2b;
-  color: #fff;
-}
-
-/* ====== Hero Section ====== */
-.hero-section {
-  text-align: center;
-  padding: 4rem 2rem;
-  background: linear-gradient(90deg, #ff4b2b 0%, #ff416c 100%);
-  color: #fff;
-}
-
-.hero-section h1 {
-  font-size: 2.5rem;
-  margin-bottom: 1rem;
-}
-
-.hero-section p {
-  font-size: 1.2rem;
-  margin-bottom: 2rem;
-}
-
-.hero-buttons button {
-  padding: 0.7rem 2rem;
-  border: none;
-  border-radius: 6px;
-  margin: 0 0.5rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.explore-btn {
-  background-color: #fff;
-  color: #ff416c;
-}
-
-.join-btn {
-  background-color: transparent;
-  border: 2px solid #fff;
-  color: #fff;
-}
-
-/* ====== Search Tabs ====== */
-.search-tabs {
-  margin-top: 2rem;
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-}
-
-.search-tabs button {
-  padding: 0.5rem 1.2rem;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  background-color: #fff;
-  color: #ff416c;
-  font-weight: 500;
-}
-
-/* ====== Featured Listings ====== */
-.featured-listings {
-  padding: 4rem 2rem;
-  text-align: center;
-}
-
-.featured-listings h2 {
-  font-size: 2rem;
-  margin-bottom: 2rem;
-}
-
-.listing-cards {
-  display: flex;
-  justify-content: center;
-  gap: 2rem;
-  flex-wrap: wrap;
-}
-
-.listing-card {
-  background-color: #fff;
-  border-radius: 12px;
-  padding: 1.5rem;
-  width: 250px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-  transition: transform 0.2s;
-}
-
-.listing-card:hover {
-  transform: translateY(-5px);
-}
-
-.listing-card h3 {
-  margin-bottom: 0.5rem;
-}
-
-.listing-card p {
-  margin-bottom: 1rem;
-}
-
-.listing-buttons button {
-  margin: 0.3rem;
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-}
-
-.listing-buttons button:first-child {
-  background-color: #eee;
-}
-
-.listing-buttons button:last-child {
-  background-color: #ff416c;
-  color: #fff;
-}
-
-/* ====== Trending Destinations ====== */
-.trending-destinations {
-  padding: 4rem 2rem;
-  text-align: center;
-}
-
-.trending-destinations h2 {
-  font-size: 2rem;
-  margin-bottom: 2rem;
-}
-
-.destinations {
-  display: flex;
-  justify-content: center;
-  gap: 1rem;
-  flex-wrap: wrap;
-}
-
-.destination-card {
-  background-color: #ff416c;
-  color: #fff;
-  padding: 1rem 2rem;
-  border-radius: 10px;
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
-
-.destination-card:hover {
-  opacity: 0.8;
-}
-
-/* ====== Responsive ====== */
-@media (max-width: 768px) {
+  /* Navbar */
   .navbar {
-    flex-direction: column;
-    gap: 1rem;
+    @apply flex justify-between items-center px-6 py-4 bg-white shadow-md sticky top-0 z-50;
   }
 
   .nav-links {
-    flex-wrap: wrap;
-    justify-content: center;
+    @apply flex gap-6 list-none;
   }
 
-  .listing-cards {
-    flex-direction: column;
-    align-items: center;
+  .nav-link {
+    @apply font-medium cursor-pointer hover:text-brand transition-colors;
   }
 
-  .search-tabs {
-    flex-direction: column;
+  /* Hero Section */
+  .hero-section {
+    @apply text-center py-24 px-6 bg-gradient-to-r from-accent to-accent-dark text-white;
+  }
+
+  /* Search Tabs */
+  .search-tabs button {
+    @apply btn btn-secondary;
+  }
+
+  /* Trending Destinations */
+  .destination-card {
+    @apply px-6 py-4 rounded-xl cursor-pointer text-white bg-accent hover:opacity-80 transition-opacity;
+  }
+}
+
+/* ====== Utilities ====== */
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
   }
 }

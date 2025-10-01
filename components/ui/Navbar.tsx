@@ -1,126 +1,151 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Menu, X } from "lucide-react";
-import { cn } from "@/lib/utils";
-
-const navLinks = [
-  { href: "/", label: "Home" },
-  { href: "/listings", label: "Listings" },
-  { href: "/stories", label: "Stories" },
-  { href: "/partners", label: "Partners" },
-  { href: "/about", label: "About" },
-];
+import { motion, AnimatePresence } from "framer-motion";
 
 export default function Navbar() {
-  const pathname = usePathname();
-  const [isOpen, setIsOpen] = useState(false);
+  const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    const handleScroll = () => setScrolled(window.scrollY > 50);
+    window.addEventListener("scroll", handleScroll);
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
 
   return (
-    <header className="sticky top-0 z-50 shadow-lg bg-gradient-to-r from-blue-950 via-indigo-900 to-blue-950">
-      <div className="max-w-7xl mx-auto flex items-center justify-between px-6 py-4">
-        {/* Logo */}
-        <Link
-          href="/"
-          className="text-2xl font-extrabold tracking-wide text-yellow-400"
-        >
-          BharatComfort
-        </Link>
+    <nav
+      className={`fixed top-0 left-0 w-full z-50 transition-all duration-500 ${
+        scrolled
+          ? "bg-[#0a0f29]/90 backdrop-blur-md shadow-md"
+          : "bg-transparent"
+      }`}
+    >
+      <div className="container mx-auto flex items-center justify-between py-4 px-6">
+        {/* Left: Logo */}
+        <div className="flex-shrink-0">
+          <Link href="/" className="text-2xl font-bold text-yellow-400">
+            BharatComfort
+          </Link>
+        </div>
 
-        {/* Desktop Navigation */}
-        <nav className="hidden md:flex gap-8">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              className={cn(
-                "relative font-medium transition-all duration-200 hover:text-yellow-300",
-                pathname === link.href
-                  ? "text-yellow-400 font-semibold"
-                  : "text-gray-200"
-              )}
-            >
-              {link.label}
-              {pathname === link.href && (
-                <span className="absolute left-0 -bottom-1 h-[2px] w-full bg-yellow-400 rounded-full"></span>
-              )}
-            </Link>
-          ))}
-        </nav>
-
-        {/* Right Side Actions */}
-        <div className="hidden md:flex items-center gap-4">
+        {/* Center: Nav Links (Desktop Only) */}
+        <div className="hidden md:flex flex-1 justify-center gap-10">
           <Link
-            href="/user/bookings"
-            className="text-sm font-medium text-gray-200 hover:text-yellow-300 transition"
+            href="/explore"
+            className="text-gray-200 hover:text-yellow-400 transition"
           >
-            My Bookings
+            Explore
           </Link>
           <Link
+            href="/destinations"
+            className="text-gray-200 hover:text-yellow-400 transition"
+          >
+            Destinations
+          </Link>
+          <Link
+            href="/bookings"
+            className="text-gray-200 hover:text-yellow-400 transition"
+          >
+            Bookings
+          </Link>
+          <Link
+            href="/contact"
+            className="text-gray-200 hover:text-yellow-400 transition"
+          >
+            Contact
+          </Link>
+        </div>
+
+        {/* Right: Auth Buttons (Desktop) */}
+        <div className="hidden md:flex gap-4">
+          <Link
             href="/auth/login"
-            className="px-4 py-2 text-sm rounded-lg bg-white text-blue-950 font-semibold shadow hover:bg-gray-100 transition"
+            className="px-4 py-2 rounded-xl border border-yellow-400 text-yellow-400 hover:bg-yellow-400 hover:text-black transition"
           >
             Login
           </Link>
           <Link
             href="/auth/register"
-            className="px-4 py-2 text-sm rounded-lg bg-yellow-500 text-blue-950 font-semibold shadow hover:bg-yellow-400 transition"
+            className="px-4 py-2 rounded-xl bg-yellow-400 text-black font-semibold shadow-md hover:bg-yellow-500 transition"
           >
-            Register
+            Sign Up
           </Link>
         </div>
 
-        {/* Mobile Menu Button */}
+        {/* Mobile Hamburger */}
         <button
-          className="md:hidden text-yellow-400 hover:text-yellow-300 transition"
-          onClick={() => setIsOpen(!isOpen)}
+          onClick={() => setMenuOpen(!menuOpen)}
+          className="md:hidden text-yellow-400 focus:outline-none"
         >
-          {isOpen ? <X size={28} /> : <Menu size={28} />}
+          {menuOpen ? <X size={28} /> : <Menu size={28} />}
         </button>
       </div>
 
-      {/* Mobile Menu */}
-      {isOpen && (
-        <div className="md:hidden bg-gradient-to-r from-blue-950 via-indigo-900 to-blue-950 px-6 pb-6 space-y-4 shadow-lg">
-          {navLinks.map((link) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setIsOpen(false)}
-              className={cn(
-                "block text-gray-200 hover:text-yellow-300 transition",
-                pathname === link.href && "text-yellow-400 font-semibold"
-              )}
-            >
-              {link.label}
-            </Link>
-          ))}
-          <hr className="border-gray-700" />
-          <Link
-            href="/user/bookings"
-            onClick={() => setIsOpen(false)}
-            className="block text-gray-200 hover:text-yellow-300"
+      {/* Mobile Menu Drawer */}
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -30 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -30 }}
+            transition={{ duration: 0.4 }}
+            className="md:hidden absolute top-16 left-0 w-full bg-[#0a0f29]/95 backdrop-blur-md shadow-lg p-6 space-y-6"
           >
-            My Bookings
-          </Link>
-          <Link
-            href="/auth/login"
-            onClick={() => setIsOpen(false)}
-            className="block px-4 py-2 rounded-lg bg-white text-blue-950 font-semibold hover:bg-gray-100 transition"
-          >
-            Login
-          </Link>
-          <Link
-            href="/auth/register"
-            onClick={() => setIsOpen(false)}
-            className="block px-4 py-2 rounded-lg bg-yellow-500 text-blue-950 font-semibold hover:bg-yellow-400 transition"
-          >
-            Register
-          </Link>
-        </div>
-      )}
-    </header>
+            {/* Centered Nav Links */}
+            <div className="flex flex-col items-center gap-6">
+              <Link
+                href="/explore"
+                onClick={() => setMenuOpen(false)}
+                className="text-gray-200 hover:text-yellow-400 transition"
+              >
+                Explore
+              </Link>
+              <Link
+                href="/destinations"
+                onClick={() => setMenuOpen(false)}
+                className="text-gray-200 hover:text-yellow-400 transition"
+              >
+                Destinations
+              </Link>
+              <Link
+                href="/bookings"
+                onClick={() => setMenuOpen(false)}
+                className="text-gray-200 hover:text-yellow-400 transition"
+              >
+                Bookings
+              </Link>
+              <Link
+                href="/contact"
+                onClick={() => setMenuOpen(false)}
+                className="text-gray-200 hover:text-yellow-400 transition"
+              >
+                Contact
+              </Link>
+            </div>
+
+            {/* Bottom Auth Buttons */}
+            <div className="flex flex-col gap-4 pt-6 border-t border-yellow-400/30">
+              <Link
+                href="/auth/login"
+                onClick={() => setMenuOpen(false)}
+                className="px-4 py-2 rounded-xl border border-yellow-400 text-yellow-400 hover:bg-yellow-400 hover:text-black transition text-center"
+              >
+                Login
+              </Link>
+              <Link
+                href="/auth/register"
+                onClick={() => setMenuOpen(false)}
+                className="px-4 py-2 rounded-xl bg-yellow-400 text-black font-semibold shadow-md hover:bg-yellow-500 transition text-center"
+              >
+                Sign Up
+              </Link>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </nav>
   );
 }

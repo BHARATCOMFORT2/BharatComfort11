@@ -24,7 +24,7 @@
     "csv-parser": "^3.2.0",
     "firebase": "^11.10.0",
     "firebase-admin": "^12.7.0",
-    "framer-motion": "^12.23.21",
+    "framer-motion": "^12.23.22",
     "i18next": "^23.10.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.544.0",
@@ -40,10 +40,12 @@
     "recharts": "^3.2.0",
     "shadcn-ui": "^0.9.5",
     "stripe": "^18.5.0",
+    "swiper": "^12.0.2",
     "tailwind-merge": "^2.2.0",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
     "@types/leaflet": "^1.9.20",
     "@types/node": "^20.12.7",
     "@types/react": "^18.3.3",

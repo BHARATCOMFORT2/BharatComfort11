@@ -2,22 +2,20 @@
 module.exports = {
   content: [
     "./app/**/*.{js,ts,jsx,tsx}",
-    "./components/**/*.{js,ts,jsx,tsx}",
-    "./hooks/**/*.{js,ts,jsx,tsx}",
-    "./lib/**/*.{js,ts,jsx,tsx}",
+    "./components/**/*.{js,ts,jsx,tsx}"
   ],
   theme: {
     extend: {
       colors: {
         brand: {
-          DEFAULT: "#2563eb", // Primary Blue
-          light: "#3b82f6",
+          DEFAULT: "#2563eb",
           dark: "#1e40af",
+          light: "#3b82f6",
         },
         accent: {
-          DEFAULT: "#f97316", // Orange
-          light: "#fb923c",
+          DEFAULT: "#f97316",
           dark: "#c2410c",
+          light: "#fb923c",
         },
         neutral: {
           100: "#f9fafb",
@@ -45,20 +43,6 @@ module.exports = {
       borderRadius: {
         xl: "1rem",
         "2xl": "1.5rem",
-      },
-      keyframes: {
-        fadeIn: {
-          "0%": { opacity: 0 },
-          "100%": { opacity: 1 },
-        },
-        slideUp: {
-          "0%": { transform: "translateY(20px)", opacity: 0 },
-          "100%": { transform: "translateY(0)", opacity: 1 },
-        },
-      },
-      animation: {
-        fadeIn: "fadeIn 0.3s ease-in-out",
-        slideUp: "slideUp 0.4s ease-in-out",
       },
     },
   },

@@ -1,0 +1,18 @@
+{
+  "extends": [
+    "next/core-web-vitals",
+    "plugin:prettier/recommended"
+  ],
+  "rules": {
+    "react/react-in-jsx-scope": "off",
+    "no-unused-vars": "warn",
+    "prettier/prettier": [
+      "error",
+      {
+        "singleQuote": true,
+        "semi": true,
+        "trailingComma": "es5"
+      }
+    ]
+  }
+}

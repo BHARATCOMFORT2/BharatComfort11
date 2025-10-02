@@ -1,14 +1,9 @@
-// prettier.config.js
-
-/** @type {import("prettier").Config} */
+// prettier.config.cjs
 module.exports = {
-  semi: true,
-  singleQuote: false,
-  printWidth: 100,
-  tabWidth: 2,
-  trailingComma: "es5",
-  bracketSpacing: true,
-  arrowParens: "always",
-  plugins: [require("prettier-plugin-tailwindcss")],
-  tailwindFunctions: ["clsx", "classnames"],
+  singleQuote: true,                  // use single quotes
+  semi: true,                         // add semicolons
+  trailingComma: 'all',               // add trailing commas where valid
+  tabWidth: 2,                        // 2 spaces per tab
+  printWidth: 100,                    // wrap lines at 100 chars
+  plugins: [require('prettier-plugin-tailwindcss')], // Tailwind plugin
 };

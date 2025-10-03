@@ -3,32 +3,18 @@ module.exports = {
   content: [
     "./app/**/*.{js,ts,jsx,tsx}",
     "./components/**/*.{js,ts,jsx,tsx}",
+    "./pages/**/*.{js,ts,jsx,tsx}",
     "./hooks/**/*.{js,ts,jsx,tsx}",
     "./lib/**/*.{js,ts,jsx,tsx}",
   ],
   theme: {
     extend: {
       colors: {
-        brand: {
-          DEFAULT: "#2563eb",
-          dark: "#1e40af",
-          light: "#3b82f6",
-        },
-        accent: {
-          DEFAULT: "#f97316",
-          dark: "#c2410c",
-          light: "#fb923c",
-        },
+        brand: { DEFAULT: "#2563eb", dark: "#1e40af", light: "#3b82f6" },
+        accent: { DEFAULT: "#f97316", dark: "#c2410c", light: "#fb923c" },
         neutral: {
-          100: "#f9fafb",
-          200: "#f3f4f6",
-          300: "#e5e7eb",
-          400: "#d1d5db",
-          500: "#9ca3af",
-          600: "#6b7280",
-          700: "#4b5563",
-          800: "#374151",
-          900: "#1f2937",
+          100: "#f9fafb", 200: "#f3f4f6", 300: "#e5e7eb", 400: "#d1d5db",
+          500: "#9ca3af", 600: "#6b7280", 700: "#4b5563", 800: "#374151", 900: "#1f2937"
         },
         success: "#22c55e",
         warning: "#eab308",

@@ -1,7 +1,7 @@
-// app/layout.tsx
 import type { Metadata } from "next";
-import "@/styles/globals.css"; // ✅ Make sure this is here
-import Navbar from "@/components/ui/Navbar"; // ✅ your navbar
+import "@/styles/globals.css"; // ✅ if file is in /styles
+// or use "./globals.css" if file is directly in /app
+import Navbar from "@/components/ui/Navbar";
 
 export const metadata: Metadata = {
   title: "BharatComfort",
@@ -16,12 +16,8 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-white text-gray-900">
-        {/* Navbar on top */}
         <Navbar />
-
-        {/* Page Content */}
         <main>{children}</main>
-
       </body>
     </html>
   );

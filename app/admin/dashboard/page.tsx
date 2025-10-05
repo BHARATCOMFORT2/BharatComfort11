@@ -22,7 +22,7 @@ export default function AdminDashboardPage() {
   const [pendingPartners, setPendingPartners] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
 
-  // ✅ Group bookings data by date (last 7 days)
+  // ✅ Group bookings by last 7 days
   const groupBookingsByDate = (bookings: any[]) => {
     const today = new Date();
     const last7Days = Array.from({ length: 7 }).map((_, i) => {
@@ -37,6 +37,7 @@ export default function AdminDashboardPage() {
       const found = last7Days.find((d) => d.date === date);
       if (found) found.count += 1;
     });
+
     return last7Days;
   };
 
@@ -60,16 +61,16 @@ export default function AdminDashboardPage() {
 
       const userData = docSnap.data();
 
-      // ✅ Strict check for superadmin role
-      if (userData.role !== "superadmin") {
+      // ✅ Restrict to admin role only
+      if (userData.role !== "admin") {
         alert("❌ You are not authorized to access this page.");
         router.push("/");
         return;
       }
 
-      setUserName(userData.name || "Superadmin");
+      setUserName(userData.name || "Admin");
 
-      // ✅ Load stats and data
+      // ✅ Load stats and bookings
       const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] =
         await Promise.all([
           getDocs(collection(db, "users")),

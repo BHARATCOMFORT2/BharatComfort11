@@ -3,7 +3,16 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { collection, getDocs, doc, getDoc, updateDoc, query, where, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  updateDoc,
+  query,
+  where,
+  onSnapshot,
+} from "firebase/firestore";
 import {
   LineChart,
   Line,
@@ -14,15 +23,22 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+interface Stats {
+  users: number;
+  partners: number;
+  listings: number;
+  staffs: number;
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
-  const [stats, setStats] = useState({ users: 0, partners: 0, listings: 0, staffs: 0 });
+  const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0 });
   const [pendingPartners, setPendingPartners] = useState<any[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
 
-  // ✅ Group bookings by last 7 days
+  // Group bookings by date (last 7 days)
   const groupBookingsByDate = (bookings: any[]) => {
     const today = new Date();
     const last7Days = Array.from({ length: 7 }).map((_, i) => {
@@ -49,7 +65,7 @@ export default function AdminDashboardPage() {
         return;
       }
 
-      // ✅ Get current user's Firestore doc
+      // Fetch current user doc
       const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
 
@@ -60,25 +76,22 @@ export default function AdminDashboardPage() {
       }
 
       const userData = docSnap.data();
-
-      // ✅ Restrict to admin role only
       if (userData.role !== "admin") {
-        alert("❌ You are not authorized to access this page.");
+        alert("❌ You are not authorized.");
         router.push("/");
         return;
       }
 
       setUserName(userData.name || "Admin");
 
-      // ✅ Load stats and bookings
-      const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] =
-        await Promise.all([
-          getDocs(collection(db, "users")),
-          getDocs(collection(db, "partners")),
-          getDocs(collection(db, "listings")),
-          getDocs(collection(db, "staffs")),
-          getDocs(collection(db, "bookings")),
-        ]);
+      // Fetch all stats
+      const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] = await Promise.all([
+        getDocs(collection(db, "users")),
+        getDocs(collection(db, "partners")),
+        getDocs(collection(db, "listings")),
+        getDocs(collection(db, "staffs")),
+        getDocs(collection(db, "bookings")),
+      ]);
 
       setStats({
         users: usersSnap.size,
@@ -90,7 +103,7 @@ export default function AdminDashboardPage() {
       const bookingsData = bookingsSnap.docs.map((d) => d.data());
       setChartData(groupBookingsByDate(bookingsData));
 
-      // ✅ Listen to pending partners in real time
+      // Listen to pending partners
       const q = query(collection(db, "partners"), where("status", "==", "pending"));
       const unsub = onSnapshot(q, (snap) => {
         setPendingPartners(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
@@ -125,12 +138,11 @@ export default function AdminDashboardPage() {
           <a href="/admin/users" className="text-gray-700 hover:text-blue-600">Users</a>
           <a href="/admin/partners" className="text-gray-700 hover:text-blue-600">Partners</a>
           <a href="/admin/listings" className="text-gray-700 hover:text-blue-600">Listings</a>
-          <a href="/staffs/users" className="text-gray-700 hover:text-blue-600">Staffs</a>
           <a href="/admin/analytics" className="text-gray-700 hover:text-blue-600">Analytics</a>
         </nav>
       </aside>
 
-      {/* Main Content */}
+      {/* Main */}
       <div className="flex-1 p-8">
         <header className="flex justify-between items-center mb-8">
           <h1 className="text-2xl font-bold">Welcome, {userName}!</h1>
@@ -142,7 +154,7 @@ export default function AdminDashboardPage() {
           </button>
         </header>
 
-        {/* Stats Cards */}
+        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {Object.entries(stats).map(([key, value]) => (
             <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">

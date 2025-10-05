@@ -2,182 +2,81 @@
 
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import { sendPasswordResetEmail, updateProfile } from "firebase/auth";
+import { collection, getDocs, query, where } from "firebase/firestore";
 
-export default function UserDashboardPage() {
+export default function UserDashboard() {
   const router = useRouter();
-  const [bookings, setBookings] = useState<any[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
+  const [recentBookings, setRecentBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Profile state
-  const [displayName, setDisplayName] = useState("");
-  const [email, setEmail] = useState("");
-  const [profileMsg, setProfileMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchData = async () => {
+  useEffect(()=>{
+    const init = async ()=>{
       const user = auth.currentUser;
-      if (!user) {
-        router.push("/auth/login");
-        return;
+      if(!user) return router.push("/auth/login");
+
+      const usersSnap = await getDocs(collection(db, "users"));
+      const currentUser = usersSnap.docs.find(d => d.id === user.uid);
+      if(!currentUser || currentUser.data().role !== "user") {
+        alert("❌ Not authorized"); return router.push("/");
       }
 
-      try {
-        // Prefill profile details
-        setDisplayName(user.displayName || "");
-        setEmail(user.email || "");
+      const bookingsSnap = await getDocs(query(collection(db,"bookings"), where("userId","==",user.uid)));
 
-        // Fetch user bookings
-        const bookingsQuery = query(
-          collection(db, "bookings"),
-          where("userId", "==", user.uid)
-        );
-        const bookingsSnap = await getDocs(bookingsQuery);
-        const bookingsList: any[] = [];
-        bookingsSnap.forEach((doc) => bookingsList.push({ id: doc.id, ...doc.data() }));
-        setBookings(bookingsList);
+      const totalSpent = bookingsSnap.docs.reduce((sum,b)=>sum+(b.data().amount||0),0);
+      const upcoming = bookingsSnap.docs.filter(b=>new Date(b.data().date) > new Date()).length;
 
-        // Fetch notifications
-        const notifQuery = query(
-          collection(db, "notifications"),
-          where("userId", "in", [user.uid, "all"])
-        );
-        const notifSnap = await getDocs(notifQuery);
-        const notifList: any[] = [];
-        notifSnap.forEach((doc) => notifList.push({ id: doc.id, ...doc.data() }));
-        setNotifications(notifList);
-      } catch (err) {
-        console.error("Error loading dashboard:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
+      setStats({
+        bookings: bookingsSnap.size,
+        upcoming,
+        spent: totalSpent
+      });
 
-    fetchData();
+      setRecentBookings(bookingsSnap.docs.map(d=>d.data()).sort((a,b)=>new Date(b.date).getTime()-new Date(a.date).getTime()).slice(0,5));
+      setLoading(false);
+    }
+
+    init();
   }, [router]);
 
-  const handleProfileUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const user = auth.currentUser;
-    if (!user) return;
-
-    try {
-      await updateProfile(user, { displayName });
-      // optionally sync to Firestore "users" collection
-      const ref = doc(db, "users", user.uid);
-      await updateDoc(ref, { displayName });
-
-      setProfileMsg("Profile updated successfully ✅");
-    } catch (err: any) {
-      setProfileMsg("Error: " + err.message);
-    }
-  };
-
-  const handlePasswordReset = async () => {
-    const user = auth.currentUser;
-    if (!user?.email) return;
-
-    try {
-      await sendPasswordResetEmail(auth, user.email);
-      setProfileMsg("Password reset email sent 📩");
-    } catch (err: any) {
-      setProfileMsg("Error: " + err.message);
-    }
-  };
-
-  if (loading) return <p className="text-center py-12">Loading...</p>;
+  if(loading) return <p className="text-center py-12">Loading dashboard...</p>;
 
   return (
-    <div className="container mx-auto px-4 py-12 space-y-10">
-      <h1 className="text-2xl font-bold mb-6">My Dashboard</h1>
+    <div className="min-h-screen p-8 bg-gray-100">
+      <header className="flex justify-between mb-8">
+        <h1 className="text-2xl font-bold">User Dashboard</h1>
+        <button
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          onClick={()=>auth.signOut().then(()=>router.push("/auth/login"))}
+        >
+          Logout
+        </button>
+      </header>
 
-      {/* Profile Settings */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-lg font-semibold mb-4">Profile Settings</h2>
-        <form onSubmit={handleProfileUpdate} className="space-y-4">
-          <input
-            type="text"
-            value={displayName}
-            onChange={(e) => setDisplayName(e.target.value)}
-            placeholder="Full Name"
-            className="w-full p-3 border rounded"
-          />
-          <input
-            type="email"
-            value={email}
-            disabled
-            className="w-full p-3 border rounded bg-gray-100 cursor-not-allowed"
-          />
-          <div className="flex gap-4">
-            <button
-              type="submit"
-              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-            >
-              Save Changes
-            </button>
-            <button
-              type="button"
-              onClick={handlePasswordReset}
-              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-            >
-              Reset Password
-            </button>
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        {Object.entries(stats).map(([key, value])=>(
+          <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
+            <h2 className="text-2xl font-bold">{value}</h2>
+            <p className="text-gray-600 capitalize">{key}</p>
           </div>
-        </form>
-        {profileMsg && <p className="mt-3 text-sm text-green-600">{profileMsg}</p>}
+        ))}
       </div>
 
-      {/* Notifications */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-lg font-semibold mb-4">Notifications</h2>
-        {notifications.length > 0 ? (
-          <ul className="space-y-3">
-            {notifications.map((n) => (
-              <li
-                key={n.id}
-                className="p-3 border rounded bg-gray-50 hover:bg-gray-100"
-              >
-                <p className="font-medium">{n.title}</p>
-                <p className="text-sm text-gray-600">{n.message}</p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500">No new notifications</p>
-        )}
-      </div>
-
-      {/* Bookings */}
-      <div className="bg-white p-6 rounded-lg shadow">
-        <h2 className="text-lg font-semibold mb-4">My Bookings</h2>
-        {bookings.length > 0 ? (
-          <ul className="space-y-3">
-            {bookings.map((b) => (
-              <li
-                key={b.id}
-                className="p-3 border rounded bg-gray-50 hover:bg-gray-100"
-              >
-                <p className="font-medium">{b.listingTitle}</p>
-                <p className="text-sm text-gray-600">
-                  {b.date} • {b.status}
-                </p>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="text-gray-500">You have no bookings yet</p>
-        )}
+      {/* Recent Bookings */}
+      <div className="bg-white shadow rounded-2xl p-6">
+        <h3 className="text-lg font-semibold mb-4">Recent Bookings</h3>
+        {recentBookings.length===0 && <p>No bookings yet.</p>}
+        <ul className="space-y-2 max-h-64 overflow-y-auto">
+          {recentBookings.map((b, idx)=>(
+            <li key={idx} className="border rounded-lg p-2 flex justify-between">
+              <span>{b.listingName || "Trip"}</span>
+              <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
       </div>
     </div>
-  );
+  )
 }

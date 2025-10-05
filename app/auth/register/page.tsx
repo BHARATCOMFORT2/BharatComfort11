@@ -1,4 +1,3 @@
-// app/auth/register/page.tsx
 "use client";
 
 import { useState } from "react";
@@ -10,15 +9,18 @@ import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
 
 export default function RegisterPage() {
+  const router = useRouter();
   const [form, setForm] = useState({
+    name: "",
     email: "",
     password: "",
     confirmPassword: "",
+    role: "user", // default role
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
@@ -33,8 +35,20 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      await createUserWithEmailAndPassword(auth, form.email, form.password);
+      // Create Auth user
+      const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+      const user = cred.user;
+
+      // Create Firestore document
+      await setDoc(doc(db, "users", user.uid), {
+        name: form.name,
+        email: form.email,
+        role: form.role, // 'user' or 'partner'
+        status: form.role === "partner" ? "pending" : "active", // optional
+      });
+
       alert("✅ Registered successfully!");
+      router.push("/auth/login");
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -54,6 +68,14 @@ export default function RegisterPage() {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <Input
+            label="Name"
+            name="name"
+            type="text"
+            placeholder="Enter your name"
+            value={form.name}
+            onChange={handleChange}
+          />
           <Input
             label="Email"
             name="email"
@@ -78,6 +100,20 @@ export default function RegisterPage() {
             value={form.confirmPassword}
             onChange={handleChange}
           />
+
+          {/* Role Selector */}
+          <label className="text-gray-700 font-medium">
+            Select Role
+            <select
+              name="role"
+              value={form.role}
+              onChange={handleChange}
+              className="mt-1 block w-full border rounded-lg p-2"
+            >
+              <option value="user">User</option>
+              <option value="partner">Partner</option>
+            </select>
+          </label>
 
           <Button type="submit" disabled={loading}>
             {loading ? "Registering..." : "Register"}

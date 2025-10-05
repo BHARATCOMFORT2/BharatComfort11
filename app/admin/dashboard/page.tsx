@@ -3,16 +3,7 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import {
-  collection,
-  getDocs,
-  doc,
-  getDoc,
-  updateDoc,
-  query,
-  where,
-  onSnapshot
-} from "firebase/firestore";
+import { collection, getDocs, doc, getDoc, updateDoc, query, where, onSnapshot } from "firebase/firestore";
 import {
   LineChart,
   Line,
@@ -20,103 +11,95 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  ResponsiveContainer
+  ResponsiveContainer,
 } from "recharts";
-
-interface Stats {
-  users: number;
-  partners: number;
-  listings: number;
-  staffs: number;
-}
-
-interface ActivityItem {
-  message: string;
-  time: string;
-}
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0 });
-  const [pendingPartners, setPendingPartners] = useState<any[]>([]);
-  const [userName, setUserName] = useState("");
   const [loading, setLoading] = useState(true);
-  const [bookingChartData, setBookingChartData] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [userName, setUserName] = useState("");
+  const [stats, setStats] = useState({ users: 0, partners: 0, listings: 0, staffs: 0 });
+  const [pendingPartners, setPendingPartners] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<any[]>([]);
 
-  // Group bookings by last 7 days
+  // ✅ Group bookings data by date (last 7 days)
   const groupBookingsByDate = (bookings: any[]) => {
     const today = new Date();
     const last7Days = Array.from({ length: 7 }).map((_, i) => {
-      const date = new Date();
-      date.setDate(today.getDate() - i);
-      const key = date.toISOString().split("T")[0];
+      const d = new Date();
+      d.setDate(today.getDate() - i);
+      const key = d.toISOString().split("T")[0];
       return { date: key, count: 0 };
     }).reverse();
 
     bookings.forEach((b) => {
       const date = b.date?.split("T")[0];
-      const day = last7Days.find(d => d.date === date);
-      if (day) day.count += 1;
+      const found = last7Days.find((d) => d.date === date);
+      if (found) found.count += 1;
     });
     return last7Days;
   };
 
   useEffect(() => {
-    const init = async () => {
+    const loadDashboard = async () => {
       const user = auth.currentUser;
-      if (!user) return router.push("/auth/login");
-
-      // Fetch user document to check role
-      const userDocRef = doc(db, "users", user.uid);
-      const userDocSnap = await getDoc(userDocRef);
-
-      if (!userDocSnap.exists() || userDocSnap.data()?.role !== "superadmin") {
-        alert("❌ You are not authorized.");
-        return router.push("/");
+      if (!user) {
+        router.push("/auth/login");
+        return;
       }
 
-      setUserName(userDocSnap.data()?.name || "Superadmin");
+      // ✅ Get current user's Firestore doc
+      const docRef = doc(db, "users", user.uid);
+      const docSnap = await getDoc(docRef);
 
-      // Fetch stats
-      const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] = await Promise.all([
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "partners")),
-        getDocs(collection(db, "listings")),
-        getDocs(collection(db, "staffs")),
-        getDocs(collection(db, "bookings"))
-      ]);
+      if (!docSnap.exists()) {
+        alert("⚠️ No user profile found in Firestore.");
+        router.push("/");
+        return;
+      }
+
+      const userData = docSnap.data();
+
+      // ✅ Strict check for superadmin role
+      if (userData.role !== "superadmin") {
+        alert("❌ You are not authorized to access this page.");
+        router.push("/");
+        return;
+      }
+
+      setUserName(userData.name || "Superadmin");
+
+      // ✅ Load stats and data
+      const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] =
+        await Promise.all([
+          getDocs(collection(db, "users")),
+          getDocs(collection(db, "partners")),
+          getDocs(collection(db, "listings")),
+          getDocs(collection(db, "staffs")),
+          getDocs(collection(db, "bookings")),
+        ]);
 
       setStats({
         users: usersSnap.size,
         partners: partnersSnap.size,
         listings: listingsSnap.size,
-        staffs: staffsSnap.size
+        staffs: staffsSnap.size,
       });
 
-      // Booking chart
-      const bookingsData = bookingsSnap.docs.map(d => ({ ...d.data() }));
-      setBookingChartData(groupBookingsByDate(bookingsData));
+      const bookingsData = bookingsSnap.docs.map((d) => d.data());
+      setChartData(groupBookingsByDate(bookingsData));
 
-      // Recent activity (latest 10)
-      const recent = [
-        ...usersSnap.docs.map(d => ({ message: `User signed up: ${d.data().name}`, time: d.data().createdAt || "" })),
-        ...partnersSnap.docs.map(d => ({ message: `Partner signed up: ${d.data().name}`, time: d.data().createdAt || "" }))
-      ].sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0,10);
-
-      setRecentActivity(recent);
-
-      // Pending partners listener
+      // ✅ Listen to pending partners in real time
       const q = query(collection(db, "partners"), where("status", "==", "pending"));
-      const unsubscribe = onSnapshot(q, snapshot => {
-        setPendingPartners(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      const unsub = onSnapshot(q, (snap) => {
+        setPendingPartners(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       });
 
       setLoading(false);
-      return unsubscribe;
+      return unsub;
     };
 
-    init();
+    loadDashboard();
   }, [router]);
 
   const handleApprove = async (id: string) => {
@@ -158,7 +141,7 @@ export default function AdminDashboardPage() {
           </button>
         </header>
 
-        {/* Stats */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {Object.entries(stats).map(([key, value]) => (
             <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
@@ -168,62 +151,51 @@ export default function AdminDashboardPage() {
           ))}
         </div>
 
-        {/* Booking Analytics */}
+        {/* Bookings Chart */}
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
           <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={bookingChartData}>
+            <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
               <YAxis />
               <Tooltip />
-              <Line type="monotone" dataKey="count" stroke="#10b981" strokeWidth={2} />
+              <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
-        {/* Pending Partner Approvals */}
-        <div className="bg-white shadow rounded-2xl p-6 mb-12">
-          <h3 className="text-lg font-semibold mb-4">Pending Partner Approvals</h3>
-          {pendingPartners.length === 0 && <p>No pending partners.</p>}
-          <div className="space-y-4">
-            {pendingPartners.map((p) => (
-              <div key={p.id} className="flex justify-between items-center border rounded-lg p-4">
-                <div>
-                  <p className="font-medium">{p.name}</p>
-                  <p className="text-gray-500 text-sm">{p.email}</p>
-                </div>
-                <div className="space-x-2">
-                  <button
-                    onClick={() => handleApprove(p.id)}
-                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-                  >
-                    Approve
-                  </button>
-                  <button
-                    onClick={() => handleReject(p.id)}
-                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                  >
-                    Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Recent Activity Feed */}
+        {/* Pending Partners */}
         <div className="bg-white shadow rounded-2xl p-6">
-          <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-          {recentActivity.length === 0 && <p>No recent activity.</p>}
-          <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {recentActivity.map((item, index) => (
-              <li key={index} className="border rounded-lg p-2 flex justify-between">
-                <span>{item.message}</span>
-                <span className="text-gray-400 text-sm">{new Date(item.time).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
+          <h3 className="text-lg font-semibold mb-4">Pending Partner Approvals</h3>
+          {pendingPartners.length === 0 ? (
+            <p>No pending partners.</p>
+          ) : (
+            <div className="space-y-4">
+              {pendingPartners.map((p) => (
+                <div key={p.id} className="flex justify-between items-center border rounded-lg p-4">
+                  <div>
+                    <p className="font-medium">{p.name}</p>
+                    <p className="text-gray-500 text-sm">{p.email}</p>
+                  </div>
+                  <div className="space-x-2">
+                    <button
+                      onClick={() => handleApprove(p.id)}
+                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                    >
+                      Approve
+                    </button>
+                    <button
+                      onClick={() => handleReject(p.id)}
+                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                    >
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

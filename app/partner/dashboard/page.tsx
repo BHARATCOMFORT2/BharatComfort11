@@ -3,99 +3,119 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { collection, query, where, getDocs } from "firebase/firestore";
-import Link from "next/link";
+import { collection, getDocs, query, where, onSnapshot } from "firebase/firestore";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
-export default function PartnerDashboardPage() {
+export default function PartnerDashboard() {
   const router = useRouter();
-  const [listings, setListings] = useState<any[]>([]);
+  const [stats, setStats] = useState({ listings: 0, bookings: 0, earnings: 0 });
+  const [recentBookings, setRecentBookings] = useState<any[]>([]);
+  const [bookingChartData, setBookingChartData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      router.push("/auth/login");
-      return;
-    }
+    const init = async () => {
+      const user = auth.currentUser;
+      if (!user) return router.push("/auth/login");
 
-    const fetchListings = async () => {
-      try {
-        const q = query(
-          collection(db, "listings"),
-          where("partnerId", "==", user.uid)
-        );
-        const snapshot = await getDocs(q);
-        const data = snapshot.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        }));
-        setListings(data);
-      } catch (err) {
-        console.error("Error fetching listings:", err);
-      } finally {
-        setLoading(false);
+      const usersSnap = await getDocs(collection(db, "users"));
+      const currentUser = usersSnap.docs.find(d => d.id === user.uid);
+      if (!currentUser || currentUser.data().role !== "partner") {
+        alert("❌ Not authorized");
+        return router.push("/");
       }
+
+      // Stats: listings, bookings, earnings
+      const listingsSnap = await getDocs(query(collection(db, "listings"), where("partnerId", "==", user.uid)));
+      const bookingsSnap = await getDocs(query(collection(db, "bookings"), where("partnerId", "==", user.uid)));
+      
+      const totalEarnings = bookingsSnap.docs.reduce((sum, b) => sum + (b.data().amount || 0), 0);
+
+      setStats({
+        listings: listingsSnap.size,
+        bookings: bookingsSnap.size,
+        earnings: totalEarnings
+      });
+
+      // Recent bookings
+      const recent = bookingsSnap.docs
+        .map(d => d.data())
+        .sort((a,b) => b.date - a.date)
+        .slice(0,10);
+
+      setRecentBookings(recent);
+
+      // Booking chart (last 7 days)
+      const today = new Date();
+      const last7Days = Array.from({length:7}).map((_,i)=>{
+        const d = new Date(); d.setDate(today.getDate()-i);
+        return { date: d.toISOString().split("T")[0], count:0 };
+      }).reverse();
+
+      recent.forEach(b => {
+        const date = b.date?.split("T")[0];
+        const day = last7Days.find(d => d.date === date);
+        if(day) day.count+=1;
+      });
+
+      setBookingChartData(last7Days);
+      setLoading(false);
     };
 
-    fetchListings();
+    init();
   }, [router]);
 
-  return (
-    <div className="container mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-6">Partner Dashboard</h1>
+  if(loading) return <p className="text-center py-12">Loading dashboard...</p>;
 
-      <div className="flex justify-between items-center mb-6">
-        <p className="text-gray-600">Manage your business listings here.</p>
-        <Link
-          href="/partner/listings/new"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+  return (
+    <div className="min-h-screen p-8 bg-gray-100">
+      <header className="flex justify-between mb-8">
+        <h1 className="text-2xl font-bold">Partner Dashboard</h1>
+        <button
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          onClick={()=>auth.signOut().then(()=>router.push("/auth/login"))}
         >
-          + Add New Listing
-        </Link>
+          Logout
+        </button>
+      </header>
+
+      {/* Stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-12">
+        {Object.entries(stats).map(([key, value]) => (
+          <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
+            <h2 className="text-2xl font-bold">{value}</h2>
+            <p className="text-gray-600 capitalize">{key}</p>
+          </div>
+        ))}
       </div>
 
-      {loading ? (
-        <p>Loading your listings...</p>
-      ) : listings.length === 0 ? (
-        <p className="text-gray-500">
-          No listings yet. Start by adding one above.
-        </p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {listings.map((listing) => (
-            <div
-              key={listing.id}
-              className="border rounded-lg p-4 shadow bg-white"
-            >
-              <h2 className="text-lg font-semibold">{listing.title}</h2>
-              <p className="text-sm text-gray-600 mb-2">
-                {listing.category} • {listing.city}
-              </p>
-              <p className="text-gray-700 mb-4 line-clamp-3">
-                {listing.description}
-              </p>
+      {/* Booking chart */}
+      <div className="bg-white shadow rounded-2xl p-6 mb-12">
+        <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={bookingChartData}>
+            <CartesianGrid strokeDasharray="3 3" />
+            <XAxis dataKey="date" />
+            <YAxis />
+            <Tooltip />
+            <Line type="monotone" dataKey="count" stroke="#10b981" strokeWidth={2} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
 
-              <div className="flex justify-between items-center">
-                <Link
-                  href={`/partner/listings/${listing.id}/edit`}
-                  className="text-blue-600 hover:underline text-sm"
-                >
-                  Edit
-                </Link>
-                <span
-                  className={`text-xs px-2 py-1 rounded ${
-                    listing.approved
-                      ? "bg-green-100 text-green-700"
-                      : "bg-yellow-100 text-yellow-700"
-                  }`}
-                >
-                  {listing.approved ? "Approved" : "Pending"}
-                </span>
-              </div>
-            </div>
+      {/* Recent bookings */}
+      <div className="bg-white shadow rounded-2xl p-6">
+        <h3 className="text-lg font-semibold mb-4">Recent Bookings</h3>
+        {recentBookings.length===0 && <p>No bookings yet.</p>}
+        <ul className="space-y-2 max-h-64 overflow-y-auto">
+          {recentBookings.map((b, idx)=>(
+            <li key={idx} className="border rounded-lg p-2 flex justify-between">
+              <span>{b.userName || b.customerName}</span>
+              <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+            </li>
           ))}
-        </div>
-      )}
+        </ul>
+      </div>
     </div>
-  );
+  )
 }

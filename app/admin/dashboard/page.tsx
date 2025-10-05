@@ -7,10 +7,11 @@ import {
   collection,
   getDocs,
   doc,
+  setDoc,
   updateDoc,
-  onSnapshot,
   query,
-  where
+  where,
+  onSnapshot
 } from "firebase/firestore";
 import {
   LineChart,
@@ -27,7 +28,6 @@ interface Stats {
   partners: number;
   listings: number;
   staffs: number;
-  bookings: number;
 }
 
 interface ActivityItem {
@@ -37,113 +37,93 @@ interface ActivityItem {
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({
-    users: 0,
-    partners: 0,
-    listings: 0,
-    staffs: 0,
-    bookings: 0
-  });
-  const [pendingPartners, setPendingPartners] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
   const [userName, setUserName] = useState("Superadmin");
   const [loading, setLoading] = useState(true);
-
-  // Group bookings for last 7 days
-  const groupBookingsByDate = (bookings: any[]) => {
-    const today = new Date();
-    const last7Days = Array.from({ length: 7 }).map((_, i) => {
-      const date = new Date();
-      date.setDate(today.getDate() - i);
-      return { date: date.toISOString().split("T")[0], count: 0 };
-    }).reverse();
-
-    bookings.forEach(b => {
-      const date = b.date?.split("T")[0];
-      const day = last7Days.find(d => d.date === date);
-      if (day) day.count += 1;
-    });
-
-    return last7Days;
-  };
+  const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0 });
+  const [pendingPartners, setPendingPartners] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [bookingChartData, setBookingChartData] = useState<any[]>([]);
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) return router.push("/auth/login");
+    const init = async () => {
+      const user = auth.currentUser;
+      if (!user) return router.push("/auth/login");
 
-    const usersRef = collection(db, "users");
-    const partnersRef = collection(db, "partners");
-    const listingsRef = collection(db, "listings");
-    const staffsRef = collection(db, "staffs");
-    const bookingsRef = collection(db, "bookings");
-
-    // Superadmin check + real-time updates
-    const unsubscribeUsers = onSnapshot(usersRef, snapshot => {
-      const currentUser = snapshot.docs.find(d => d.id === user.uid);
-      if (!currentUser) {
-        alert("❌ You are not authorized (no user profile).");
-        return router.push("/");
-      }
-      const role = currentUser.data().role;
-      if (role !== "superadmin") {
-        alert("❌ You are not authorized (role: " + role + ")");
+      const superadminUID = process.env.NEXT_PUBLIC_SUPERADMIN_UID;
+      if (user.uid !== superadminUID) {
+        alert("❌ You are not authorized.");
         return router.push("/");
       }
 
-      setUserName(currentUser.data().name || "Superadmin");
+      // Auto-create Firestore doc if missing
+      const userDocRef = doc(db, "users", user.uid);
+      const userSnap = await getDocs(collection(db, "users"));
+      const existingUser = userSnap.docs.find(d => d.id === user.uid);
+      if (!existingUser) {
+        await setDoc(userDocRef, {
+          name: "Superadmin",
+          email: user.email,
+          role: "superadmin",
+          createdAt: new Date().toISOString()
+        });
+        setUserName("Superadmin");
+      } else {
+        setUserName(existingUser.data().name || "Superadmin");
+      }
 
-      setStats(prev => ({ ...prev, users: snapshot.size }));
+      // Fetch stats
+      const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] = await Promise.all([
+        getDocs(collection(db, "users")),
+        getDocs(collection(db, "partners")),
+        getDocs(collection(db, "listings")),
+        getDocs(collection(db, "staffs")),
+        getDocs(collection(db, "bookings"))
+      ]);
 
-      // Recent activity: users
-      const userActivity = snapshot.docs.map(d => ({
-        message: `User signed up: ${d.data().name || d.data().email}`,
-        time: d.data().createdAt || ""
-      }));
-
-      setRecentActivity(prev => {
-        const partnersActivity = prev.filter(item => item.message.startsWith("Partner"));
-        return [...userActivity, ...partnersActivity]
-          .sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-          .slice(0,10);
+      setStats({
+        users: usersSnap.size,
+        partners: partnersSnap.size,
+        listings: listingsSnap.size,
+        staffs: staffsSnap.size
       });
-    });
 
-    const unsubscribePartners = onSnapshot(partnersRef, snapshot => {
-      setStats(prev => ({ ...prev, partners: snapshot.size }));
+      // Booking chart last 7 days
+      const bookingsData = bookingsSnap.docs.map(d => ({ ...d.data() }));
+      const today = new Date();
+      const last7Days = Array.from({ length: 7 }).map((_, i) => {
+        const date = new Date();
+        date.setDate(today.getDate() - i);
+        const key = date.toISOString().split("T")[0];
+        return { date: key, count: 0 };
+      }).reverse();
 
-      // Pending partners
-      const pending = snapshot.docs.filter(d => d.data().status === "pending");
-      setPendingPartners(pending.map(d => ({ id: d.id, ...d.data() })));
-
-      // Recent activity: partners
-      const partnerActivity = snapshot.docs.map(d => ({
-        message: `Partner signed up: ${d.data().name || d.data().email}`,
-        time: d.data().createdAt || ""
-      }));
-
-      setRecentActivity(prev => {
-        const usersActivity = prev.filter(item => item.message.startsWith("User"));
-        return [...usersActivity, ...partnerActivity]
-          .sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime())
-          .slice(0,10);
+      bookingsData.forEach((b) => {
+        const date = b.date?.split("T")[0];
+        const day = last7Days.find(d => d.date === date);
+        if (day) day.count += 1;
       });
-    });
 
-    const unsubscribeListings = onSnapshot(listingsRef, snapshot => setStats(prev => ({ ...prev, listings: snapshot.size })));
-    const unsubscribeStaffs = onSnapshot(staffsRef, snapshot => setStats(prev => ({ ...prev, staffs: snapshot.size })));
-    const unsubscribeBookings = onSnapshot(bookingsRef, snapshot => {
-      setStats(prev => ({ ...prev, bookings: snapshot.size }));
-    });
+      setBookingChartData(last7Days);
 
-    setLoading(false);
+      // Recent activity (latest 10)
+      const recent = [
+        ...usersSnap.docs.map(d => ({ message: `User signed up: ${d.data().name}`, time: d.data().createdAt || "" })),
+        ...partnersSnap.docs.map(d => ({ message: `Partner signed up: ${d.data().name}`, time: d.data().createdAt || "" }))
+      ].sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0,10);
 
-    return () => {
-      unsubscribeUsers();
-      unsubscribePartners();
-      unsubscribeListings();
-      unsubscribeStaffs();
-      unsubscribeBookings();
+      setRecentActivity(recent);
+
+      // Pending partners listener
+      const q = query(collection(db, "partners"), where("status", "==", "pending"));
+      const unsubscribe = onSnapshot(q, snapshot => {
+        setPendingPartners(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      });
+
+      setLoading(false);
+      return unsubscribe;
     };
+
+    init();
   }, [router]);
 
   const handleApprove = async (id: string) => {
@@ -186,7 +166,7 @@ export default function AdminDashboardPage() {
         </header>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {Object.entries(stats).map(([key, value]) => (
             <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
               <h2 className="text-2xl font-bold">{value}</h2>
@@ -195,11 +175,16 @@ export default function AdminDashboardPage() {
           ))}
         </div>
 
-        {/* Booking Chart */}
+        {/* Overview Chart */}
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
-          <h3 className="text-lg font-semibold mb-4">Bookings Overview</h3>
+          <h3 className="text-lg font-semibold mb-4">Overview</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={[...Array(5)].map((_, i) => ({ name: Object.keys(stats)[i], count: Object.values(stats)[i] }))}>
+            <LineChart data={[
+              { name: 'Users', count: stats.users },
+              { name: 'Partners', count: stats.partners },
+              { name: 'Listings', count: stats.listings },
+              { name: 'Staffs', count: stats.staffs }
+            ]}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis />
@@ -209,20 +194,44 @@ export default function AdminDashboardPage() {
           </ResponsiveContainer>
         </div>
 
+        {/* Booking Analytics */}
+        <div className="bg-white shadow rounded-2xl p-6 mb-12">
+          <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={bookingChartData}>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="date" />
+              <YAxis />
+              <Tooltip />
+              <Line type="monotone" dataKey="count" stroke="#10b981" strokeWidth={2} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+
         {/* Pending Partner Approvals */}
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
           <h3 className="text-lg font-semibold mb-4">Pending Partner Approvals</h3>
           {pendingPartners.length === 0 && <p>No pending partners.</p>}
           <div className="space-y-4">
-            {pendingPartners.map(p => (
+            {pendingPartners.map((p) => (
               <div key={p.id} className="flex justify-between items-center border rounded-lg p-4">
                 <div>
                   <p className="font-medium">{p.name}</p>
                   <p className="text-gray-500 text-sm">{p.email}</p>
                 </div>
                 <div className="space-x-2">
-                  <button onClick={() => handleApprove(p.id)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">Approve</button>
-                  <button onClick={() => handleReject(p.id)} className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700">Reject</button>
+                  <button
+                    onClick={() => handleApprove(p.id)}
+                    className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleReject(p.id)}
+                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                  >
+                    Reject
+                  </button>
                 </div>
               </div>
             ))}
@@ -234,10 +243,10 @@ export default function AdminDashboardPage() {
           <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
           {recentActivity.length === 0 && <p>No recent activity.</p>}
           <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {recentActivity.map((item, i) => (
-              <li key={i} className="border rounded-lg p-2 flex justify-between">
+            {recentActivity.map((item, index) => (
+              <li key={index} className="border rounded-lg p-2 flex justify-between">
                 <span>{item.message}</span>
-                <span className="text-gray-400 text-sm">{item.time ? new Date(item.time).toLocaleString() : ""}</span>
+                <span className="text-gray-400 text-sm">{new Date(item.time).toLocaleString()}</span>
               </li>
             ))}
           </ul>

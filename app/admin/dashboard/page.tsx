@@ -3,277 +3,232 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { collection, onSnapshot, query, where } from "firebase/firestore";
 import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer,
-} from "recharts";
-import {
-  Dashboard,
-  Users,
-  Briefcase,
-  ClipboardList,
-  BarChart2,
-  Bell,
-  UserCircle,
-  Menu,
-  X,
-  Search,
-} from "lucide-react";
+  collection,
+  getDocs,
+  query,
+  where,
+  onSnapshot,
+  updateDoc,
+  doc,
+  deleteDoc,
+} from "firebase/firestore";
 
-interface Stats {
-  users: number;
-  partners: number;
-  listings: number;
-  staffs: number;
+interface User {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
 }
 
-interface PendingPartner {
+interface Partner {
   id: string;
   name: string;
   email: string;
   status: string;
 }
 
+interface Listing {
+  id: string;
+  title: string;
+  ownerId: string;
+}
+
+interface Staff {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false); // mobile drawer
-  const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0 });
-  const [pendingPartners, setPendingPartners] = useState<PendingPartner[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
-  const [userName, setUserName] = useState("");
+  const [stats, setStats] = useState({ users: 0, partners: 0, listings: 0, staffs: 0 });
+  const [users, setUsers] = useState<User[]>([]);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [staffs, setStaffs] = useState<Staff[]>([]);
 
-  const groupBookingsByDate = (bookings: any[]) => {
-    const today = new Date();
-    const last7Days = Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date();
-      d.setDate(today.getDate() - i);
-      return { date: d.toISOString().split("T")[0], count: 0 };
-    }).reverse();
+  // Search, sort, pagination states
+  const [userSearch, setUserSearch] = useState("");
+  const [partnerSearch, setPartnerSearch] = useState("");
+  const [listingSearch, setListingSearch] = useState("");
+  const [staffSearch, setStaffSearch] = useState("");
 
-    bookings.forEach((b) => {
-      const date = b.date?.split("T")[0];
-      const day = last7Days.find((d) => d.date === date);
-      if (day) day.count += 1;
-    });
+  const [userPage, setUserPage] = useState(1);
+  const [partnerPage, setPartnerPage] = useState(1);
+  const [listingPage, setListingPage] = useState(1);
+  const [staffPage, setStaffPage] = useState(1);
+  const rowsPerPage = 10;
 
-    return last7Days;
+  const fetchData = async () => {
+    const user = auth.currentUser;
+    if (!user) {
+      router.push("/auth/login");
+      return;
+    }
+
+    try {
+      // Users
+      const usersSnap = await getDocs(collection(db, "users"));
+      const usersData = usersSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as User[];
+      setUsers(usersData);
+
+      // Partners
+      const partnersSnap = await getDocs(collection(db, "partners"));
+      const partnersData = partnersSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Partner[];
+      setPartners(partnersData);
+
+      // Listings
+      const listingsSnap = await getDocs(collection(db, "listings"));
+      const listingsData = listingsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Listing[];
+      setListings(listingsData);
+
+      // Staffs
+      const staffsSnap = await getDocs(collection(db, "staffs"));
+      const staffsData = staffsSnap.docs.map((d) => ({ id: d.id, ...d.data() })) as Staff[];
+      setStaffs(staffsData);
+
+      // Stats
+      setStats({
+        users: usersData.length,
+        partners: partnersData.length,
+        listings: listingsData.length,
+        staffs: staffsData.length,
+      });
+    } catch (err) {
+      console.error("Error fetching data:", err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
-    const initDashboard = async () => {
-      const user = auth.currentUser;
-      if (!user) return router.push("/auth/login");
+    fetchData();
+  }, []);
 
-      const usersRef = collection(db, "users");
-      const unsubUser = onSnapshot(usersRef, (snap) => {
-        const currentUser = snap.docs.find((d) => d.id === user.uid)?.data();
-        if (!currentUser || currentUser.role !== "admin") {
-          alert("❌ Not authorized");
-          router.push("/");
-          return;
-        }
-        setUserName(currentUser.name || "Admin");
-      });
+  // Delete functions
+  const handleDelete = async (collectionName: string, id: string) => {
+    if (!confirm("Are you sure?")) return;
+    await deleteDoc(doc(db, collectionName, id));
+    fetchData();
+  };
 
-      // Stats
-      const unsubUsers = onSnapshot(collection(db, "users"), (snap) =>
-        setStats((prev) => ({ ...prev, users: snap.size }))
-      );
-      const unsubPartners = onSnapshot(collection(db, "partners"), (snap) =>
-        setStats((prev) => ({ ...prev, partners: snap.size }))
-      );
-      const unsubListings = onSnapshot(collection(db, "listings"), (snap) =>
-        setStats((prev) => ({ ...prev, listings: snap.size }))
-      );
-      const unsubStaffs = onSnapshot(collection(db, "staffs"), (snap) =>
-        setStats((prev) => ({ ...prev, staffs: snap.size }))
-      );
-
-      // Pending partners
-      const pendingQ = query(collection(db, "partners"), where("status", "==", "pending"));
-      const unsubPending = onSnapshot(pendingQ, (snap) =>
-        setPendingPartners(snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) })))
-      );
-
-      // Bookings chart
-      const unsubBookings = onSnapshot(collection(db, "bookings"), (snap) => {
-        const bookingsData = snap.docs.map((d) => d.data());
-        setChartData(groupBookingsByDate(bookingsData));
-      });
-
-      setLoading(false);
-
-      return () => {
-        unsubUser();
-        unsubUsers();
-        unsubPartners();
-        unsubListings();
-        unsubStaffs();
-        unsubPending();
-        unsubBookings();
-      };
-    };
-
-    initDashboard();
-  }, [router]);
-
+  // Approve partner
   const handleApprove = async (id: string) => {
-    await db.collection("partners").doc(id).update({ status: "approved" });
-    alert("✅ Partner approved!");
+    await updateDoc(doc(db, "partners", id), { status: "approved" });
+    fetchData();
   };
 
-  const handleReject = async (id: string) => {
-    await db.collection("partners").doc(id).update({ status: "rejected" });
-    alert("❌ Partner rejected!");
+  // Filtered & Paginated helpers
+  const getFilteredPaginated = <T extends { id: string; name?: string; title?: string }>(
+    arr: T[],
+    search: string,
+    page: number
+  ) => {
+    const filtered = arr.filter(
+      (x) =>
+        (x.name?.toLowerCase().includes(search.toLowerCase()) ?? false) ||
+        (x.title?.toLowerCase().includes(search.toLowerCase()) ?? false)
+    );
+    const paginated = filtered.slice((page - 1) * rowsPerPage, page * rowsPerPage);
+    return { filtered, paginated };
   };
 
-  if (loading) return <p className="text-center py-12 text-gray-500">Loading dashboard...</p>;
+  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
 
   return (
-    <div className="flex min-h-screen">
-      {/* Sidebar */}
-      <aside
-        className={`fixed z-30 inset-y-0 left-0 transform ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        } md:translate-x-0 md:static w-64 bg-white shadow-lg transition-transform duration-300`}
-      >
-        <div className="flex justify-between items-center p-6 border-b">
-          <span className="text-xl font-bold text-blue-600">BHARATCOMFORT11</span>
-          <button className="md:hidden" onClick={() => setSidebarOpen(false)}>
-            <X />
-          </button>
-        </div>
-        <nav className="mt-6">
-          {[
-            { name: "Dashboard", href: "/admin/dashboard", icon: <Dashboard /> },
-            { name: "Users", href: "/admin/users", icon: <Users /> },
-            { name: "Partners", href: "/admin/partners", icon: <Briefcase /> },
-            { name: "Listings", href: "/admin/listings", icon: <ClipboardList /> },
-            { name: "Staffs", href: "/staffs/users", icon: <Users /> },
-            { name: "Analytics", href: "/admin/analytics", icon: <BarChart2 /> },
-          ].map((item) => (
-            <a
-              key={item.name}
-              href={item.href}
-              className="flex items-center gap-3 p-4 hover:bg-blue-50 hover:text-blue-600 transition"
-            >
-              {item.icon}
-              <span>{item.name}</span>
-            </a>
-          ))}
-        </nav>
-      </aside>
+    <div className="min-h-screen p-8 bg-gray-100">
+      <header className="flex justify-between mb-8">
+        <h1 className="text-2xl font-bold">Admin Dashboard</h1>
+        <button
+          onClick={() => auth.signOut().then(() => router.push("/auth/login"))}
+          className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+        >
+          Logout
+        </button>
+      </header>
 
-      {/* Overlay for mobile */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-25 z-20 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        ></div>
-      )}
+      {/* Stats Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        {Object.entries(stats).map(([key, value]) => (
+          <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
+            <h2 className="text-2xl font-bold">{value}</h2>
+            <p className="text-gray-600 capitalize">{key}</p>
+          </div>
+        ))}
+      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col md:ml-64">
-        {/* Top Navbar */}
-        <div className="flex justify-between items-center p-6 bg-white shadow">
-          <div className="flex items-center gap-4">
-            <button className="md:hidden" onClick={() => setSidebarOpen(true)}>
-              <Menu />
-            </button>
-            <Search className="text-gray-400" />
+      {/* Sections: Users, Partners, Listings, Staffs */}
+      {[
+        { title: "Users", data: users, search: userSearch, setSearch: setUserSearch, page: userPage, setPage: setUserPage, isPartner: false },
+        { title: "Partners", data: partners, search: partnerSearch, setSearch: setPartnerSearch, page: partnerPage, setPage: setPartnerPage, isPartner: true },
+        { title: "Listings", data: listings, search: listingSearch, setSearch: setListingSearch, page: listingPage, setPage: setListingPage, isPartner: false },
+        { title: "Staffs", data: staffs, search: staffSearch, setSearch: setStaffSearch, page: staffPage, setPage: setStaffPage, isPartner: false },
+      ].map(({ title, data, search, setSearch, page, setPage, isPartner }) => {
+        const { filtered, paginated } = getFilteredPaginated(data, search, page);
+        return (
+          <div key={title} className="mb-12 bg-white p-6 rounded-2xl shadow">
+            <h2 className="text-xl font-semibold mb-4">{title}</h2>
             <input
               type="text"
-              placeholder="Search..."
-              className="px-3 py-1 rounded-lg border border-gray-300 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              placeholder={`Search ${title.toLowerCase()}...`}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="mb-2 p-2 border rounded w-full"
             />
-          </div>
-          <div className="flex items-center gap-4">
-            <Bell className="text-gray-600 cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
-              <UserCircle className="text-gray-600" />
-              <span className="text-gray-700 font-medium">{userName}</span>
+            <table className="min-w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="py-2 px-4 border">Name/Title</th>
+                  {title !== "Listings" && <th className="py-2 px-4 border">Email</th>}
+                  {isPartner && <th className="py-2 px-4 border">Status</th>}
+                  <th className="py-2 px-4 border">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {paginated.map((item: any) => (
+                  <tr key={item.id} className="border-b hover:bg-gray-50">
+                    <td className="py-2 px-4">{item.name ?? item.title}</td>
+                    {title !== "Listings" && <td className="py-2 px-4">{item.email}</td>}
+                    {isPartner && <td className="py-2 px-4">{item.status}</td>}
+                    <td className="py-2 px-4 space-x-2">
+                      {isPartner && item.status === "pending" && (
+                        <button
+                          onClick={() => handleApprove(item.id)}
+                          className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          Approve
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(isPartner ? "partners" : title.toLowerCase(), item.id)}
+                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
+                      >
+                        Delete
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {/* Pagination */}
+            <div className="flex justify-between mt-2">
+              <button onClick={() => setPage(Math.max(page - 1, 1))} disabled={page === 1} className="px-3 py-1 bg-gray-200 rounded">
+                Previous
+              </button>
+              <span>Page {page} of {Math.ceil(filtered.length / rowsPerPage)}</span>
               <button
-                onClick={() => auth.signOut().then(() => router.push("/auth/login"))}
-                className="ml-2 px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                onClick={() => setPage(Math.min(page + 1, Math.ceil(filtered.length / rowsPerPage)))}
+                disabled={page === Math.ceil(filtered.length / rowsPerPage)}
+                className="px-3 py-1 bg-gray-200 rounded"
               >
-                Logout
+                Next
               </button>
             </div>
           </div>
-        </div>
-
-        <div className="p-8 flex-1 overflow-auto">
-          {/* Stats Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-            {Object.entries(stats).map(([key, value]) => (
-              <div
-                key={key}
-                className="p-6 bg-white shadow-lg rounded-2xl text-center transform hover:scale-105 transition"
-              >
-                <h2 className="text-3xl font-bold text-gray-800">{value}</h2>
-                <p className="text-gray-500 capitalize">{key}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Bookings Chart */}
-          <div className="bg-white shadow-lg rounded-2xl p-6 mb-12">
-            <h3 className="text-xl font-semibold mb-4 text-gray-700">Bookings (Last 7 Days)</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="date" stroke="#4B5563" />
-                <YAxis stroke="#4B5563" />
-                <Tooltip />
-                <Line type="monotone" dataKey="count" stroke="#2563EB" strokeWidth={3} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          {/* Pending Partners */}
-          <div className="bg-white shadow-lg rounded-2xl p-6">
-            <h3 className="text-xl font-semibold mb-4 text-gray-700">Pending Partner Approvals</h3>
-            {pendingPartners.length === 0 ? (
-              <p className="text-gray-500">No pending partners.</p>
-            ) : (
-              <div className="space-y-4">
-                {pendingPartners.map((p) => (
-                  <div
-                    key={p.id}
-                    className="flex justify-between items-center border rounded-lg p-4 hover:shadow-md transition"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-800">{p.name}</p>
-                      <p className="text-gray-500 text-sm">{p.email}</p>
-                    </div>
-                    <div className="space-x-2">
-                      <button
-                        onClick={() => handleApprove(p.id)}
-                        className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition"
-                      >
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleReject(p.id)}
-                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 transition"
-                      >
-                        Reject
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+        );
+      })}
     </div>
   );
 }

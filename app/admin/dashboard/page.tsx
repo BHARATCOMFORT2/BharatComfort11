@@ -58,28 +58,25 @@ export default function AdminDashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
-
   const [stats, setStats] = useState({
     users: 0,
     partners: 0,
     listings: 0,
     staffs: 0,
   });
-
   const [pendingPartners, setPendingPartners] = useState<PendingPartner[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [listings, setListings] = useState<Listing[]>([]);
   const [staffs, setStaffs] = useState<Staff[]>([]);
   const [chartData, setChartData] = useState<{ date: string; count: number }[]>([]);
 
-  // -------------------- HELPERS --------------------
+  // Helper to group bookings by last 7 days
   const groupBookingsByDate = (bookings: any[]) => {
     const today = new Date();
     const last7Days = Array.from({ length: 7 }).map((_, i) => {
       const d = new Date();
       d.setDate(today.getDate() - i);
-      const key = d.toISOString().split("T")[0];
-      return { date: key, count: 0 };
+      return { date: d.toISOString().split("T")[0], count: 0 };
     }).reverse();
 
     bookings.forEach((b) => {
@@ -87,27 +84,21 @@ export default function AdminDashboardPage() {
       const found = last7Days.find((d) => d.date === date);
       if (found) found.count += 1;
     });
+
     return last7Days;
   };
 
+  // Approve / Reject / Delete helpers
   const handleApprovePartner = async (id: string) => {
     await updateDoc(doc(db, "partners", id), { status: "approved" });
-    alert("✅ Partner approved!");
   };
-
   const handleRejectPartner = async (id: string) => {
     await updateDoc(doc(db, "partners", id), { status: "rejected" });
-    alert("❌ Partner rejected!");
   };
-
   const handleDelete = async (collectionName: string, id: string) => {
-    if (confirm("Are you sure you want to delete this?")) {
-      await deleteDoc(doc(db, collectionName, id));
-      alert("✅ Deleted successfully!");
-    }
+    if (confirm("Are you sure?")) await deleteDoc(doc(db, collectionName, id));
   };
 
-  // -------------------- LOAD DASHBOARD --------------------
   useEffect(() => {
     const loadDashboard = async () => {
       const user = auth.currentUser;
@@ -118,23 +109,20 @@ export default function AdminDashboardPage() {
 
       const docRef = doc(db, "users", user.uid);
       const docSnap = await getDoc(docRef);
-
       if (!docSnap.exists()) {
-        alert("⚠️ No user profile found in Firestore.");
-        router.push("/");
-        return;
+        router.push("/"); return;
       }
 
       const userData = docSnap.data();
       if (userData.role !== "admin") {
-        alert("❌ You are not authorized to access this page.");
-        router.push("/");
-        return;
+        alert("❌ Not authorized");
+        router.push("/"); return;
       }
+
       setUserName(userData.name || "Admin");
 
       try {
-        // Fetch stats & data
+        // Fetch stats
         const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] =
           await Promise.all([
             getDocs(collection(db, "users")),
@@ -155,22 +143,17 @@ export default function AdminDashboardPage() {
         setListings(listingsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Listing)));
         setStaffs(staffsSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Staff)));
 
-        const bookingsData = bookingsSnap.docs.map((d) => d.data());
-        setChartData(groupBookingsByDate(bookingsData));
+        setChartData(groupBookingsByDate(bookingsSnap.docs.map((d) => d.data())));
 
         // Pending partners real-time
         const q = query(collection(db, "partners"), where("status", "==", "pending"));
         const unsub = onSnapshot(q, (snap) => {
           setPendingPartners(
-            snap.docs.map((d) => {
-              const data = d.data() as Omit<PendingPartner, "id">;
-              return { id: d.id, name: data.name, email: data.email, status: data.status };
-            })
+            snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<PendingPartner, "id">) }))
           );
         });
-
       } catch (err) {
-        console.error("Error loading dashboard:", err);
+        console.error("Dashboard load error:", err);
       } finally {
         setLoading(false);
       }
@@ -181,48 +164,36 @@ export default function AdminDashboardPage() {
 
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
 
-  // -------------------- RENDER --------------------
   return (
-    <div className="min-h-screen flex bg-gray-100">
+    <div className="flex min-h-screen bg-gray-100">
       {/* Sidebar */}
       <aside className="w-64 bg-white shadow-lg hidden md:block">
         <div className="p-6 font-bold text-xl border-b">BHARATCOMFORT11</div>
-        <nav className="p-6 space-y-4">
-          {[
-            { name: "Dashboard", href: "/admin/dashboard", icon: <Home /> },
-            { name: "Users", href: "#users", icon: <Users /> },
-            { name: "Partners", href: "#partners", icon: <Briefcase /> },
-            { name: "Listings", href: "#listings", icon: <ClipboardList /> },
-            { name: "Staffs", href: "#staffs", icon: <Users /> },
-            { name: "Analytics", href: "#analytics", icon: <BarChart2 /> },
-          ].map((item) => (
-            <a
-              key={item.name}
-              href={item.href}
-              className="flex items-center gap-3 p-4 hover:bg-blue-50 hover:text-blue-600 transition"
-            >
-              {item.icon} <span>{item.name}</span>
+        <nav className="p-6 space-y-2">
+          {[{name:"Dashboard",href:"#dashboard",icon:<Home />},{name:"Users",href:"#users",icon:<Users />},{name:"Partners",href:"#partners",icon:<Briefcase />},{name:"Listings",href:"#listings",icon:<ClipboardList />},{name:"Staffs",href:"#staffs",icon:<Users />},{name:"Analytics",href:"#analytics",icon:<BarChart2 />},].map(item=>(
+            <a key={item.name} href={item.href} className="flex items-center gap-3 p-3 hover:bg-blue-50 hover:text-blue-600 rounded">
+              {item.icon}<span>{item.name}</span>
             </a>
           ))}
         </nav>
       </aside>
 
       {/* Main */}
-      <div className="flex-1 p-8">
+      <main className="flex-1 p-8">
         <header className="flex justify-between items-center mb-8">
           <h1 className="text-2xl font-bold">Welcome, {userName}!</h1>
           <button
             onClick={() => auth.signOut().then(() => router.push("/auth/login"))}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
             Logout
           </button>
         </header>
 
-        {/* Stats */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {Object.entries(stats).map(([key, value]) => (
-            <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
+            <div key={key} className="p-6 bg-white shadow rounded-lg text-center hover:shadow-lg transition">
               <h2 className="text-2xl font-bold">{value}</h2>
               <p className="text-gray-600 capitalize">{key}</p>
             </div>
@@ -230,9 +201,9 @@ export default function AdminDashboardPage() {
         </div>
 
         {/* Bookings Chart */}
-        <div className="bg-white shadow rounded-2xl p-6 mb-12">
-          <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
-          <ResponsiveContainer width="100%" height={200}>
+        <section id="analytics" className="bg-white p-6 shadow rounded-lg mb-12">
+          <h3 className="font-semibold mb-4">Bookings (Last 7 Days)</h3>
+          <ResponsiveContainer width="100%" height={250}>
             <LineChart data={chartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
@@ -241,13 +212,13 @@ export default function AdminDashboardPage() {
               <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
-        </div>
+        </section>
 
-        {/* Users Section */}
+        {/* Users Table */}
         <section id="users" className="mb-12">
-          <h3 className="text-lg font-semibold mb-4">Users</h3>
+          <h3 className="font-semibold mb-4">Users</h3>
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white rounded-lg shadow">
+            <table className="min-w-full bg-white shadow rounded-lg">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="py-2 px-4">Name</th>
@@ -257,18 +228,16 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {users.map((u) => (
+                {users.map(u => (
                   <tr key={u.id} className="border-b hover:bg-gray-50">
                     <td className="py-2 px-4">{u.name}</td>
                     <td className="py-2 px-4">{u.email}</td>
                     <td className="py-2 px-4">{u.role}</td>
                     <td className="py-2 px-4">
                       <button
-                        onClick={() => handleDelete("users", u.id)}
+                        onClick={()=>handleDelete("users",u.id)}
                         className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                      >
-                        Delete
-                      </button>
+                      >Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -277,35 +246,20 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        {/* Partners Section */}
+        {/* Pending Partners */}
         <section id="partners" className="mb-12">
-          <h3 className="text-lg font-semibold mb-4">Partners</h3>
-          {pendingPartners.length === 0 ? (
-            <p>No pending partners.</p>
-          ) : (
+          <h3 className="font-semibold mb-4">Pending Partners</h3>
+          {pendingPartners.length===0 ? <p>No pending partners.</p> : (
             <div className="space-y-4">
-              {pendingPartners.map((p) => (
-                <div
-                  key={p.id}
-                  className="flex justify-between items-center border rounded-lg p-4 bg-white shadow"
-                >
+              {pendingPartners.map(p => (
+                <div key={p.id} className="flex justify-between items-center p-4 bg-white shadow rounded-lg">
                   <div>
                     <p className="font-medium">{p.name}</p>
                     <p className="text-gray-500 text-sm">{p.email}</p>
                   </div>
                   <div className="space-x-2">
-                    <button
-                      onClick={() => handleApprovePartner(p.id)}
-                      className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-                    >
-                      Approve
-                    </button>
-                    <button
-                      onClick={() => handleRejectPartner(p.id)}
-                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                    >
-                      Reject
-                    </button>
+                    <button onClick={()=>handleApprovePartner(p.id)} className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">Approve</button>
+                    <button onClick={()=>handleRejectPartner(p.id)} className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700">Reject</button>
                   </div>
                 </div>
               ))}
@@ -313,11 +267,11 @@ export default function AdminDashboardPage() {
           )}
         </section>
 
-        {/* Listings Section */}
+        {/* Listings Table */}
         <section id="listings" className="mb-12">
-          <h3 className="text-lg font-semibold mb-4">Listings</h3>
+          <h3 className="font-semibold mb-4">Listings</h3>
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white rounded-lg shadow">
+            <table className="min-w-full bg-white shadow rounded-lg">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="py-2 px-4">Title</th>
@@ -327,18 +281,13 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {listings.map((l) => (
+                {listings.map(l => (
                   <tr key={l.id} className="border-b hover:bg-gray-50">
                     <td className="py-2 px-4">{l.title}</td>
                     <td className="py-2 px-4">{l.ownerId}</td>
                     <td className="py-2 px-4">{l.status}</td>
                     <td className="py-2 px-4">
-                      <button
-                        onClick={() => handleDelete("listings", l.id)}
-                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                      >
-                        Delete
-                      </button>
+                      <button onClick={()=>handleDelete("listings",l.id)} className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -347,11 +296,11 @@ export default function AdminDashboardPage() {
           </div>
         </section>
 
-        {/* Staffs Section */}
+        {/* Staff Table */}
         <section id="staffs" className="mb-12">
-          <h3 className="text-lg font-semibold mb-4">Staffs</h3>
+          <h3 className="font-semibold mb-4">Staffs</h3>
           <div className="overflow-x-auto">
-            <table className="min-w-full bg-white rounded-lg shadow">
+            <table className="min-w-full bg-white shadow rounded-lg">
               <thead className="bg-gray-50">
                 <tr>
                   <th className="py-2 px-4">Name</th>
@@ -360,17 +309,12 @@ export default function AdminDashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {staffs.map((s) => (
+                {staffs.map(s => (
                   <tr key={s.id} className="border-b hover:bg-gray-50">
                     <td className="py-2 px-4">{s.name}</td>
                     <td className="py-2 px-4">{s.email}</td>
                     <td className="py-2 px-4">
-                      <button
-                        onClick={() => handleDelete("staffs", s.id)}
-                        className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700"
-                      >
-                        Delete
-                      </button>
+                      <button onClick={()=>handleDelete("staffs",s.id)} className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700">Delete</button>
                     </td>
                   </tr>
                 ))}
@@ -378,7 +322,8 @@ export default function AdminDashboardPage() {
             </table>
           </div>
         </section>
-      </div>
+
+      </main>
     </div>
   );
 }

@@ -4,7 +4,15 @@ import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { collection, getDocs, doc, getDoc, updateDoc, query, where, onSnapshot } from "firebase/firestore";
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+} from "recharts";
 
 interface Stats {
   users: number;
@@ -13,7 +21,7 @@ interface Stats {
   staffs: number;
 }
 
-interface Partner {
+interface PendingPartner {
   id: string;
   name: string;
   email: string;
@@ -25,23 +33,21 @@ export default function AdminDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [userName, setUserName] = useState("");
   const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0 });
-  const [pendingPartners, setPendingPartners] = useState<Partner[]>([]);
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [pendingPartners, setPendingPartners] = useState<PendingPartner[]>([]);
+  const [bookingChartData, setBookingChartData] = useState<any[]>([]);
 
-  // Group bookings by last 7 days
   const groupBookingsByDate = (bookings: any[]) => {
     const today = new Date();
     const last7Days = Array.from({ length: 7 }).map((_, i) => {
       const d = new Date();
       d.setDate(today.getDate() - i);
-      const key = d.toISOString().split("T")[0];
-      return { date: key, count: 0 };
+      return { date: d.toISOString().split("T")[0], count: 0 };
     }).reverse();
 
     bookings.forEach((b) => {
       const date = b.date?.split("T")[0];
-      const found = last7Days.find(d => d.date === date);
-      if (found) found.count += 1;
+      const day = last7Days.find((d) => d.date === date);
+      if (day) day.count += 1;
     });
 
     return last7Days;
@@ -55,19 +61,28 @@ export default function AdminDashboardPage() {
         return;
       }
 
+      // Fetch current user doc
+      const docRef = doc(db, "users", user.uid);
+      const docSnap = await getDoc(docRef);
+
+      if (!docSnap.exists()) {
+        alert("⚠️ No user profile found in Firestore.");
+        router.push("/");
+        return;
+      }
+
+      const userData = docSnap.data();
+
+      // Admin only
+      if (userData.role !== "admin") {
+        alert("❌ You are not authorized to access this page.");
+        router.push("/");
+        return;
+      }
+
+      setUserName(userData.name || "Admin");
+
       try {
-        const docSnap = await getDoc(doc(db, "users", user.uid));
-        if (!docSnap.exists()) throw new Error("User profile not found");
-        const userData = docSnap.data();
-
-        if (userData.role !== "admin") {
-          alert("❌ Not authorized");
-          router.push("/");
-          return;
-        }
-
-        setUserName(userData.name || "Admin");
-
         // Fetch stats
         const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] = await Promise.all([
           getDocs(collection(db, "users")),
@@ -84,20 +99,19 @@ export default function AdminDashboardPage() {
           staffs: staffsSnap.size,
         });
 
-        const bookingsData = bookingsSnap.docs.map(d => d.data());
-        setChartData(groupBookingsByDate(bookingsData));
+        const bookingsData = bookingsSnap.docs.map((d) => d.data());
+        setBookingChartData(groupBookingsByDate(bookingsData));
 
         // Pending partners listener
         const q = query(collection(db, "partners"), where("status", "==", "pending"));
-        const unsubscribe = onSnapshot(q, snap => {
-          setPendingPartners(snap.docs.map(d => ({ id: d.id, ...d.data() } as Partner)));
+        const unsubscribe = onSnapshot(q, (snap) => {
+          setPendingPartners(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
         });
 
         setLoading(false);
         return unsubscribe;
       } catch (err) {
-        console.error("Dashboard load error:", err);
-        alert("Failed to load dashboard data");
+        console.error("Error loading dashboard:", err);
         setLoading(false);
       }
     };
@@ -107,15 +121,15 @@ export default function AdminDashboardPage() {
 
   const handleApprove = async (id: string) => {
     await updateDoc(doc(db, "partners", id), { status: "approved" });
-    alert("✅ Partner approved");
+    alert("✅ Partner approved!");
   };
 
   const handleReject = async (id: string) => {
     await updateDoc(doc(db, "partners", id), { status: "rejected" });
-    alert("❌ Partner rejected");
+    alert("❌ Partner rejected!");
   };
 
-  if (loading) return <p className="text-center py-12 text-gray-500">Loading dashboard...</p>;
+  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
 
   return (
     <div className="min-h-screen flex bg-gray-100">
@@ -158,7 +172,7 @@ export default function AdminDashboardPage() {
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
           <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={chartData}>
+            <LineChart data={bookingChartData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" />
               <YAxis />
@@ -168,7 +182,7 @@ export default function AdminDashboardPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Pending Partners */}
+        {/* Pending Partner Approvals */}
         <div className="bg-white shadow rounded-2xl p-6">
           <h3 className="text-lg font-semibold mb-4">Pending Partner Approvals</h3>
           {pendingPartners.length === 0 ? (

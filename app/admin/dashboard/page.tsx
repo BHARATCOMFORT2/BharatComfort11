@@ -7,7 +7,7 @@ import {
   collection,
   getDocs,
   doc,
-  setDoc,
+  getDoc,
   updateDoc,
   query,
   where,
@@ -37,39 +37,46 @@ interface ActivityItem {
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [userName, setUserName] = useState("Superadmin");
-  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0 });
   const [pendingPartners, setPendingPartners] = useState<any[]>([]);
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [userName, setUserName] = useState("");
+  const [loading, setLoading] = useState(true);
   const [bookingChartData, setBookingChartData] = useState<any[]>([]);
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+
+  // Group bookings by last 7 days
+  const groupBookingsByDate = (bookings: any[]) => {
+    const today = new Date();
+    const last7Days = Array.from({ length: 7 }).map((_, i) => {
+      const date = new Date();
+      date.setDate(today.getDate() - i);
+      const key = date.toISOString().split("T")[0];
+      return { date: key, count: 0 };
+    }).reverse();
+
+    bookings.forEach((b) => {
+      const date = b.date?.split("T")[0];
+      const day = last7Days.find(d => d.date === date);
+      if (day) day.count += 1;
+    });
+    return last7Days;
+  };
 
   useEffect(() => {
     const init = async () => {
       const user = auth.currentUser;
       if (!user) return router.push("/auth/login");
 
-      const superadminUID = process.env.NEXT_PUBLIC_SUPERADMIN_UID;
-      if (user.uid !== superadminUID) {
+      // Fetch user document to check role
+      const userDocRef = doc(db, "users", user.uid);
+      const userDocSnap = await getDoc(userDocRef);
+
+      if (!userDocSnap.exists() || userDocSnap.data()?.role !== "superadmin") {
         alert("❌ You are not authorized.");
         return router.push("/");
       }
 
-      // Auto-create Firestore doc if missing
-      const userDocRef = doc(db, "users", user.uid);
-      const userSnap = await getDocs(collection(db, "users"));
-      const existingUser = userSnap.docs.find(d => d.id === user.uid);
-      if (!existingUser) {
-        await setDoc(userDocRef, {
-          name: "Superadmin",
-          email: user.email,
-          role: "superadmin",
-          createdAt: new Date().toISOString()
-        });
-        setUserName("Superadmin");
-      } else {
-        setUserName(existingUser.data().name || "Superadmin");
-      }
+      setUserName(userDocSnap.data()?.name || "Superadmin");
 
       // Fetch stats
       const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] = await Promise.all([
@@ -87,23 +94,9 @@ export default function AdminDashboardPage() {
         staffs: staffsSnap.size
       });
 
-      // Booking chart last 7 days
+      // Booking chart
       const bookingsData = bookingsSnap.docs.map(d => ({ ...d.data() }));
-      const today = new Date();
-      const last7Days = Array.from({ length: 7 }).map((_, i) => {
-        const date = new Date();
-        date.setDate(today.getDate() - i);
-        const key = date.toISOString().split("T")[0];
-        return { date: key, count: 0 };
-      }).reverse();
-
-      bookingsData.forEach((b) => {
-        const date = b.date?.split("T")[0];
-        const day = last7Days.find(d => d.date === date);
-        if (day) day.count += 1;
-      });
-
-      setBookingChartData(last7Days);
+      setBookingChartData(groupBookingsByDate(bookingsData));
 
       // Recent activity (latest 10)
       const recent = [
@@ -175,25 +168,6 @@ export default function AdminDashboardPage() {
           ))}
         </div>
 
-        {/* Overview Chart */}
-        <div className="bg-white shadow rounded-2xl p-6 mb-12">
-          <h3 className="text-lg font-semibold mb-4">Overview</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={[
-              { name: 'Users', count: stats.users },
-              { name: 'Partners', count: stats.partners },
-              { name: 'Listings', count: stats.listings },
-              { name: 'Staffs', count: stats.staffs }
-            ]}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-
         {/* Booking Analytics */}
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
           <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
@@ -238,7 +212,7 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Recent Activity */}
+        {/* Recent Activity Feed */}
         <div className="bg-white shadow rounded-2xl p-6">
           <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
           {recentActivity.length === 0 && <p>No recent activity.</p>}

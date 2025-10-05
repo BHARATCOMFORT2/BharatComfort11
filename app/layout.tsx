@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
-import "@/styles/globals.css"; // ✅ if file is in /styles
-// or use "./globals.css" if file is directly in /app
+import "@/styles/globals.css";
 import Navbar from "@/components/ui/Navbar";
 
 export const metadata: Metadata = {
@@ -16,8 +15,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className="bg-white text-gray-900">
+        {/* Fixed Navbar */}
         <Navbar />
-        <main>{children}</main>
+
+        {/* Main content with top padding for navbar */}
+        <main className="pt-24">{children}</main>
       </body>
     </html>
   );

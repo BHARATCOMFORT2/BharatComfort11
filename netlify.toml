@@ -6,10 +6,8 @@
   node_bundler = "esbuild"
   external_node_modules = ["razorpay"]
 
-# Redirect all unmatched routes to Next.js
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
 [build.environment]
   NEXT_DISABLE_ENV_INJECTION = "true"

@@ -3,10 +3,13 @@
 import { useState } from "react";
 import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
+import { useRouter } from "next/navigation";
 import { signInWithEmailAndPassword } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { doc, getDoc } from "firebase/firestore";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -19,10 +22,36 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+
     try {
-      await signInWithEmailAndPassword(auth, form.email, form.password);
-      alert("✅ Logged in successfully!");
+      // Sign in with Firebase Auth
+      const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
+      const user = cred.user;
+
+      // Fetch Firestore user document
+      const ref = doc(db, "users", user.uid);
+      const snap = await getDoc(ref);
+
+      if (!snap.exists()) {
+        setError("⚠️ No user profile found in Firestore.");
+        return;
+      }
+
+      const role = snap.data().role;
+
+      // Redirect based on role
+      if (role === "admin") {
+        alert("✅ Welcome Admin!");
+        router.push("/admin/dashboard");
+      } else if (role === "partner") {
+        alert("✅ Welcome Partner!");
+        router.push("/partner/dashboard");
+      } else {
+        alert("✅ Welcome User!");
+        router.push("/user/dashboard");
+      }
     } catch (err: any) {
+      console.error("Login error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -63,14 +92,20 @@ export default function LoginPage() {
 
         <p className="mt-4 text-center text-gray-500">
           Forgot your password?{" "}
-          <a href="/auth/forgot-password" className="text-primary font-medium hover:underline">
+          <a
+            href="/auth/forgot-password"
+            className="text-primary font-medium hover:underline"
+          >
             Reset here
           </a>
         </p>
 
         <p className="mt-2 text-center text-gray-500">
           Don't have an account?{" "}
-          <a href="/auth/register" className="text-primary font-medium hover:underline">
+          <a
+            href="/auth/register"
+            className="text-primary font-medium hover:underline"
+          >
             Register
           </a>
         </p>

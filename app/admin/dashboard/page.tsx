@@ -23,7 +23,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Types
 interface Stats {
   users: number;
   partners: number;
@@ -46,7 +45,7 @@ interface BookingData {
 export default function AdminDashboardPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [userName, setUserName] = useState("Superadmin");
+  const [userName, setUserName] = useState("Admin");
   const [stats, setStats] = useState<Stats>({
     users: 0,
     partners: 0,
@@ -56,7 +55,6 @@ export default function AdminDashboardPage() {
   const [pendingPartners, setPendingPartners] = useState<PendingPartner[]>([]);
   const [bookingChartData, setBookingChartData] = useState<BookingData[]>([]);
 
-  // Group bookings by last 7 days
   const groupBookingsByDate = (bookings: any[]): BookingData[] => {
     const today = new Date();
     const last7Days = Array.from({ length: 7 }).map((_, i) => {
@@ -82,7 +80,6 @@ export default function AdminDashboardPage() {
         return;
       }
 
-      // Fetch user profile
       const userDocRef = doc(db, "users", user.uid);
       const userSnap = await getDoc(userDocRef);
 
@@ -93,16 +90,15 @@ export default function AdminDashboardPage() {
       }
 
       const userData = userSnap.data();
-      if (userData.role !== "superadmin") {
+      if (userData.role !== "admin") {
         alert("❌ You are not authorized to access this page.");
         router.push("/");
         return;
       }
 
-      setUserName(userData.name || "Superadmin");
+      setUserName(userData.name || "Admin");
 
       try {
-        // Fetch stats
         const [usersSnap, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] =
           await Promise.all([
             getDocs(collection(db, "users")),
@@ -119,11 +115,9 @@ export default function AdminDashboardPage() {
           staffs: staffsSnap.size,
         });
 
-        // Booking chart data
         const bookingsData = bookingsSnap.docs.map((d) => d.data());
         setBookingChartData(groupBookingsByDate(bookingsData));
 
-        // Pending partners realtime
         const pendingQuery = query(
           collection(db, "partners"),
           where("status", "==", "pending")
@@ -165,7 +159,6 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="min-h-screen flex bg-gray-100">
-      {/* Sidebar */}
       <aside className="w-64 bg-white shadow-lg hidden md:block">
         <div className="p-6 font-bold text-xl border-b">BHARATCOMFORT11</div>
         <nav className="p-6 space-y-4">
@@ -202,7 +195,6 @@ export default function AdminDashboardPage() {
         </nav>
       </aside>
 
-      {/* Main */}
       <div className="flex-1 p-8">
         <header className="flex justify-between items-center mb-8">
           <h1 className="text-2xl font-bold">Welcome, {userName}!</h1>
@@ -216,7 +208,6 @@ export default function AdminDashboardPage() {
           </button>
         </header>
 
-        {/* Stats */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
           {Object.entries(stats).map(([key, value]) => (
             <div
@@ -229,7 +220,6 @@ export default function AdminDashboardPage() {
           ))}
         </div>
 
-        {/* Booking Chart */}
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
           <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
           <ResponsiveContainer width="100%" height={200}>
@@ -248,7 +238,6 @@ export default function AdminDashboardPage() {
           </ResponsiveContainer>
         </div>
 
-        {/* Pending Partners */}
         <div className="bg-white shadow rounded-2xl p-6">
           <h3 className="text-lg font-semibold mb-4">Pending Partner Approvals</h3>
           {pendingPartners.length === 0 ? (

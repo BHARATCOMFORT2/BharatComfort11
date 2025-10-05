@@ -8,9 +8,9 @@ import {
   getDocs,
   doc,
   updateDoc,
+  onSnapshot,
   query,
-  where,
-  onSnapshot
+  where
 } from "firebase/firestore";
 import {
   LineChart,
@@ -19,8 +19,7 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
-  ResponsiveContainer,
-  Legend
+  ResponsiveContainer
 } from "recharts";
 
 interface Stats {
@@ -28,7 +27,7 @@ interface Stats {
   partners: number;
   listings: number;
   staffs: number;
-  bookings?: number;
+  bookings: number;
 }
 
 interface ActivityItem {
@@ -38,136 +37,114 @@ interface ActivityItem {
 
 export default function AdminDashboardPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({ users: 0, partners: 0, listings: 0, staffs: 0, bookings: 0 });
+  const [stats, setStats] = useState<Stats>({
+    users: 0,
+    partners: 0,
+    listings: 0,
+    staffs: 0,
+    bookings: 0
+  });
   const [pendingPartners, setPendingPartners] = useState<any[]>([]);
-  const [userName, setUserName] = useState("");
+  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
+  const [userName, setUserName] = useState("Superadmin");
   const [loading, setLoading] = useState(true);
 
-  // Analytics states
-  const [combinedRawData, setCombinedRawData] = useState<any[]>([]);
-  const [analyticsChartData, setAnalyticsChartData] = useState<any[]>([]);
-  const [startDate, setStartDate] = useState(getLast7Days()[0]);
-  const [endDate, setEndDate] = useState(getLast7Days()[6]);
-
-  // Helper: last 7 days array
-  function getLast7Days() {
+  // Group bookings for last 7 days
+  const groupBookingsByDate = (bookings: any[]) => {
     const today = new Date();
-    return Array.from({ length: 7 }).map((_, i) => {
-      const d = new Date();
-      d.setDate(today.getDate() - i);
-      return d.toISOString().split("T")[0];
+    const last7Days = Array.from({ length: 7 }).map((_, i) => {
+      const date = new Date();
+      date.setDate(today.getDate() - i);
+      return { date: date.toISOString().split("T")[0], count: 0 };
     }).reverse();
-  }
-
-  // Group bookings/users/partners/etc by date
-  const groupByDate = (bookings: any[], users: any[], partners: any[], listings: any[], staffs: any[]) => {
-    const today = new Date();
-    const last7Days = getLast7Days().map(d => ({
-      date: d,
-      users: 0,
-      partners: 0,
-      listings: 0,
-      staffs: 0,
-      bookings: 0
-    }));
 
     bookings.forEach(b => {
-      const d = b.date?.split("T")[0];
-      const day = last7Days.find(ld => ld.date === d);
-      if (day) day.bookings += 1;
-    });
-
-    users.forEach(u => {
-      const d = u.data().createdAt?.split("T")[0];
-      const day = last7Days.find(ld => ld.date === d);
-      if (day) day.users += 1;
-    });
-
-    partners.forEach(p => {
-      const d = p.data().createdAt?.split("T")[0];
-      const day = last7Days.find(ld => ld.date === d);
-      if (day) day.partners += 1;
-    });
-
-    listings.forEach(l => {
-      const d = l.data().createdAt?.split("T")[0];
-      const day = last7Days.find(ld => ld.date === d);
-      if (day) day.listings += 1;
-    });
-
-    staffs.forEach(s => {
-      const d = s.data().createdAt?.split("T")[0];
-      const day = last7Days.find(ld => ld.date === d);
-      if (day) day.staffs += 1;
+      const date = b.date?.split("T")[0];
+      const day = last7Days.find(d => d.date === date);
+      if (day) day.count += 1;
     });
 
     return last7Days;
   };
 
-  // Fetch dashboard data
   useEffect(() => {
-    const init = async () => {
-      const user = auth.currentUser;
-      if (!user) return router.push("/auth/login");
+    const user = auth.currentUser;
+    if (!user) return router.push("/auth/login");
 
-      // Check superadmin
-      const usersSnap = await getDocs(collection(db, "users"));
-      const currentUser = usersSnap.docs.find(d => d.id === user.uid);
-      if (!currentUser || currentUser.data().role !== "superadmin") {
-        alert("❌ You are not authorized.");
+    const usersRef = collection(db, "users");
+    const partnersRef = collection(db, "partners");
+    const listingsRef = collection(db, "listings");
+    const staffsRef = collection(db, "staffs");
+    const bookingsRef = collection(db, "bookings");
+
+    // Superadmin check + real-time updates
+    const unsubscribeUsers = onSnapshot(usersRef, snapshot => {
+      const currentUser = snapshot.docs.find(d => d.id === user.uid);
+      if (!currentUser) {
+        alert("❌ You are not authorized (no user profile).");
         return router.push("/");
       }
+      const role = currentUser.data().role;
+      if (role !== "superadmin") {
+        alert("❌ You are not authorized (role: " + role + ")");
+        return router.push("/");
+      }
+
       setUserName(currentUser.data().name || "Superadmin");
 
-      const [usersSnap2, partnersSnap, listingsSnap, staffsSnap, bookingsSnap] = await Promise.all([
-        getDocs(collection(db, "users")),
-        getDocs(collection(db, "partners")),
-        getDocs(collection(db, "listings")),
-        getDocs(collection(db, "staffs")),
-        getDocs(collection(db, "bookings"))
-      ]);
+      setStats(prev => ({ ...prev, users: snapshot.size }));
 
-      setStats({
-        users: usersSnap2.size,
-        partners: partnersSnap.size,
-        listings: listingsSnap.size,
-        staffs: staffsSnap.size,
-        bookings: bookingsSnap.size
+      // Recent activity: users
+      const userActivity = snapshot.docs.map(d => ({
+        message: `User signed up: ${d.data().name || d.data().email}`,
+        time: d.data().createdAt || ""
+      }));
+
+      setRecentActivity(prev => {
+        const partnersActivity = prev.filter(item => item.message.startsWith("Partner"));
+        return [...userActivity, ...partnersActivity]
+          .sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+          .slice(0,10);
       });
+    });
 
-      const combinedData = groupByDate(
-        bookingsSnap.docs.map(d => d.data()),
-        usersSnap2.docs,
-        partnersSnap.docs,
-        listingsSnap.docs,
-        staffsSnap.docs
-      );
+    const unsubscribePartners = onSnapshot(partnersRef, snapshot => {
+      setStats(prev => ({ ...prev, partners: snapshot.size }));
 
-      setCombinedRawData(combinedData);
-      setAnalyticsChartData(combinedData);
+      // Pending partners
+      const pending = snapshot.docs.filter(d => d.data().status === "pending");
+      setPendingPartners(pending.map(d => ({ id: d.id, ...d.data() })));
 
-      // Recent activity
-      const recent = [
-        ...usersSnap2.docs.map(d => ({ message: `User signed up: ${d.data().name}`, time: d.data().createdAt || "" })),
-        ...partnersSnap.docs.map(d => ({ message: `Partner signed up: ${d.data().name}`, time: d.data().createdAt || "" }))
-      ].sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime()).slice(0,10);
+      // Recent activity: partners
+      const partnerActivity = snapshot.docs.map(d => ({
+        message: `Partner signed up: ${d.data().name || d.data().email}`,
+        time: d.data().createdAt || ""
+      }));
 
-      setRecentActivity(recent);
-
-      // Pending partners listener
-      const q = query(collection(db, "partners"), where("status", "==", "pending"));
-      const unsubscribe = onSnapshot(q, snapshot => {
-        setPendingPartners(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+      setRecentActivity(prev => {
+        const usersActivity = prev.filter(item => item.message.startsWith("User"));
+        return [...usersActivity, ...partnerActivity]
+          .sort((a,b) => new Date(b.time).getTime() - new Date(a.time).getTime())
+          .slice(0,10);
       });
+    });
 
-      setLoading(false);
-      return unsubscribe;
+    const unsubscribeListings = onSnapshot(listingsRef, snapshot => setStats(prev => ({ ...prev, listings: snapshot.size })));
+    const unsubscribeStaffs = onSnapshot(staffsRef, snapshot => setStats(prev => ({ ...prev, staffs: snapshot.size })));
+    const unsubscribeBookings = onSnapshot(bookingsRef, snapshot => {
+      setStats(prev => ({ ...prev, bookings: snapshot.size }));
+    });
+
+    setLoading(false);
+
+    return () => {
+      unsubscribeUsers();
+      unsubscribePartners();
+      unsubscribeListings();
+      unsubscribeStaffs();
+      unsubscribeBookings();
     };
-
-    init();
   }, [router]);
-
-  const [recentActivity, setRecentActivity] = useState<ActivityItem[]>([]);
 
   const handleApprove = async (id: string) => {
     await updateDoc(doc(db, "partners", id), { status: "approved" });
@@ -179,36 +156,7 @@ export default function AdminDashboardPage() {
     alert("❌ Partner rejected!");
   };
 
-  const filterAnalyticsData = () => {
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const filtered = combinedRawData.filter(item => {
-      const d = new Date(item.date);
-      return d >= start && d <= end;
-    });
-    setAnalyticsChartData(filtered);
-  };
-
-  const getTotalsForRange = () => {
-    const totals = { users: 0, partners: 0, listings: 0, staffs: 0, bookings: 0 };
-    analyticsChartData.forEach(item => {
-      totals.users += item.users || 0;
-      totals.partners += item.partners || 0;
-      totals.listings += item.listings || 0;
-      totals.staffs += item.staffs || 0;
-      totals.bookings += item.bookings || 0;
-    });
-    return totals;
-  };
-
-  const handleLineClick = (dataKey: string) => {
-    const total = analyticsChartData.reduce((acc, item) => acc + (item[dataKey] || 0), 0);
-    alert(`Total ${dataKey.charAt(0).toUpperCase() + dataKey.slice(1)} in selected range: ${total}`);
-  };
-
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
-
-  const totals = getTotalsForRange();
 
   return (
     <div className="min-h-screen flex bg-gray-100">
@@ -225,7 +173,7 @@ export default function AdminDashboardPage() {
         </nav>
       </aside>
 
-      {/* Main */}
+      {/* Main Content */}
       <div className="flex-1 p-8">
         <header className="flex justify-between items-center mb-8">
           <h1 className="text-2xl font-bold">Welcome, {userName}!</h1>
@@ -237,40 +185,26 @@ export default function AdminDashboardPage() {
           </button>
         </header>
 
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-          {Object.entries(totals).map(([key, value]) => (
-            <div key={key} className="p-4 bg-white shadow rounded-2xl text-center">
+        {/* Stats */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6 mb-12">
+          {Object.entries(stats).map(([key, value]) => (
+            <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
               <h2 className="text-2xl font-bold">{value}</h2>
               <p className="text-gray-600 capitalize">{key}</p>
             </div>
           ))}
         </div>
 
-        {/* Date Filter */}
-        <div className="flex items-center gap-4 mb-4">
-          <label className="font-medium">Start Date:</label>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} className="border rounded px-2 py-1" />
-          <label className="font-medium">End Date:</label>
-          <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} className="border rounded px-2 py-1" />
-          <button onClick={filterAnalyticsData} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">Apply</button>
-        </div>
-
-        {/* Analytics Chart */}
+        {/* Booking Chart */}
         <div className="bg-white shadow rounded-2xl p-6 mb-12">
-          <h3 className="text-lg font-semibold mb-4">Overview</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={analyticsChartData}>
+          <h3 className="text-lg font-semibold mb-4">Bookings Overview</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={[...Array(5)].map((_, i) => ({ name: Object.keys(stats)[i], count: Object.values(stats)[i] }))}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
+              <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip contentStyle={{ backgroundColor: "#fff", borderRadius: "8px", border: "1px solid #ccc" }} />
-              <Legend verticalAlign="top" wrapperStyle={{ cursor: "pointer" }} onClick={(e: any) => handleLineClick(e.dataKey)} />
-              <Line type="monotone" dataKey="users" stroke="#2563eb" strokeWidth={2} activeDot={{ r: 8, onClick: () => handleLineClick("users") }} />
-              <Line type="monotone" dataKey="partners" stroke="#10b981" strokeWidth={2} activeDot={{ r: 8, onClick: () => handleLineClick("partners") }} />
-              <Line type="monotone" dataKey="listings" stroke="#f59e0b" strokeWidth={2} activeDot={{ r: 8, onClick: () => handleLineClick("listings") }} />
-              <Line type="monotone" dataKey="staffs" stroke="#ef4444" strokeWidth={2} activeDot={{ r: 8, onClick: () => handleLineClick("staffs") }} />
-              <Line type="monotone" dataKey="bookings" stroke="#8b5cf6" strokeWidth={2} activeDot={{ r: 8, onClick: () => handleLineClick("bookings") }} />
+              <Tooltip />
+              <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -295,15 +229,15 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
-        {/* Recent Activity Feed */}
+        {/* Recent Activity */}
         <div className="bg-white shadow rounded-2xl p-6">
           <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
           {recentActivity.length === 0 && <p>No recent activity.</p>}
           <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {recentActivity.map((item, index) => (
-              <li key={index} className="border rounded-lg p-2 flex justify-between">
+            {recentActivity.map((item, i) => (
+              <li key={i} className="border rounded-lg p-2 flex justify-between">
                 <span>{item.message}</span>
-                <span className="text-gray-400 text-sm">{new Date(item.time).toLocaleString()}</span>
+                <span className="text-gray-400 text-sm">{item.time ? new Date(item.time).toLocaleString() : ""}</span>
               </li>
             ))}
           </ul>

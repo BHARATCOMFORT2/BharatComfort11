@@ -4,27 +4,28 @@ import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { collection, getDocs, query, where } from "firebase/firestore";
-import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  ResponsiveContainer,
+} from "recharts";
 
+// Define Booking type
 interface Booking {
   id: string;
-  date: string;
   userName?: string;
   customerName?: string;
-  listingName?: string;
+  date: string;
   amount?: number;
-  [key: string]: any;
-}
-
-interface Stats {
-  listings: number;
-  bookings: number;
-  earnings: number;
 }
 
 export default function PartnerDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState<Stats>({ listings: 0, bookings: 0, earnings: 0 });
+  const [stats, setStats] = useState({ listings: 0, bookings: 0, earnings: 0 });
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [bookingChartData, setBookingChartData] = useState<{ date: string; count: number }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -44,19 +45,18 @@ export default function PartnerDashboard() {
       // Stats
       const listingsSnap = await getDocs(query(collection(db, "listings"), where("partnerId", "==", user.uid)));
       const bookingsSnap = await getDocs(query(collection(db, "bookings"), where("partnerId", "==", user.uid)));
-
-      const totalEarnings = bookingsSnap.docs.reduce((sum, b) => sum + ((b.data().amount as number) || 0), 0);
+      const totalEarnings = bookingsSnap.docs.reduce((sum, b) => sum + (b.data().amount || 0), 0);
 
       setStats({
         listings: listingsSnap.size,
         bookings: bookingsSnap.size,
-        earnings: totalEarnings
+        earnings: totalEarnings,
       });
 
-      // Recent bookings
+      // Recent bookings with type guard
       const recent: Booking[] = bookingsSnap.docs
-        .map(d => ({ id: d.id, ...(d.data() as Omit<Booking, "id">) }))
-        .filter(b => b.date)
+        .map(d => ({ id: d.id, ...(d.data() as Partial<Booking>) }))
+        .filter((b): b is Booking => !!b.date) // ensures `date` exists
         .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 10);
 

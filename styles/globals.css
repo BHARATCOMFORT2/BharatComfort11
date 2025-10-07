@@ -35,16 +35,8 @@
     @apply btn bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500;
   }
 
-  .btn-secondary {
-    @apply btn bg-gray-200 text-gray-900 hover:bg-gray-300 focus:ring-gray-400;
-  }
-
   .card {
-    @apply rounded-2xl bg-white p-4 shadow-md;
-  }
-
-  .input {
-    @apply w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+    @apply rounded-2xl bg-white p-4 shadow-card;
   }
 }
 

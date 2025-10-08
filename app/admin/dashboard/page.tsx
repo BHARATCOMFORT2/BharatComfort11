@@ -140,7 +140,7 @@ export default function AdminDashboardPage() {
 
   // ---------- LOAD DATA ----------
   useEffect(() => {
-    let unsubscribers: (() => void)[] = [];
+    const unsubscribers: (() => void)[] = [];
 
     const init = async () => {
       const user = auth.currentUser;

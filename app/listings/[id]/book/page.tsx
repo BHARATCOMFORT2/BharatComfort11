@@ -5,8 +5,8 @@ import { useParams } from "next/navigation";
 import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { differenceInDays, format } from "date-fns";
-import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 
 export default function BookingPage() {
   const { listingId } = useParams();
@@ -78,7 +78,7 @@ export default function BookingPage() {
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
       amount: orderData.amount,
       currency: "INR",
-      name: "BHARATCOMFORT11",
+      name: "BHARATCOMFORT",
       description: `Booking for ${listing.name}`,
       order_id: orderData.id,
       handler: async function (response: any) {

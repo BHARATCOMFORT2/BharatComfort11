@@ -1,7 +1,7 @@
 "use client";
 
 import { motion, useScroll, useTransform } from "framer-motion";
-import Hero from "@components/home/Hero";
+import Hero from "@/components/home/Hero";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
 import FeaturedListings from "@/components/home/FeaturedListings";
 import PromotionsStrip from "@/components/home/PromotionsStrip";

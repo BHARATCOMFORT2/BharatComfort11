@@ -6,10 +6,31 @@ export async function POST(req: Request) {
 
   try {
     const data = await req.json();
-    const docRef = await adminDb.collection("bookings").add(data);
+
+    // ✅ Basic validation
+    if (!data.userId || !data.partnerId || !data.listingId || !data.amount) {
+      return NextResponse.json(
+        { success: false, error: "Missing required booking fields." },
+        { status: 400 }
+      );
+    }
+
+    const newBooking = {
+      ...data,
+      status: "pending", // default until payment verified
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    };
+
+    // ✅ Add booking document
+    const docRef = await adminDb.collection("bookings").add(newBooking);
 
     return NextResponse.json({ success: true, id: docRef.id });
   } catch (err: any) {
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    console.error("Error creating booking:", err);
+    return NextResponse.json(
+      { success: false, error: err.message },
+      { status: 500 }
+    );
   }
 }

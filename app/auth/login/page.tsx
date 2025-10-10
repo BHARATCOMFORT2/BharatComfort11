@@ -4,7 +4,7 @@ import { useState } from "react";
 import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
 import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { signInWithEmailAndPassword, getIdToken } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 
@@ -24,11 +24,19 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Sign in with Firebase Auth
+      // 🔹 Sign in with Firebase Auth
       const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
       const user = cred.user;
 
-      // Fetch Firestore user document
+      // 🔹 Create a session cookie via API (so user stays logged in)
+      const token = await getIdToken(user);
+      await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+
+      // 🔹 Fetch Firestore user profile
       const ref = doc(db, "users", user.uid);
       const snap = await getDoc(ref);
 
@@ -39,7 +47,7 @@ export default function LoginPage() {
 
       const role = snap.data().role;
 
-      // Redirect based on role
+      // 🔹 Redirect based on role
       if (role === "admin") {
         alert("✅ Welcome Admin!");
         router.push("/admin/dashboard");
@@ -52,14 +60,14 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       console.error("Login error:", err);
-      setError(err.message);
+      setError("❌ " + (err.message || "Failed to log in. Please try again."));
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-bg px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
 
@@ -94,7 +102,7 @@ export default function LoginPage() {
           Forgot your password?{" "}
           <a
             href="/auth/forgot-password"
-            className="text-primary font-medium hover:underline"
+            className="text-blue-600 font-medium hover:underline"
           >
             Reset here
           </a>
@@ -104,7 +112,7 @@ export default function LoginPage() {
           Don't have an account?{" "}
           <a
             href="/auth/register"
-            className="text-primary font-medium hover:underline"
+            className="text-blue-600 font-medium hover:underline"
           >
             Register
           </a>

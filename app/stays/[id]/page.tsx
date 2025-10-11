@@ -5,7 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { motion } from "framer-motion";
-import { openRazorpayCheckout } from "@/lib/razorpay-client";
+import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 
 export default function StayDetailPage() {
   const { id } = useParams(); // stay ID from URL

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
-import Loading from "@/app/components/Loading";
+import Loading from "@/components/Loading";
 import { createOrder } from "@/lib/payments-razorpay";
 
 interface Booking {

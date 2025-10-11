@@ -10,7 +10,7 @@ import {
   DocumentReference,
   DocumentData,
 } from "firebase/firestore";
-import Loading from "@/app/components/Loading";
+import Loading from "@/components/Loading";
 
 interface Booking {
   id?: string;

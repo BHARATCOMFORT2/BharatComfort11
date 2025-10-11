@@ -7,33 +7,34 @@ import {
   doc,
   getDoc,
   onSnapshot,
-  DocumentData,
   DocumentReference,
+  DocumentData,
 } from "firebase/firestore";
-import { motion } from "framer-motion";
-import Link from "next/link";
+import Loading from "@/app/components/Loading";
 
-// ---------------- TYPES ----------------
 interface Booking {
+  id?: string;
   userId: string;
-  partnerId: string;
+  partnerId?: string;
   listingId: string;
   amount: number;
   status: string;
-  createdAt: any;
-  updatedAt: any;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 interface Stay {
+  id?: string;
   name: string;
   location: string;
   image?: string;
   price: number;
 }
 
-// ---------------- COMPONENT ----------------
-export default function BookingPage() {
-  const { id: bookingId } = useParams(); // dynamic route param
+export default function BookingDetailsPage() {
+  const { id: bookingIdParam } = useParams();
+  const bookingId = Array.isArray(bookingIdParam) ? bookingIdParam[0] : bookingIdParam;
+
   const [booking, setBooking] = useState<Booking | null>(null);
   const [stay, setStay] = useState<Stay | null>(null);
   const [loading, setLoading] = useState(true);
@@ -43,23 +44,21 @@ export default function BookingPage() {
 
     const bookingRef: DocumentReference<DocumentData> = doc(db, "bookings", bookingId);
 
-    // 🔹 Real-time listener
+    // 🔹 Real-time listener for booking
     const unsub = onSnapshot(
       bookingRef,
       async (snap) => {
         if (snap.exists()) {
           const data = snap.data() as Booking;
-          const { id, ...rest } = data; // prevent duplicate id
+          const { id, ...rest } = data;
           const bookingData = { id: snap.id, ...rest };
           setBooking(bookingData);
 
-          // 🔹 Fetch stay details
+          // 🔹 Fetch stay info if listingId exists
           if (bookingData.listingId) {
             const stayRef = doc(db, "stays", bookingData.listingId);
             const staySnap = await getDoc(stayRef);
-            if (staySnap.exists()) {
-              setStay({ id: staySnap.id, ...(staySnap.data() as Stay) });
-            }
+            if (staySnap.exists()) setStay({ id: staySnap.id, ...staySnap.data() } as Stay);
           }
         }
         setLoading(false);
@@ -73,12 +72,7 @@ export default function BookingPage() {
     return () => unsub();
   }, [bookingId]);
 
-  if (loading)
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Loading booking details...
-      </div>
-    );
+  if (loading) return <Loading text="Loading booking details..." />;
 
   if (!booking)
     return (
@@ -88,71 +82,62 @@ export default function BookingPage() {
     );
 
   return (
-    <motion.div
-      className="min-h-screen bg-gray-50 p-6"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-    >
-      <h1 className="text-3xl font-bold mb-4">Booking Details</h1>
+    <div className="min-h-screen p-6 bg-gray-50">
+      <h1 className="text-3xl font-bold mb-4 text-center">Booking Details</h1>
 
-      <section className="bg-white rounded-2xl shadow-md p-6 mb-6">
-        <h2 className="font-semibold text-xl mb-2">Booking Info</h2>
-        <p>
-          <span className="font-medium">Status:</span> {booking.status}
-        </p>
-        <p>
-          <span className="font-medium">Amount:</span> ₹{booking.amount}
-        </p>
-        <p>
-          <span className="font-medium">Booked On:</span>{" "}
-          {booking.createdAt.toDate
-            ? booking.createdAt.toDate().toLocaleString()
-            : new Date(booking.createdAt).toLocaleString()}
-        </p>
-      </section>
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-md p-6 space-y-4">
+        <div className="flex justify-between">
+          <span className="font-semibold">Booking ID:</span>
+          <span>{booking.id}</span>
+        </div>
 
-      {stay ? (
-        <section className="bg-white rounded-2xl shadow-md p-6">
-          <h2 className="font-semibold text-xl mb-4">Stay Details</h2>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <img
-              src={stay.image || "/placeholder.jpg"}
-              alt={stay.name}
-              className="h-48 w-full sm:w-64 object-cover rounded-2xl"
-            />
-            <div className="flex flex-col justify-between">
+        <div className="flex justify-between">
+          <span className="font-semibold">Status:</span>
+          <span
+            className={`font-semibold ${
+              booking.status === "pending"
+                ? "text-yellow-600"
+                : booking.status === "confirmed"
+                ? "text-green-600"
+                : "text-red-600"
+            }`}
+          >
+            {booking.status}
+          </span>
+        </div>
+
+        <div className="flex justify-between">
+          <span className="font-semibold">Amount:</span>
+          <span>₹{booking.amount}</span>
+        </div>
+
+        {stay && (
+          <div className="mt-4 border-t pt-4">
+            <h2 className="text-2xl font-semibold mb-2">Stay Details</h2>
+            <div className="flex flex-col sm:flex-row gap-4 items-center">
+              <img
+                src={stay.image || "/placeholder.jpg"}
+                alt={stay.name}
+                className="h-40 w-60 rounded-xl object-cover shadow"
+              />
               <div>
-                <h3 className="font-semibold text-lg">{stay.name}</h3>
-                <p className="text-gray-500">{stay.location}</p>
+                <h3 className="text-xl font-semibold">{stay.name}</h3>
+                <p className="text-gray-600">{stay.location}</p>
+                <p className="text-indigo-600 font-bold mt-1">₹{stay.price}/night</p>
               </div>
-              <p className="text-indigo-600 font-bold text-lg mt-2">
-                ₹{stay.price}/night
-              </p>
             </div>
           </div>
-        </section>
-      ) : (
-        <p className="text-gray-500">Stay information not available.</p>
-      )}
+        )}
 
-      {/* Placeholder for Razorpay / Payment button */}
-      {booking.status === "pending" && (
-        <div className="mt-6 text-center">
-          <button
-            className="bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition"
-            onClick={() => alert("Payment flow to be implemented")}
-          >
-            Pay Now
-          </button>
+        <div className="mt-4 border-t pt-4">
+          <p className="text-gray-500 text-sm">
+            Created at: {booking.createdAt?.toDate?.().toLocaleString() || "N/A"}
+          </p>
+          <p className="text-gray-500 text-sm">
+            Last updated: {booking.updatedAt?.toDate?.().toLocaleString() || "N/A"}
+          </p>
         </div>
-      )}
-
-      <div className="mt-8">
-        <Link href="/bookings" className="text-indigo-600 hover:underline">
-          ← Back to all bookings
-        </Link>
       </div>
-    </motion.div>
+    </div>
   );
 }

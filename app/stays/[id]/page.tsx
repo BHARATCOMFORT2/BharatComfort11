@@ -1,75 +1,83 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
-import { db, auth } from "@/lib/firebase";
+import { useParams } from "next/navigation";
+import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { motion } from "framer-motion";
-import { openRazorpayCheckout } from "@/lib/payments-razorpay";
+import { createOrder, openRazorpayCheckout } from "@/lib/payments-razorpay";
+import { getAuth } from "firebase/auth";
 
-export default function StayDetailPage() {
-  const { id } = useParams(); // stay ID from URL
-  const router = useRouter();
-
+export default function StayDetailsPage() {
+  const params = useParams();
+  const stayId = params?.id;
   const [stay, setStay] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [bookingLoading, setBookingLoading] = useState(false);
 
-  // 🔹 Fetch stay details
+  const auth = getAuth();
+  const user = auth.currentUser;
+
+  // Fetch stay details
   useEffect(() => {
-    if (!id) return;
+    if (!stayId) return;
+
     const fetchStay = async () => {
       try {
-        const docRef = doc(db, "stays", id as string);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          setStay({ id: snap.id, ...snap.data() });
-        } else {
-          console.error("Stay not found");
+        const docRef = doc(db, "stays", stayId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setStay({ id: docSnap.id, ...docSnap.data() });
         }
       } catch (err) {
-        console.error("Error loading stay:", err);
+        console.error("Error fetching stay:", err);
       } finally {
         setLoading(false);
       }
     };
+
     fetchStay();
-  }, [id]);
+  }, [stayId]);
 
-  // 🔹 Handle booking
+  // Handle booking
   const handleBooking = async () => {
-    const user = auth.currentUser;
-    if (!user) {
-      alert("Please log in to book your stay.");
-      router.push("/login");
-      return;
-    }
-
-    if (!stay) return;
+    if (!user) return alert("Please login to book this stay.");
 
     setBookingLoading(true);
 
     try {
-      // ✅ Create booking
-      const res = await fetch("/api/bookings", {
+      // 1️⃣ Create Razorpay order (server-side)
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user.uid,
-          partnerId: stay.partnerId || "unknown-partner",
-          listingId: stay.id,
-          amount: stay.price || 2000,
-        }),
+        body: JSON.stringify({ amount: stay.price }),
       });
 
       const data = await res.json();
       if (!data.success) throw new Error(data.error);
 
-      // ✅ Open Razorpay Checkout
-      openRazorpayCheckout(data.order, data.id);
+      // 2️⃣ Open Razorpay checkout
+      openRazorpayCheckout({
+        amount: stay.price,
+        orderId: data.id,
+        name: user.displayName || "Guest",
+        email: user.email!,
+        phone: user.phoneNumber || "",
+      });
+
+      // Optionally: create booking in Firebase with "pending" status
+      await fetch("/api/bookings/create", {
+        method: "POST",
+        body: JSON.stringify({
+          userId: user.uid,
+          partnerId: stay.partnerId,
+          listingId: stay.id,
+          amount: stay.price,
+        }),
+      });
+
     } catch (err: any) {
-      console.error(err);
-      alert("Booking failed: " + err.message);
+      console.error("Booking error:", err);
+      alert(err.message || "Booking failed.");
     } finally {
       setBookingLoading(false);
     }
@@ -91,50 +99,36 @@ export default function StayDetailPage() {
 
   return (
     <motion.div
-      className="min-h-screen bg-gray-50 p-6"
+      className="min-h-screen bg-gray-50 p-6 max-w-4xl mx-auto"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.5 }}
     >
-      {/* Stay Hero Image */}
-      <div className="rounded-2xl overflow-hidden shadow-lg mb-8">
+      {/* Stay Images */}
+      <div className="rounded-2xl overflow-hidden shadow-md mb-6">
         <img
           src={stay.image || "/placeholder.jpg"}
           alt={stay.name}
-          className="w-full h-80 object-cover"
+          className="w-full h-64 object-cover"
         />
       </div>
 
       {/* Stay Info */}
-      <div className="max-w-4xl mx-auto bg-white shadow rounded-2xl p-6">
-        <h1 className="text-3xl font-bold mb-2">{stay.name}</h1>
-        <p className="text-gray-600 mb-4">{stay.location}</p>
+      <h1 className="text-3xl font-bold text-yellow-900 mb-2">{stay.name}</h1>
+      <p className="text-gray-600 mb-2">{stay.location}</p>
+      <p className="text-indigo-600 font-bold mb-4 text-lg">
+        ₹{stay.price}/night
+      </p>
+      <p className="text-gray-700 mb-6">{stay.description}</p>
 
-        <p className="text-gray-700 leading-relaxed mb-6">
-          {stay.description || "No description available for this stay."}
-        </p>
-
-        <div className="flex items-center justify-between mb-6">
-          <p className="text-xl font-semibold text-indigo-600">
-            ₹{stay.price || 2000} / night
-          </p>
-
-          <button
-            onClick={handleBooking}
-            disabled={bookingLoading}
-            className="bg-indigo-600 text-white px-6 py-3 rounded-xl hover:bg-indigo-700 transition disabled:opacity-50"
-          >
-            {bookingLoading ? "Processing..." : "Book Now"}
-          </button>
-        </div>
-
-        {/* Extra info */}
-        <div className="border-t pt-4 text-sm text-gray-500">
-          <p>Hosted by: {stay.hostName || "Verified Partner"}</p>
-          <p>Type: {stay.type || "Guesthouse"}</p>
-          <p>Guests allowed: {stay.guests || "N/A"}</p>
-        </div>
-      </div>
+      {/* Book Now Button */}
+      <button
+        onClick={handleBooking}
+        disabled={bookingLoading}
+        className="w-full bg-indigo-600 text-white py-3 rounded-xl font-semibold hover:bg-indigo-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {bookingLoading ? "Processing..." : "Book Now"}
+      </button>
     </motion.div>
   );
 }

@@ -4,8 +4,8 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import Map from "@/app/components/Map";
-import Loading from "@/app/components/Loading";
+import Map from "@/components/Map";
+import Loading from "@/components/Loading";
 
 export default function DestinationPage() {
   const params = useParams();

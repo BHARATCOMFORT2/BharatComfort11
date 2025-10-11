@@ -3,16 +3,33 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { doc, getDoc, onSnapshot, DocumentData } from "firebase/firestore";
 import Loading from "@/components/Loading";
-import { createOrder, razorpay } from "@/lib/payments-razorpay";
+import { createOrder } from "@/lib/payments-razorpay";
+
+interface Booking {
+  id: string;
+  listingId?: string;
+  userName?: string;
+  userEmail?: string;
+  userPhone?: string;
+  amount?: number;
+  status?: string;
+}
+
+interface Stay {
+  id: string;
+  name: string;
+  location?: string;
+  image?: string;
+}
 
 export default function BookingDetailPage() {
   const params = useParams();
   const bookingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
-  const [booking, setBooking] = useState<any>(null);
-  const [stay, setStay] = useState<any>(null);
+  const [booking, setBooking] = useState<Booking | null>(null);
+  const [stay, setStay] = useState<Stay | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -21,14 +38,15 @@ export default function BookingDetailPage() {
     const bookingRef = doc(db, "bookings", bookingId);
     const unsub = onSnapshot(bookingRef, async (snap) => {
       if (snap.exists()) {
-        const bookingData = { id: snap.id, ...snap.data() };
+        const bookingData = { id: snap.id, ...(snap.data() as Booking) };
         setBooking(bookingData);
 
-        // Fetch stay info
+        // 🔹 Fetch stay info safely
         if (bookingData.listingId) {
           const stayRef = doc(db, "stays", bookingData.listingId);
           const staySnap = await getDoc(stayRef);
-          if (staySnap.exists()) setStay({ id: staySnap.id, ...staySnap.data() });
+          if (staySnap.exists())
+            setStay({ id: staySnap.id, ...(staySnap.data() as Stay) });
         }
       }
       setLoading(false);
@@ -42,7 +60,8 @@ export default function BookingDetailPage() {
   if (!booking) return <p className="text-center text-gray-500 mt-10">Booking not found.</p>;
 
   const handlePayment = async () => {
-    if (!booking || !stay) return;
+    if (!booking || !stay || !booking.amount) return;
+
     try {
       const order = await createOrder({ amount: booking.amount });
 

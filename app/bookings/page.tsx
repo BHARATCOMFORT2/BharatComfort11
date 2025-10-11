@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { db, auth } from "@/lib/firebase";
 import { collection, query, where, onSnapshot, orderBy } from "firebase/firestore";
 import Link from "next/link";
-import Loading from "@/app/components/Loading";
+import Loading from "@/components/Loading";
 
 export default function BookingsPage() {
   const [bookings, setBookings] = useState<any[]>([]);

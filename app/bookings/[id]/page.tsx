@@ -2,149 +2,121 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { doc, getDoc, onSnapshot } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { createOrder, razorpay } from "@/lib/payments-razorpay";
+import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { motion } from "framer-motion";
 import Loading from "@/components/Loading";
 
-interface Booking {
-  id: string;
-  userId: string;
-  partnerId: string;
-  listingId: string;
-  amount: number;
-  status: string;
-  createdAt: any;
-  updatedAt: any;
-}
+export default function BookingPage() {
+  const { id: bookingId } = useParams();
 
-interface Stay {
-  id: string;
-  name: string;
-  location: string;
-  image: string;
-  price: number;
-}
-
-export default function BookingDetailPage() {
-  const params = useParams();
-  const bookingId = Array.isArray(params?.id) ? params.id[0] : params?.id;
-
-  const [booking, setBooking] = useState<Booking | null>(null);
-  const [stay, setStay] = useState<Stay | null>(null);
+  const [booking, setBooking] = useState<any>(null);
+  const [stay, setStay] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [paymentLoading, setPaymentLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!bookingId) return;
 
     const bookingRef = doc(db, "bookings", bookingId);
 
-    const unsub = onSnapshot(bookingRef, async (snap) => {
-      if (snap.exists()) {
-        const bookingData = snap.data() as Booking;
-        setBooking({ id: snap.id, ...bookingData });
+    // 🔹 Real-time listener for booking
+    const unsub = onSnapshot(
+      bookingRef,
+      async (snap) => {
+        if (!snap.exists()) {
+          setError("Booking not found");
+          setLoading(false);
+          return;
+        }
 
-        // Fetch related stay
-        const stayRef = doc(db, "stays", bookingData.listingId);
-        const staySnap = await getDoc(stayRef);
-        if (staySnap.exists())
-          setStay({ id: staySnap.id, ...(staySnap.data() as Stay) });
+        const bookingData = { id: snap.id, ...snap.data() };
+        setBooking(bookingData);
+
+        // 🔹 Fetch associated stay
+        if (bookingData.listingId) {
+          const stayRef = doc(db, "stays", bookingData.listingId);
+          const staySnap = await getDoc(stayRef);
+          if (staySnap.exists()) setStay({ id: staySnap.id, ...staySnap.data() });
+        }
 
         setLoading(false);
+      },
+      (err) => {
+        console.error("Error fetching booking:", err);
+        setError("Failed to fetch booking");
+        setLoading(false);
       }
-    });
+    );
 
     return () => unsub();
   }, [bookingId]);
 
-  const handlePayment = async () => {
-    if (!booking) return;
-    setPaymentLoading(true);
-
-    try {
-      // Create order on server
-      const orderRes = await fetch("/api/payments/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: booking.amount }),
-      });
-      const orderData = await orderRes.json();
-
-      if (!orderData.success) throw new Error(orderData.error);
-
-      // Open Razorpay checkout
-      const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: orderData.order.amount,
-        currency: orderData.order.currency,
-        name: stay?.name || "Booking",
-        description: "Stay booking payment",
-        order_id: orderData.order.id,
-        handler: async function (response: any) {
-          // Optional: Verify payment on server
-          alert("Payment successful! Payment ID: " + response.razorpay_payment_id);
-        },
-        prefill: {
-          name: "Guest",
-          email: "guest@example.com",
-        },
-        theme: {
-          color: "#4f46e5",
-        },
-      };
-
-      const rzp = new (window as any).Razorpay(options);
-      rzp.open();
-    } catch (err: any) {
-      alert("Payment failed: " + err.message);
-    } finally {
-      setPaymentLoading(false);
-    }
-  };
-
-  if (loading) return <Loading message="Loading booking details..." />;
-
-  if (!booking) return <p className="text-center mt-10">Booking not found.</p>;
+  if (loading) return <Loading />;
+  if (error) return <p className="text-red-500 text-center mt-8">{error}</p>;
+  if (!booking) return <p className="text-gray-500 text-center mt-8">No booking data found.</p>;
 
   return (
-    <div className="min-h-screen p-6 bg-gray-50">
-      <h1 className="text-3xl font-bold mb-4 text-center">Booking Details</h1>
+    <motion.div
+      className="min-h-screen bg-gray-50 p-6"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+    >
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-md overflow-hidden p-6">
+        <h1 className="text-3xl font-bold mb-4">Booking Details</h1>
 
-      {stay && (
-        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-md overflow-hidden mb-6">
-          <img src={stay.image || "/placeholder.jpg"} className="w-full h-64 object-cover" />
-          <div className="p-4">
-            <h2 className="font-semibold text-2xl">{stay.name}</h2>
-            <p className="text-gray-500">{stay.location}</p>
-            <p className="text-indigo-600 font-bold mt-2">₹{stay.price}/night</p>
+        {stay && (
+          <div className="mb-6">
+            <h2 className="text-2xl font-semibold">{stay.title}</h2>
+            <p className="text-gray-600">{stay.location}</p>
+            <p className="text-indigo-600 font-bold mt-1">₹{stay.price}/night</p>
           </div>
+        )}
+
+        <div className="mb-4">
+          <p>
+            <span className="font-semibold">Booking ID:</span> {booking.id}
+          </p>
+          <p>
+            <span className="font-semibold">Status:</span>{" "}
+            <span
+              className={`font-bold ${
+                booking.status === "confirmed"
+                  ? "text-green-600"
+                  : booking.status === "pending"
+                  ? "text-yellow-600"
+                  : "text-red-600"
+              }`}
+            >
+              {booking.status.toUpperCase()}
+            </span>
+          </p>
+          <p>
+            <span className="font-semibold">Amount:</span> ₹{booking.amount}
+          </p>
+          {booking.paymentId && (
+            <p>
+              <span className="font-semibold">Payment ID:</span> {booking.paymentId}
+            </p>
+          )}
+          {booking.partnerId && (
+            <p>
+              <span className="font-semibold">Partner ID:</span> {booking.partnerId}
+            </p>
+          )}
+          {booking.userId && (
+            <p>
+              <span className="font-semibold">User ID:</span> {booking.userId}
+            </p>
+          )}
+          <p>
+            <span className="font-semibold">Created At:</span>{" "}
+            {booking.createdAt?.toDate
+              ? booking.createdAt.toDate().toLocaleString()
+              : new Date(booking.createdAt).toLocaleString()}
+          </p>
         </div>
-      )}
-
-      <div className="max-w-3xl mx-auto bg-white p-4 rounded-2xl shadow-md">
-        <p>
-          <strong>Booking ID:</strong> {booking.id}
-        </p>
-        <p>
-          <strong>Status:</strong> {booking.status}
-        </p>
-        <p>
-          <strong>Amount:</strong> ₹{booking.amount}
-        </p>
-        <p>
-          <strong>Created At:</strong>{" "}
-          {new Date(booking.createdAt?.seconds * 1000).toLocaleString()}
-        </p>
-
-        <button
-          onClick={handlePayment}
-          disabled={paymentLoading || booking.status === "paid"}
-          className="mt-4 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition"
-        >
-          {booking.status === "paid" ? "Paid" : paymentLoading ? "Processing..." : "Pay Now"}
-        </button>
       </div>
-    </div>
+    </motion.div>
   );
 }

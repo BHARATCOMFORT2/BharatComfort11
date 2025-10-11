@@ -2,21 +2,18 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { db } from "@/lib/firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { motion } from "framer-motion";
-import dynamic from "next/dynamic";
+import { db } from "@/lib/firebase";
+import Map from "@/app/components/Map";
+import Loading from "@/app/components/Loading";
 
-// Dynamically import Map component to avoid SSR issues
-const Map = dynamic(() => import("@/components/Map"), { ssr: false });
-
-export default function DestinationDetailsPage() {
+export default function DestinationPage() {
   const params = useParams();
-  const destinationId = params?.id;
+  const destinationId = Array.isArray(params.id) ? params.id[0] : params.id;
+
   const [destination, setDestination] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  // Fetch destination details
   useEffect(() => {
     if (!destinationId) return;
 
@@ -24,7 +21,10 @@ export default function DestinationDetailsPage() {
       try {
         const docRef = doc(db, "destinations", destinationId);
         const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) setDestination({ id: docSnap.id, ...docSnap.data() });
+
+        if (docSnap.exists()) {
+          setDestination({ id: docSnap.id, ...docSnap.data() });
+        }
       } catch (err) {
         console.error("Error fetching destination:", err);
       } finally {
@@ -35,51 +35,22 @@ export default function DestinationDetailsPage() {
     fetchDestination();
   }, [destinationId]);
 
-  if (loading)
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Loading destination...
-      </div>
-    );
-
-  if (!destination)
-    return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Destination not found.
-      </div>
-    );
+  if (loading) return <Loading message="Loading destination..." />;
+  if (!destination) return <div className="text-center mt-10 text-gray-500">Destination not found.</div>;
 
   return (
-    <motion.div
-      className="min-h-screen bg-gray-50 p-6 max-w-4xl mx-auto"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-    >
-      {/* Destination Image */}
-      <div className="rounded-2xl overflow-hidden shadow-md mb-6">
-        <img
-          src={destination.image || "/placeholder.jpg"}
-          alt={destination.title}
-          className="w-full h-64 object-cover"
-        />
-      </div>
+    <div className="min-h-screen p-6 bg-gray-50">
+      <h1 className="text-3xl font-bold mb-2">{destination.title}</h1>
+      <p className="text-gray-600 mb-4">{destination.state}</p>
+      <p className="text-gray-700 mb-6">{destination.description}</p>
 
-      {/* Title and Description */}
-      <h1 className="text-3xl font-bold text-yellow-900 mb-2">{destination.title}</h1>
-      {destination.state && <p className="text-gray-600 mb-4">{destination.state}</p>}
-      {destination.description && (
-        <p className="text-gray-700 mb-6">{destination.description}</p>
-      )}
-
-      {/* Map */}
       {destination.lat && destination.lng ? (
-        <div className="rounded-2xl overflow-hidden h-[350px] shadow-md mb-6">
+        <div className="rounded-2xl overflow-hidden h-[350px] shadow-md">
           <Map lat={destination.lat} lng={destination.lng} zoom={11} />
         </div>
       ) : (
-        <p className="text-gray-500 mb-6">Location data not available.</p>
+        <p className="text-gray-500">Location data not available.</p>
       )}
-    </motion.div>
+    </div>
   );
 }

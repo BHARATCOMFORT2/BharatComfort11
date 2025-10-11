@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import Loading from "@/app/components/Loading";
+import Loading from "@/components/Loading";
 
 export default function StayPage() {
   const params = useParams();

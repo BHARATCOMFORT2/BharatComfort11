@@ -4,119 +4,99 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { db } from "@/lib/firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
-import { motion } from "framer-motion";
 import Loading from "@/components/Loading";
+import { createOrder, razorpay } from "@/lib/payments-razorpay";
 
-export default function BookingPage() {
-  const { id: bookingId } = useParams();
+export default function BookingDetailPage() {
+  const params = useParams();
+  const bookingId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [booking, setBooking] = useState<any>(null);
   const [stay, setStay] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!bookingId) return;
 
     const bookingRef = doc(db, "bookings", bookingId);
-
-    // 🔹 Real-time listener for booking
-    const unsub = onSnapshot(
-      bookingRef,
-      async (snap) => {
-        if (!snap.exists()) {
-          setError("Booking not found");
-          setLoading(false);
-          return;
-        }
-
+    const unsub = onSnapshot(bookingRef, async (snap) => {
+      if (snap.exists()) {
         const bookingData = { id: snap.id, ...snap.data() };
         setBooking(bookingData);
 
-        // 🔹 Fetch associated stay
+        // Fetch stay info
         if (bookingData.listingId) {
           const stayRef = doc(db, "stays", bookingData.listingId);
           const staySnap = await getDoc(stayRef);
           if (staySnap.exists()) setStay({ id: staySnap.id, ...staySnap.data() });
         }
-
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Error fetching booking:", err);
-        setError("Failed to fetch booking");
-        setLoading(false);
       }
-    );
+      setLoading(false);
+    });
 
     return () => unsub();
   }, [bookingId]);
 
-  if (loading) return <Loading />;
-  if (error) return <p className="text-red-500 text-center mt-8">{error}</p>;
-  if (!booking) return <p className="text-gray-500 text-center mt-8">No booking data found.</p>;
+  if (loading) return <Loading message="Loading booking details..." />;
+
+  if (!booking) return <p className="text-center text-gray-500 mt-10">Booking not found.</p>;
+
+  const handlePayment = async () => {
+    if (!booking || !stay) return;
+    try {
+      const order = await createOrder({ amount: booking.amount });
+
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
+        amount: order.amount,
+        currency: order.currency,
+        name: stay.name,
+        description: `Booking ${booking.id}`,
+        order_id: order.id,
+        handler: function (response: any) {
+          alert("Payment Successful! Payment ID: " + response.razorpay_payment_id);
+        },
+        prefill: {
+          name: booking.userName || "",
+          email: booking.userEmail || "",
+          contact: booking.userPhone || "",
+        },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error("Payment error:", err);
+      alert("Payment failed, try again.");
+    }
+  };
 
   return (
-    <motion.div
-      className="min-h-screen bg-gray-50 p-6"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-    >
-      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-md overflow-hidden p-6">
-        <h1 className="text-3xl font-bold mb-4">Booking Details</h1>
+    <div className="min-h-screen p-6 bg-gray-50">
+      <h1 className="text-3xl font-bold mb-4">{stay?.name || "Stay Booking"}</h1>
+      <p className="text-gray-500 mb-2">Booking Status: {booking.status?.toUpperCase()}</p>
+      <p className="text-gray-600 mb-4">Amount: ₹{booking.amount}</p>
 
-        {stay && (
-          <div className="mb-6">
-            <h2 className="text-2xl font-semibold">{stay.title}</h2>
-            <p className="text-gray-600">{stay.location}</p>
-            <p className="text-indigo-600 font-bold mt-1">₹{stay.price}/night</p>
-          </div>
-        )}
-
-        <div className="mb-4">
-          <p>
-            <span className="font-semibold">Booking ID:</span> {booking.id}
-          </p>
-          <p>
-            <span className="font-semibold">Status:</span>{" "}
-            <span
-              className={`font-bold ${
-                booking.status === "confirmed"
-                  ? "text-green-600"
-                  : booking.status === "pending"
-                  ? "text-yellow-600"
-                  : "text-red-600"
-              }`}
-            >
-              {booking.status.toUpperCase()}
-            </span>
-          </p>
-          <p>
-            <span className="font-semibold">Amount:</span> ₹{booking.amount}
-          </p>
-          {booking.paymentId && (
-            <p>
-              <span className="font-semibold">Payment ID:</span> {booking.paymentId}
-            </p>
-          )}
-          {booking.partnerId && (
-            <p>
-              <span className="font-semibold">Partner ID:</span> {booking.partnerId}
-            </p>
-          )}
-          {booking.userId && (
-            <p>
-              <span className="font-semibold">User ID:</span> {booking.userId}
-            </p>
-          )}
-          <p>
-            <span className="font-semibold">Created At:</span>{" "}
-            {booking.createdAt?.toDate
-              ? booking.createdAt.toDate().toLocaleString()
-              : new Date(booking.createdAt).toLocaleString()}
-          </p>
+      {stay && (
+        <div className="bg-white rounded-2xl shadow-md p-4 mb-6">
+          <img
+            src={stay.image || "/placeholder.jpg"}
+            alt={stay.name}
+            className="h-60 w-full object-cover rounded-2xl"
+          />
+          <h2 className="font-semibold text-lg mt-2">{stay.name}</h2>
+          <p className="text-gray-500">{stay.location}</p>
         </div>
-      </div>
-    </motion.div>
+      )}
+
+      {booking.status === "pending" && (
+        <button
+          onClick={handlePayment}
+          className="px-6 py-3 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition"
+        >
+          Pay Now
+        </button>
+      )}
+    </div>
   );
 }

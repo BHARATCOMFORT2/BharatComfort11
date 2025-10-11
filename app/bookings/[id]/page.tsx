@@ -2,15 +2,15 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { db, auth } from "@/lib/firebase";
 import { doc, getDoc, onSnapshot } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { createOrder, razorpay } from "@/lib/payments-razorpay";
 import Loading from "@/components/Loading";
-import { createOrder } from "@/lib/payments-razorpay";
 
 interface Booking {
   id: string;
   userId: string;
-  partnerId?: string;
+  partnerId: string;
   listingId: string;
   amount: number;
   status: string;
@@ -22,37 +22,35 @@ interface Stay {
   id: string;
   name: string;
   location: string;
-  image?: string;
+  image: string;
   price: number;
-  description?: string;
 }
 
 export default function BookingDetailPage() {
   const params = useParams();
-  const bookingId = params?.id;
+  const bookingId = Array.isArray(params?.id) ? params.id[0] : params?.id;
 
   const [booking, setBooking] = useState<Booking | null>(null);
   const [stay, setStay] = useState<Stay | null>(null);
   const [loading, setLoading] = useState(true);
-  const [paying, setPaying] = useState(false);
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   useEffect(() => {
     if (!bookingId) return;
 
     const bookingRef = doc(db, "bookings", bookingId);
 
-    // 🔹 Real-time listener for booking
     const unsub = onSnapshot(bookingRef, async (snap) => {
       if (snap.exists()) {
         const bookingData = snap.data() as Booking;
-        setBooking(bookingData);
+        setBooking({ id: snap.id, ...bookingData });
 
-        // Fetch stay info
+        // Fetch related stay
         const stayRef = doc(db, "stays", bookingData.listingId);
         const staySnap = await getDoc(stayRef);
-        if (staySnap.exists()) {
-          setStay({ id: staySnap.id, ...staySnap.data() } as Stay);
-        }
+        if (staySnap.exists())
+          setStay({ id: staySnap.id, ...(staySnap.data() as Stay) });
+
         setLoading(false);
       }
     });
@@ -60,102 +58,93 @@ export default function BookingDetailPage() {
     return () => unsub();
   }, [bookingId]);
 
-  // 🔹 Razorpay payment
   const handlePayment = async () => {
     if (!booking) return;
-    setPaying(true);
+    setPaymentLoading(true);
 
     try {
-      const res = await fetch("/api/payments/create-order", {
+      // Create order on server
+      const orderRes = await fetch("/api/payments/create-order", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: booking.amount }),
       });
-      const data = await res.json();
+      const orderData = await orderRes.json();
 
-      if (!data.success) throw new Error(data.error || "Failed to create order");
+      if (!orderData.success) throw new Error(orderData.error);
 
+      // Open Razorpay checkout
       const options = {
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: booking.amount * 100,
-        currency: "INR",
-        name: stay?.name || "BharatComfort Stay",
-        order_id: data.id,
-        handler: async (response: any) => {
-          // TODO: verify payment server-side
-          alert("Payment successful!");
+        amount: orderData.order.amount,
+        currency: orderData.order.currency,
+        name: stay?.name || "Booking",
+        description: "Stay booking payment",
+        order_id: orderData.order.id,
+        handler: async function (response: any) {
+          // Optional: Verify payment on server
+          alert("Payment successful! Payment ID: " + response.razorpay_payment_id);
+        },
+        prefill: {
+          name: "Guest",
+          email: "guest@example.com",
+        },
+        theme: {
+          color: "#4f46e5",
         },
       };
 
       const rzp = new (window as any).Razorpay(options);
       rzp.open();
     } catch (err: any) {
-      console.error("Payment error:", err);
-      alert(err.message);
+      alert("Payment failed: " + err.message);
     } finally {
-      setPaying(false);
+      setPaymentLoading(false);
     }
   };
 
-  if (loading) return <Loading />;
+  if (loading) return <Loading message="Loading booking details..." />;
 
-  if (!booking) return <p className="text-center mt-10 text-gray-500">Booking not found.</p>;
+  if (!booking) return <p className="text-center mt-10">Booking not found.</p>;
 
   return (
-    <div className="max-w-3xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-4">Booking Details</h1>
-
-      <div className="bg-white p-6 rounded-2xl shadow-md space-y-4">
-        <p>
-          <span className="font-semibold">Booking ID:</span> {booking.id}
-        </p>
-        <p>
-          <span className="font-semibold">Status:</span>{" "}
-          <span
-            className={`font-bold ${
-              booking.status === "paid" ? "text-green-600" : "text-red-600"
-            }`}
-          >
-            {booking.status.toUpperCase()}
-          </span>
-        </p>
-        <p>
-          <span className="font-semibold">Amount:</span> ₹{booking.amount}
-        </p>
-        <p>
-          <span className="font-semibold">Booked On:</span>{" "}
-          {booking.createdAt?.toDate
-            ? booking.createdAt.toDate().toLocaleString()
-            : new Date(booking.createdAt).toLocaleString()}
-        </p>
-      </div>
+    <div className="min-h-screen p-6 bg-gray-50">
+      <h1 className="text-3xl font-bold mb-4 text-center">Booking Details</h1>
 
       {stay && (
-        <div className="mt-6 bg-white rounded-2xl shadow-md overflow-hidden">
-          <img
-            src={stay.image || "/placeholder.jpg"}
-            alt={stay.name}
-            className="h-64 w-full object-cover"
-          />
+        <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-md overflow-hidden mb-6">
+          <img src={stay.image || "/placeholder.jpg"} className="w-full h-64 object-cover" />
           <div className="p-4">
-            <h2 className="text-2xl font-semibold">{stay.name}</h2>
+            <h2 className="font-semibold text-2xl">{stay.name}</h2>
             <p className="text-gray-500">{stay.location}</p>
-            <p className="mt-2 font-bold text-indigo-600">₹{stay.price}/night</p>
-            {stay.description && <p className="mt-2 text-gray-600">{stay.description}</p>}
+            <p className="text-indigo-600 font-bold mt-2">₹{stay.price}/night</p>
           </div>
         </div>
       )}
 
-      {booking.status !== "paid" && (
-        <div className="mt-6 text-center">
-          <button
-            onClick={handlePayment}
-            disabled={paying}
-            className="px-6 py-3 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 transition"
-          >
-            {paying ? "Processing..." : "Pay Now"}
-          </button>
-        </div>
-      )}
+      <div className="max-w-3xl mx-auto bg-white p-4 rounded-2xl shadow-md">
+        <p>
+          <strong>Booking ID:</strong> {booking.id}
+        </p>
+        <p>
+          <strong>Status:</strong> {booking.status}
+        </p>
+        <p>
+          <strong>Amount:</strong> ₹{booking.amount}
+        </p>
+        <p>
+          <strong>Created At:</strong>{" "}
+          {new Date(booking.createdAt?.seconds * 1000).toLocaleString()}
+        </p>
+
+        <button
+          onClick={handlePayment}
+          disabled={paymentLoading || booking.status === "paid"}
+          className="mt-4 w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 transition"
+        >
+          {booking.status === "paid" ? "Paid" : paymentLoading ? "Processing..." : "Pay Now"}
+        </button>
+      </div>
     </div>
   );
 }

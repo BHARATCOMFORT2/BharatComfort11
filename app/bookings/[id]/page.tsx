@@ -3,15 +3,19 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { db } from "@/lib/firebase";
-import { doc, getDoc, onSnapshot, DocumentData, DocumentReference } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  DocumentData,
+  DocumentReference,
+  onSnapshot,
+} from "firebase/firestore";
 import Loading from "@/components/Loading";
-import Link from "next/link";
 
 interface Booking {
-  id: string;
   userId: string;
-  partnerId?: string;
-  listingId?: string;
+  partnerId: string;
+  listingId: string;
   amount: number;
   status: string;
   createdAt: any;
@@ -19,7 +23,6 @@ interface Booking {
 }
 
 interface Stay {
-  id: string;
   name: string;
   location: string;
   price: number;
@@ -28,7 +31,7 @@ interface Stay {
 
 export default function BookingPage() {
   const params = useParams();
-  const bookingId = params?.id as string;
+  const bookingId = typeof params?.id === "string" ? params.id : undefined;
 
   const [booking, setBooking] = useState<Booking | null>(null);
   const [stay, setStay] = useState<Stay | null>(null);
@@ -39,19 +42,28 @@ export default function BookingPage() {
 
     const bookingRef: DocumentReference<DocumentData> = doc(db, "bookings", bookingId);
 
+    // 🔹 Real-time listener for booking
     const unsub = onSnapshot(bookingRef, async (snap) => {
-      if (snap.exists()) {
-        const bookingData = snap.data() as Booking;
-        bookingData.id = snap.id; // ensure id is set
-        setBooking(bookingData);
+      if (!snap.exists()) {
+        setBooking(null);
+        setLoading(false);
+        return;
+      }
 
-        // Fetch stay info if listingId exists
-        if (bookingData.listingId) {
-          const stayRef: DocumentReference<DocumentData> = doc(db, "stays", bookingData.listingId);
-          const staySnap = await getDoc(stayRef);
-          if (staySnap.exists()) setStay({ id: staySnap.id, ...(staySnap.data() as Stay) });
+      const data = snap.data() as Omit<Booking, "id">; // Exclude id to avoid duplication
+      const bookingData: Booking = { id: snap.id, ...data };
+      setBooking(bookingData);
+
+      // 🔹 Fetch stay info
+      if (bookingData.listingId) {
+        const stayRef: DocumentReference<DocumentData> = doc(db, "stays", bookingData.listingId);
+        const staySnap = await getDoc(stayRef);
+        if (staySnap.exists()) {
+          const stayData = staySnap.data() as Omit<Stay, "id">;
+          setStay({ id: staySnap.id, ...stayData });
         }
       }
+
       setLoading(false);
     });
 
@@ -62,11 +74,8 @@ export default function BookingPage() {
 
   if (!booking)
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center text-gray-600">
-        <p>Booking not found.</p>
-        <Link href="/bookings" className="text-indigo-600 mt-4 hover:underline">
-          Back to Bookings
-        </Link>
+      <div className="min-h-screen flex items-center justify-center text-gray-600">
+        Booking not found.
       </div>
     );
 
@@ -74,54 +83,34 @@ export default function BookingPage() {
     <div className="min-h-screen bg-gray-50 p-6">
       <h1 className="text-3xl font-bold mb-4">Booking Details</h1>
 
-      <div className="bg-white rounded-2xl shadow-md p-6 mb-6">
+      <div className="bg-white rounded-2xl shadow p-6 mb-6">
         <p>
           <span className="font-semibold">Booking ID:</span> {booking.id}
+        </p>
+        <p>
+          <span className="font-semibold">Status:</span> {booking.status}
         </p>
         <p>
           <span className="font-semibold">Amount:</span> ₹{booking.amount}
         </p>
         <p>
-          <span className="font-semibold">Status:</span>{" "}
-          <span
-            className={`font-bold ${
-              booking.status === "pending"
-                ? "text-yellow-600"
-                : booking.status === "confirmed"
-                ? "text-green-600"
-                : "text-red-600"
-            }`}
-          >
-            {booking.status}
-          </span>
-        </p>
-        <p>
-          <span className="font-semibold">Created At:</span>{" "}
-          {booking.createdAt?.toDate ? booking.createdAt.toDate().toLocaleString() : "N/A"}
+          <span className="font-semibold">User ID:</span> {booking.userId}
         </p>
       </div>
 
-      {stay ? (
-        <div className="bg-white rounded-2xl shadow-md overflow-hidden">
-          <img
-            src={stay.image || "/placeholder.jpg"}
-            alt={stay.name}
-            className="h-64 w-full object-cover"
-          />
-          <div className="p-4">
-            <h2 className="text-xl font-semibold">{stay.name}</h2>
-            <p className="text-gray-500">{stay.location}</p>
-            <p className="text-indigo-600 font-bold mt-2">₹{stay.price}/night</p>
-            <Link
-              href={`/stays/${stay.id}`}
-              className="inline-block mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
-            >
-              View Stay
-            </Link>
-          </div>
+      {stay && (
+        <div className="bg-white rounded-2xl shadow p-6">
+          <h2 className="text-2xl font-semibold mb-2">{stay.name}</h2>
+          <p className="text-gray-600 mb-2">{stay.location}</p>
+          <p className="text-indigo-600 font-bold mb-2">₹{stay.price}/night</p>
+          {stay.image && (
+            <img
+              src={stay.image}
+              alt={stay.name}
+              className="w-full h-64 object-cover rounded-2xl mt-2"
+            />
+          )}
         </div>
-      ) : (
-        <p className="text-gray-500 mt-4">Stay details not available.</p>
       )}
     </div>
   );

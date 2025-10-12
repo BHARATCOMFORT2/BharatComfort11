@@ -6,14 +6,18 @@ export async function POST(req: Request) {
   const { adminDb } = getFirebaseAdmin();
 
   try {
-    const { userId, partnerId, listingId, amount } = await req.json();
+    const data = await req.json();
+    const { userId, partnerId, listingId, amount, checkIn, checkOut, guests } = data;
 
     if (!userId || !partnerId || !listingId || !amount) {
-      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Missing required booking fields." },
+        { status: 400 }
+      );
     }
 
     // ✅ Create Razorpay order
-    const order = await razorpay.orders.create({
+    const razorpayOrder = await razorpay.orders.create({
       amount: Math.round(amount * 100),
       currency: "INR",
       receipt: `booking_${Date.now()}`,
@@ -25,17 +29,27 @@ export async function POST(req: Request) {
       partnerId,
       listingId,
       amount,
-      status: "pending",
+      checkIn: checkIn || null,
+      checkOut: checkOut || null,
+      guests: guests || 1,
+      status: "pending", // until payment verified
       createdAt: new Date(),
       updatedAt: new Date(),
-      razorpayOrderId: order.id,
+      razorpayOrderId: razorpayOrder.id,
     };
 
     const docRef = await adminDb.collection("bookings").add(newBooking);
 
-    return NextResponse.json({ success: true, id: docRef.id, order });
+    return NextResponse.json({
+      success: true,
+      id: docRef.id,
+      order: razorpayOrder,
+    });
   } catch (err: any) {
-    console.error("Booking error:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    console.error("Error creating booking:", err);
+    return NextResponse.json(
+      { success: false, error: err.message },
+      { status: 500 }
+    );
   }
 }

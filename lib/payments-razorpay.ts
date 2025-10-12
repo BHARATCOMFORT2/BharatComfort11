@@ -4,6 +4,9 @@ import Razorpay from "razorpay";
 // ================= SERVER-SIDE =================
 let razorpayInstance: Razorpay | null = null;
 
+/**
+ * Get Razorpay instance (server-side)
+ */
 export function getRazorpayServerInstance() {
   if (!razorpayInstance) {
     const keyId = process.env.RAZORPAY_KEY_ID;
@@ -22,6 +25,9 @@ export function getRazorpayServerInstance() {
   return razorpayInstance;
 }
 
+// ✅ Named export `razorpay` for API routes
+export const razorpay = getRazorpayServerInstance();
+
 interface CreateOrderInput {
   amount: number; // in INR
   currency?: string;
@@ -37,8 +43,6 @@ export async function createOrder({
   receipt,
 }: CreateOrderInput) {
   if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
-
-  const razorpay = getRazorpayServerInstance();
 
   const order = await razorpay.orders.create({
     amount: Math.round(amount * 100), // convert to paise

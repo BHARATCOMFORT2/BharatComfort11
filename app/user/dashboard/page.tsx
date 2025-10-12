@@ -16,16 +16,15 @@ import {
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 
-// ----- Types -----
 interface Booking {
-  id: string;
+  docId: string;
   listingName?: string;
   date?: string;
   amount?: number;
 }
 
 interface Item {
-  id: string;
+  docId: string;
   name: string;
   location: string;
   price: number;
@@ -42,8 +41,7 @@ interface Filters {
   maxPrice?: number;
 }
 
-// ----- Component -----
-export default function UserDashboard() {
+export default function UserDashboardAdvanced() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
@@ -57,7 +55,7 @@ export default function UserDashboard() {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [filters, setFilters] = useState<Filters>({});
 
-  // ----- Auth & Profile -----
+  // ✅ Auth & profile
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -67,12 +65,18 @@ export default function UserDashboard() {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
 
-        if (!userSnap.exists() || userSnap.data().role !== "user") {
+        if (!userSnap.exists()) {
+          alert("⚠️ Profile not found");
+          return router.push("/");
+        }
+
+        const data = userSnap.data();
+        if (data.role !== "user") {
           alert("❌ Not authorized");
           return router.push("/");
         }
 
-        setProfile(userSnap.data());
+        setProfile(data);
       } catch (err) {
         console.error("Error loading profile:", err);
       } finally {
@@ -83,13 +87,20 @@ export default function UserDashboard() {
     return () => unsub();
   }, [router]);
 
-  // ----- Real-time Bookings & Stats -----
+  // ✅ Real-time bookings & stats
   useEffect(() => {
     if (!user) return;
 
-    const bookingsQuery = query(collection(db, "bookings"), where("userId", "==", user.uid));
+    const bookingsQuery = query(
+      collection(db, "bookings"),
+      where("userId", "==", user.uid)
+    );
+
     const unsub = onSnapshot(bookingsQuery, (snap) => {
-      const allBookings = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Booking) }));
+      const allBookings: Booking[] = snap.docs.map((d) => ({
+        ...(d.data() as Booking),
+        docId: d.id,
+      }));
 
       const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
       const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
@@ -97,8 +108,8 @@ export default function UserDashboard() {
       setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
 
       const recent = allBookings
-        .filter((b): b is Booking => !!b.date)
-        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+        .filter((b) => b.date)
+        .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
         .slice(0, 5);
 
       setRecentBookings(recent);
@@ -107,17 +118,41 @@ export default function UserDashboard() {
     return () => unsub();
   }, [user]);
 
-  // ----- Trending Destinations -----
+  // ✅ Fetch all stays & recommended
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchItems = async () => {
+      try {
+        const staysSnap = await getDocs(collection(db, "stays"));
+        const items: Item[] = staysSnap.docs.map((d) => ({ ...(d.data() as Item), docId: d.id }));
+
+        setAllItems(items);
+
+        // recommended = not booked yet
+        const bookingsSnap = await getDocs(
+          query(collection(db, "bookings"), where("userId", "==", user.uid))
+        );
+        const bookedIds = bookingsSnap.docs.map((b) => b.data().listingId);
+        setRecommended(items.filter((i) => !bookedIds.includes(i.docId)).slice(0, 6));
+      } catch (err) {
+        console.error("Error fetching items:", err);
+      }
+    };
+
+    fetchItems();
+  }, [user]);
+
+  // ✅ Trending stays (real-time)
   useEffect(() => {
     const q = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
     const unsub = onSnapshot(q, (snap) => {
-      setTrending(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Item)).slice(0, 6));
-      setAllItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Item)));
+      setTrending(snap.docs.map((d) => ({ ...(d.data() as Item), docId: d.id })).slice(0, 6));
     });
     return () => unsub();
   }, []);
 
-  // ----- Filters -----
+  // ✅ Filters
   const handleFilterChange = (field: keyof Filters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
@@ -130,45 +165,41 @@ export default function UserDashboard() {
     return true;
   });
 
-  // ----- Booking -----
+  // ✅ Razorpay Booking
   const handleBooking = async (item: Item) => {
     if (!user) return alert("Login required");
 
     try {
-      const res = await fetch("/api/bookings", {
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user.uid,
-          partnerId: item.partnerId,
-          listingId: item.id,
-          amount: item.price,
-        }),
+        body: JSON.stringify({ amount: item.price, listingId: item.docId }),
       });
-
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Booking failed");
+      if (!data.success) throw new Error(data.error || "Order creation failed");
 
       openRazorpayCheckout({
         amount: item.price,
-        orderId: data.id, // Razorpay order id returned from API
+        orderId: data.id,
         name: item.name,
         email: user.email || "",
         onSuccess: (resp) => alert("✅ Payment successful: " + resp.razorpay_payment_id),
         onFailure: (err) => alert("❌ Payment failed: " + err.error),
       });
     } catch (err: any) {
-      console.error("Booking error:", err);
+      console.error(err);
       alert("Booking failed: " + err.message);
     }
   };
 
-  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
-  if (!profile) return <p className="text-center py-12 text-red-500">Profile not found</p>;
+  if (loading) return <p className="text-center py-12">Loading your dashboard...</p>;
+  if (!profile) return <p className="text-center py-12 text-gray-500">No profile found.</p>;
 
-  // ----- Render -----
   return (
-    <DashboardLayout title="User Dashboard" profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}>
+    <DashboardLayout
+      title="User Dashboard"
+      profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}
+    >
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
@@ -187,7 +218,7 @@ export default function UserDashboard() {
         ) : (
           <ul className="space-y-2 max-h-64 overflow-y-auto">
             {recentBookings.map((b) => (
-              <li key={b.id} className="border rounded-lg p-2 flex justify-between">
+              <li key={b.docId} className="border rounded-lg p-2 flex justify-between">
                 <span>{b.listingName || "Trip"}</span>
                 <span className="text-gray-400 text-sm">{b.date ? new Date(b.date).toLocaleString() : ""}</span>
               </li>
@@ -200,7 +231,7 @@ export default function UserDashboard() {
       <Section title="Trending Destinations" items={trending} onBook={handleBooking} />
       <Section title="Recommended for You" items={recommended} onBook={handleBooking} />
 
-      {/* Explore / Filters */}
+      {/* Explore All */}
       <h2 className="text-2xl font-bold mb-4">Explore All</h2>
       <div className="mb-4 flex flex-wrap gap-4">
         <input type="text" placeholder="Location" onChange={(e) => handleFilterChange("location", e.target.value)} className="p-2 rounded-lg border" />
@@ -217,29 +248,21 @@ export default function UserDashboard() {
   );
 }
 
-// ----- Section Component -----
+// Subcomponent for items
 function Section({ title, items, onBook }: { title: string; items: Item[]; onBook: (item: Item) => void }) {
-  if (!items.length)
-    return (
-      <div className="mb-12">
-        {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
-        <p className="text-center text-gray-500">No items found.</p>
-      </div>
-    );
+  if (!items.length) return <div className="mb-12">{title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}<p className="text-center text-gray-500">No items found.</p></div>;
 
   return (
     <div className="mb-12">
       {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map((item) => (
-          <div key={item.id} className="bg-white shadow rounded-2xl p-4 flex flex-col">
+          <div key={item.docId} className="bg-white shadow rounded-2xl p-4 flex flex-col">
             <img src={item.image || "/default-stay.jpg"} alt={item.name} className="w-full h-48 object-cover rounded-xl mb-2 shadow" />
             <h3 className="font-semibold text-lg">{item.name}</h3>
             <p className="text-gray-500">{item.location}</p>
             <p className="text-indigo-600 font-bold mt-1">₹{item.price}</p>
-            <button onClick={() => onBook(item)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
-              Book Now
-            </button>
+            <button onClick={() => onBook(item)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">Book Now</button>
           </div>
         ))}
       </div>

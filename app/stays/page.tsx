@@ -2,11 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import {
-  collection,
-  onSnapshot,
-  serverTimestamp,
-} from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { motion } from "framer-motion";
 
 // Interfaces
@@ -16,6 +12,7 @@ interface Stay {
   location: string;
   price: number;
   image?: string;
+  partnerId?: string;
 }
 
 export default function StaysPage() {
@@ -26,6 +23,7 @@ export default function StaysPage() {
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
+  const [paymentLoading, setPaymentLoading] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "stays"), (snapshot) => {
@@ -40,32 +38,30 @@ export default function StaysPage() {
     return () => unsub();
   }, []);
 
-  // Razorpay checkout + server-side verification
   const handleBookNow = async (stay: Stay) => {
     if (!checkIn || !checkOut) {
       alert("Please select check-in and check-out dates.");
       return;
     }
+    setPaymentLoading(true);
 
     try {
-      // 1️⃣ Create Razorpay order
+      // 1️⃣ Create Razorpay order on server
       const orderRes = await fetch("/api/payments/razorpay", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: stay.price }),
       });
       const { order } = await orderRes.json();
-
       if (!order?.id) throw new Error("Failed to create order.");
 
       // 2️⃣ Open Razorpay Checkout
-      const options = {
+      const rzp = new (window as any).Razorpay({
         key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
         amount: order.amount,
         currency: "INR",
         name: "BharatComfort11",
         description: `Booking for ${stay.name}`,
-        image: "/logo.png",
         order_id: order.id,
         handler: async function (response: any) {
           // 3️⃣ Verify payment & create booking
@@ -81,7 +77,7 @@ export default function StaysPage() {
               checkOut,
               guests,
               totalPrice: stay.price,
-              userId: "USER_ID_HERE", // Replace with auth user id
+              userId: "LOGGED_IN_USER_ID", // replace with auth user UID
             }),
           });
 
@@ -95,13 +91,14 @@ export default function StaysPage() {
           contact: "9999999999",
         },
         theme: { color: "#4f46e5" },
-      };
+      });
 
-      const rzp = new (window as any).Razorpay(options);
       rzp.open();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Booking error:", err);
-      alert("❌ Payment failed. Please try again.");
+      alert("❌ Payment failed: " + err.message);
+    } finally {
+      setPaymentLoading(false);
     }
   };
 
@@ -122,20 +119,19 @@ export default function StaysPage() {
     >
       <h1 className="text-3xl font-bold mb-6 text-center">Available Stays</h1>
 
+      {/* Booking Inputs */}
       <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-center items-center">
         <input
           type="date"
           value={checkIn}
           onChange={(e) => setCheckIn(e.target.value)}
           className="border rounded-lg p-2"
-          placeholder="Check-in"
         />
         <input
           type="date"
           value={checkOut}
           onChange={(e) => setCheckOut(e.target.value)}
           className="border rounded-lg p-2"
-          placeholder="Check-out"
         />
         <input
           type="number"
@@ -143,7 +139,6 @@ export default function StaysPage() {
           value={guests}
           onChange={(e) => setGuests(Number(e.target.value))}
           className="border rounded-lg p-2 w-24"
-          placeholder="Guests"
         />
       </div>
 
@@ -170,9 +165,10 @@ export default function StaysPage() {
                 </p>
                 <button
                   onClick={() => handleBookNow(stay)}
+                  disabled={paymentLoading}
                   className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-xl hover:bg-indigo-700 transition"
                 >
-                  Book Now
+                  {paymentLoading ? "Processing..." : "Book Now"}
                 </button>
               </div>
             </motion.div>

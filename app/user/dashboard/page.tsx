@@ -43,31 +43,36 @@ export default function UserDashboard() {
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [allStays, setAllStays] = useState<Stay[]>([]);
 
-  // ------------------- Auth -------------------
+  // ------------------- Auth & Profile -------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
 
       setUser(currentUser);
 
-      // Fetch profile from Firestore
       try {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
+
         if (!userSnap.exists()) {
-          alert("Profile not found!");
-          return router.push("/");
+          console.warn("User profile not found, creating safe default.");
+          setProfile({ name: "User", role: "user", profilePic: "" });
+          setLoading(false);
+          return;
         }
 
         const data = userSnap.data();
         if (data.role !== "user") {
           alert("Not authorized");
-          return router.push("/");
+          router.push("/");
+          return;
         }
 
         setProfile(data);
       } catch (err) {
         console.error("Error loading profile:", err);
+        // Safe fallback profile
+        setProfile({ name: "User", role: "user", profilePic: "" });
       } finally {
         setLoading(false);
       }
@@ -76,7 +81,7 @@ export default function UserDashboard() {
     return () => unsub();
   }, [router]);
 
-  // ------------------- Real-time bookings -------------------
+  // ------------------- Real-time Bookings -------------------
   useEffect(() => {
     if (!user) return;
 
@@ -108,7 +113,7 @@ export default function UserDashboard() {
     return () => unsub();
   }, [user]);
 
-  // ------------------- Real-time stays -------------------
+  // ------------------- Real-time Stays -------------------
   useEffect(() => {
     const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
 
@@ -157,6 +162,7 @@ export default function UserDashboard() {
     }
   };
 
+  // ------------------- Render -------------------
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
   if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
 

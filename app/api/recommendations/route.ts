@@ -62,8 +62,8 @@ Respond in pure JSON format:
       ],
     });
 
-    let content = completion.choices[0].message?.content?.trim() || "[]";
-    let aiData: any[] = [];
+   const content = completion.choices[0].message?.content?.trim() || "[]";
+const aiData: any[] = [];
 
     try {
       aiData = JSON.parse(content);

@@ -7,19 +7,21 @@ import {
   collection,
   query,
   where,
-  onSnapshot,
   orderBy,
-  getDoc,
+  onSnapshot,
   doc,
+  getDoc,
+  updateDoc,
 } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { createRazorpayOrder } from "@/lib/payments-razorpay"; // your API route
+import { createRazorpayOrder } from "@/lib/payments-razorpay"; // Razorpay server utility
 
 interface Booking {
   id: string;
   listingName?: string;
   date: string;
   amount?: number;
+  paymentStatus?: string;
 }
 
 interface Stay {
@@ -42,7 +44,6 @@ export default function UserDashboard() {
   const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [allStays, setAllStays] = useState<Stay[]>([]);
-  const [notifications, setNotifications] = useState<any[]>([]);
 
   // ------------------- Auth & Profile -------------------
   useEffect(() => {
@@ -76,7 +77,7 @@ export default function UserDashboard() {
     return () => unsub();
   }, [router]);
 
-  // ------------------- Real-time Bookings -------------------
+  // ------------------- Real-time bookings -------------------
   useEffect(() => {
     if (!user) return;
 
@@ -89,17 +90,19 @@ export default function UserDashboard() {
     const unsub = onSnapshot(
       bookingsQuery,
       (snap) => {
-        const allBookings: Booking[] = snap.docs.map((d) => ({
-          id: d.id,
-          listingName: d.data().listingName,
-          date: d.data().date,
-          amount: d.data().amount,
-        }));
+        const allBookings: Booking[] = snap.docs.map((d) => {
+          const data = d.data() as Booking;
+          return {
+            id: d.id,
+            listingName: data.listingName,
+            date: data.date,
+            amount: data.amount,
+            paymentStatus: data.paymentStatus,
+          };
+        });
 
         const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-        const upcoming = allBookings.filter(
-          (b) => b.date && new Date(b.date) > new Date()
-        ).length;
+        const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
 
         setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
         setRecentBookings(allBookings.slice(0, 5));
@@ -110,22 +113,25 @@ export default function UserDashboard() {
     return () => unsub();
   }, [user]);
 
-  // ------------------- Real-time Stays -------------------
+  // ------------------- Real-time stays -------------------
   useEffect(() => {
     const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
 
     const unsubStays = onSnapshot(
       staysQuery,
       (snap) => {
-        const stays: Stay[] = snap.docs.map((d) => ({
-          id: d.id,
-          name: d.data().name,
-          location: d.data().location,
-          price: d.data().price,
-          image: d.data().image,
-          bookingsCount: d.data().bookingsCount,
-          partnerId: d.data().partnerId,
-        }));
+        const stays: Stay[] = snap.docs.map((d) => {
+          const data = d.data() as Stay;
+          return {
+            id: d.id,
+            name: data.name,
+            location: data.location,
+            price: data.price,
+            image: data.image,
+            bookingsCount: data.bookingsCount,
+            partnerId: data.partnerId,
+          };
+        });
 
         setAllStays(stays);
       },
@@ -135,58 +141,36 @@ export default function UserDashboard() {
     return () => unsubStays();
   }, []);
 
-  // ------------------- Real-time Notifications -------------------
-  useEffect(() => {
-    if (!user) return;
-
-    const notifQuery = query(
-      collection(db, "notifications"),
-      where("userId", "in", [user.uid, "all"])
-    );
-
-    const unsubNotif = onSnapshot(
-      notifQuery,
-      (snap) => {
-        const notifs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setNotifications(notifs);
-      },
-      (err) => console.error("Error fetching notifications:", err)
-    );
-
-    return () => unsubNotif();
-  }, [user]);
-
   // ------------------- Razorpay Payment -------------------
-  const handleBooking = async (stay: Stay) => {
-    if (!user) return alert("Not logged in!");
-
+  const handlePay = async (booking: Booking) => {
     try {
-      // Create order on server
-      const res = await createRazorpayOrder(stay.price * 100, user.uid); // amount in paise
-      const { orderId, key } = res;
+      if (!booking.amount) return alert("Booking amount missing!");
 
+      // 1️⃣ Create order via server-side utility
+      const order = await createRazorpayOrder(booking.amount);
+
+      // 2️⃣ Razorpay checkout options
       const options = {
-        key,
-        amount: stay.price * 100,
-        currency: "INR",
-        name: stay.name,
-        order_id: orderId,
-        handler: async (response: any) => {
-          alert("Payment successful ✅ Transaction ID: " + response.razorpay_payment_id);
-
-          // Save booking in Firestore
-          const bookingRef = collection(db, "bookings");
-          await bookingRef.add({
-            userId: user.uid,
-            listingName: stay.name,
-            date: new Date().toISOString(),
-            amount: stay.price,
-            partnerId: stay.partnerId || null,
-            status: "confirmed",
-            createdAt: new Date(),
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        amount: order.amount,
+        currency: order.currency,
+        name: "BharatComfort",
+        description: `Booking: ${booking.listingName}`,
+        order_id: order.id,
+        handler: async (res: any) => {
+          const bookingRef = doc(db, "bookings", booking.id);
+          await updateDoc(bookingRef, {
+            paymentStatus: "paid",
+            paymentId: res.razorpay_payment_id,
+            orderId: res.razorpay_order_id,
           });
+          alert("Payment successful ✅");
         },
-        theme: { color: "#2563eb" },
+        prefill: {
+          name: profile?.name,
+          email: user?.email,
+        },
+        theme: { color: "#2563EB" },
       };
 
       const rzp = new (window as any).Razorpay(options);
@@ -223,33 +207,30 @@ export default function UserDashboard() {
         ) : (
           <ul className="space-y-2 max-h-64 overflow-y-auto">
             {recentBookings.map((b) => (
-              <li key={b.id} className="border rounded-lg p-2 flex justify-between">
-                <span>{b.listingName || "Trip"}</span>
-                <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+              <li key={b.id} className="border rounded-lg p-2 flex justify-between items-center">
+                <div>
+                  <span>{b.listingName || "Trip"}</span>
+                  <br />
+                  <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+                </div>
+                {b.amount && b.paymentStatus !== "paid" && (
+                  <button
+                    onClick={() => handlePay(b)}
+                    className="bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+                  >
+                    Pay ₹{b.amount}
+                  </button>
+                )}
+                {b.paymentStatus === "paid" && (
+                  <span className="text-green-600 font-semibold">Paid ✅</span>
+                )}
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      {/* Notifications */}
-      <div className="bg-white shadow rounded-2xl p-6 mb-12">
-        <h3 className="text-lg font-semibold mb-4">Notifications</h3>
-        {notifications.length === 0 ? (
-          <p>No notifications</p>
-        ) : (
-          <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {notifications.map((n) => (
-              <li key={n.id} className="border rounded-lg p-2 bg-gray-50">
-                <p className="font-medium">{n.title}</p>
-                <p className="text-gray-500 text-sm">{n.message}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* All Listings */}
+      {/* All Stays */}
       <div className="mb-12">
         <h2 className="text-2xl font-bold mb-4">All Listings</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -263,13 +244,6 @@ export default function UserDashboard() {
               <h3 className="font-semibold text-lg">{stay.name}</h3>
               <p className="text-gray-500">{stay.location}</p>
               <p className="text-indigo-600 font-bold mt-1">₹{stay.price}</p>
-              <p className="text-gray-400 text-sm">{stay.bookingsCount || 0} bookings</p>
-              <button
-                onClick={() => handleBooking(stay)}
-                className="mt-2 bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-              >
-                Book Now
-              </button>
             </div>
           ))}
         </div>

@@ -3,17 +3,40 @@ import { razorpay } from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   try {
-    const { subscriptionId, planId } = await req.json();
+    const { amount, listingId, checkIn, checkOut, guests } = await req.json();
 
-    const subscription = await razorpay.subscriptions.create({
-      plan_id: planId,
-      customer_notify: 1,
-      total_count: 12,
+    if (!amount || !listingId) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
+
+    const order = await razorpay.orders.create({
+      amount: Math.round(amount * 100),
+      currency: "INR",
+      receipt: `receipt_${Date.now()}`,
+      notes: {
+        listingId,
+        checkIn,
+        checkOut,
+        guests: String(guests || 1),
+      },
     });
 
-    return NextResponse.json({ success: true, subscription });
-  } catch (error: any) {
-    console.error("Razorpay subscription error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      id: order.id,
+      amount: order.amount,
+      currency: order.currency,
+      status: order.status,
+      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY, // frontend public key
+    });
+  } catch (err: any) {
+    console.error("Error creating Razorpay order:", err);
+    return NextResponse.json(
+      { error: "Failed to create Razorpay order" },
+      { status: 500 }
+    );
   }
 }

@@ -3,30 +3,22 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore";
-
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import AIRecommendations from "@/components/home/AIRecommendations";
+import { collection, query, where, onSnapshot, orderBy, doc, getDoc } from "firebase/firestore";
 import { openRazorpayCheckout, createOrder } from "@/lib/payments-razorpay";
 
-// Homepage sections
+// Components from homepage
 import Hero from "@/components/home/Hero";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
 import FeaturedListings from "@/components/home/FeaturedListings";
 import PromotionsStrip from "@/components/home/PromotionsStrip";
-import TrendingDestinations from "@/components/home/TrendingDestinations";
 import RecentStories from "@/components/home/RecentStories";
+import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 import Footer from "@/components/home/Footer";
+
+// AI Recommendations Component
+import AIRecommendations from "@/components/home/AIRecommendations";
 
 interface Booking {
   id: string;
@@ -51,11 +43,11 @@ export default function UserDashboard() {
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
-  const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [allStays, setAllStays] = useState<Stay[]>([]);
+  const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
 
-  // ------------------- Auth & Profile -------------------
+  // ---------------- Auth & Profile ----------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -64,18 +56,18 @@ export default function UserDashboard() {
       try {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
+
         if (!userSnap.exists()) {
           setProfile({ name: "User", role: "user", profilePic: "" });
-          setLoading(false);
-          return;
+        } else {
+          const data = userSnap.data();
+          if (data.role !== "user") {
+            alert("Not authorized");
+            router.push("/");
+            return;
+          }
+          setProfile(data);
         }
-        const data = userSnap.data();
-        if (data.role !== "user") {
-          alert("Not authorized");
-          router.push("/");
-          return;
-        }
-        setProfile(data);
       } catch (err) {
         console.error("Error loading profile:", err);
         setProfile({ name: "User", role: "user", profilePic: "" });
@@ -87,64 +79,56 @@ export default function UserDashboard() {
     return () => unsub();
   }, [router]);
 
-  // ------------------- Real-time Bookings -------------------
+  // ---------------- Real-time Bookings ----------------
   useEffect(() => {
     if (!user) return;
-
     const bookingsQuery = query(
       collection(db, "bookings"),
       where("userId", "==", user.uid),
       orderBy("date", "desc")
     );
 
-    const unsub = onSnapshot(
-      bookingsQuery,
-      (snap) => {
-        const allBookings: Booking[] = snap.docs.map((d) => ({
-          id: d.id,
-          listingName: d.data().listingName,
-          date: d.data().date,
-          amount: d.data().amount,
-        }));
+    const unsub = onSnapshot(bookingsQuery, (snap) => {
+      const allBookings: Booking[] = snap.docs.map((d) => ({
+        id: d.id,
+        listingName: d.data().listingName,
+        date: d.data().date,
+        amount: d.data().amount,
+      }));
 
-        const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-        const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
+      const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+      const upcoming = allBookings.filter((b) => new Date(b.date) > new Date()).length;
 
-        setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-        setRecentBookings(allBookings.slice(0, 5));
-      },
-      (err) => console.error("Error fetching bookings:", err)
-    );
+      setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
+      setRecentBookings(allBookings.slice(0, 5));
+    });
 
     return () => unsub();
   }, [user]);
 
-  // ------------------- Real-time Stays -------------------
+  // ---------------- Real-time Stays ----------------
   useEffect(() => {
     const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
+    const unsubStays = onSnapshot(staysQuery, (snap) => {
+      const stays: Stay[] = snap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().name,
+        location: d.data().location,
+        price: d.data().price,
+        image: d.data().image,
+        bookingsCount: d.data().bookingsCount,
+        partnerId: d.data().partnerId,
+      }));
 
-    const unsubStays = onSnapshot(
-      staysQuery,
-      (snap) => {
-        const stays: Stay[] = snap.docs.map((d) => ({
-          id: d.id,
-          name: d.data().name,
-          location: d.data().location,
-          price: d.data().price,
-          image: d.data().image,
-          bookingsCount: d.data().bookingsCount,
-          partnerId: d.data().partnerId,
-        }));
-        setAllStays(stays);
-      },
-      (err) => console.error("Error fetching stays:", err)
-    );
+      setAllStays(stays);
+    });
 
     return () => unsubStays();
   }, []);
 
-  // ------------------- Handle Razorpay Payment -------------------
+  // ---------------- Razorpay Booking ----------------
   const handleBookingPayment = async (stay: Stay) => {
+    if (!profile) return alert("Profile not loaded");
     try {
       const order = await createOrder({ amount: stay.price });
       openRazorpayCheckout({
@@ -167,27 +151,60 @@ export default function UserDashboard() {
     }
   };
 
-  // ------------------- Render -------------------
+  // ---------------- Render ----------------
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
   if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
 
   return (
-    <DashboardLayout
-      title={`Welcome, ${profile.name}`}
-      profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}
-    >
-      {/* Homepage + AI + Booking sections */}
+    <main className="relative bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-gray-900 min-h-screen font-sans overflow-x-hidden">
+      {/* Homepage sections */}
       <Hero />
       <QuickActionStrip />
-      <FeaturedListings />
 
-      {/* AI Recommendations */}
-      <AIRecommendations user={profile} />
+      <section className="py-16 container mx-auto px-4">
+        <h2 className="text-4xl font-serif font-bold text-yellow-800 mb-8 text-center">
+          Featured Trips
+        </h2>
+        <FeaturedListings />
+      </section>
 
-      {/* Real-time Stays with Book Now */}
-      <section className="py-12">
-        <h2 className="text-3xl font-bold mb-6 text-center text-yellow-800">All Stays</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      <PromotionsStrip />
+      <TrendingDestinations />
+      <RecentStories />
+      <Testimonials />
+      <NewsletterSignup />
+
+      {/* ---------------- Stats + Recent Bookings ---------------- */}
+      <section className="container mx-auto px-4 py-12">
+        <h2 className="text-3xl font-bold mb-6">Your Stats</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-8">
+          {Object.entries(stats).map(([key, value]) => (
+            <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
+              <h2 className="text-2xl font-bold">{value}</h2>
+              <p className="text-gray-600 capitalize">{key}</p>
+            </div>
+          ))}
+        </div>
+
+        <h3 className="text-xl font-semibold mb-4">Recent Bookings</h3>
+        {recentBookings.length === 0 ? (
+          <p>No bookings yet.</p>
+        ) : (
+          <ul className="space-y-2 max-h-64 overflow-y-auto">
+            {recentBookings.map((b) => (
+              <li key={b.id} className="border rounded-lg p-2 flex justify-between">
+                <span>{b.listingName || "Trip"}</span>
+                <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      {/* ---------------- All Stays / Book Now ---------------- */}
+      <section className="container mx-auto px-4 py-12">
+        <h2 className="text-3xl font-bold mb-6">All Stays / Listings</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {allStays.map((stay) => (
             <div key={stay.id} className="bg-white shadow rounded-2xl p-4 flex flex-col">
               <img
@@ -209,43 +226,12 @@ export default function UserDashboard() {
         </div>
       </section>
 
-      {/* Stats & Recent Bookings */}
-      <section className="py-12">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
-          {Object.entries(stats).map(([key, value]) => (
-            <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
-              <h2 className="text-2xl font-bold">{value}</h2>
-              <p className="text-gray-600 capitalize">{key}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-white shadow rounded-2xl p-6 mb-12">
-          <h3 className="text-lg font-semibold mb-4">Recent Bookings</h3>
-          {recentBookings.length === 0 ? (
-            <p>No bookings yet.</p>
-          ) : (
-            <ul className="space-y-2 max-h-64 overflow-y-auto">
-              {recentBookings.map((b) => (
-                <li key={b.id} className="border rounded-lg p-2 flex justify-between">
-                  <span>{b.listingName || "Trip"}</span>
-                  <span className="text-gray-400 text-sm">
-                    {new Date(b.date).toLocaleString()}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+      {/* ---------------- AI Recommendations ---------------- */}
+      <section className="container mx-auto px-4 py-12">
+        <AIRecommendations profile={profile} />
       </section>
 
-      {/* Rest of homepage sections */}
-      <TrendingDestinations />
-      <PromotionsStrip />
-      <RecentStories />
-      <Testimonials />
-      <NewsletterSignup />
       <Footer />
-    </DashboardLayout>
+    </main>
   );
 }

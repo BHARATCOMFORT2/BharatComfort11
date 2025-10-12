@@ -20,7 +20,7 @@ import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 interface Booking {
   id: string;
   listingName?: string;
-  date: string;
+  date?: string;
   amount?: number;
 }
 
@@ -56,6 +56,7 @@ export default function UserDashboardFinal() {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [filters, setFilters] = useState<Filters>({});
 
+  // ✅ Auth listener
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -86,7 +87,7 @@ export default function UserDashboardFinal() {
     return () => unsub();
   }, [router]);
 
-  // Fetch bookings, stats, recommendations
+  // ✅ Fetch bookings, stats & recommendations
   useEffect(() => {
     if (!user) return;
 
@@ -102,7 +103,7 @@ export default function UserDashboardFinal() {
         );
 
         const upcoming = bookingsSnap.docs.filter(
-          (b) => new Date(b.data().date) > new Date()
+          (b) => b.data().date && new Date(b.data().date) > new Date()
         ).length;
 
         setStats({
@@ -113,7 +114,7 @@ export default function UserDashboardFinal() {
 
         const recent: Booking[] = bookingsSnap.docs
           .map((d) => ({ id: d.id, ...(d.data() as Partial<Booking>) } as Booking))
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+          .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
           .slice(0, 5);
 
         setRecentBookings(recent);
@@ -134,7 +135,7 @@ export default function UserDashboardFinal() {
     fetchData();
   }, [user]);
 
-  // Real-time trending
+  // ✅ Real-time trending
   useEffect(() => {
     const q = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
     const unsub = onSnapshot(q, (snap) => {
@@ -143,6 +144,7 @@ export default function UserDashboardFinal() {
     return () => unsub();
   }, []);
 
+  // ✅ Filters
   const handleFilterChange = (field: keyof Filters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
@@ -159,27 +161,38 @@ export default function UserDashboardFinal() {
   const handleBooking = async (item: Item) => {
     if (!user) return alert("Login required");
 
+    const checkIn = prompt("Enter check-in date (YYYY-MM-DD)") || "";
+    const checkOut = prompt("Enter check-out date (YYYY-MM-DD)") || "";
+    const guests = Number(prompt("Enter number of guests") || 1);
+
     try {
-      // call Razorpay order API
-      const res = await fetch("/api/payments/create-order", {
+      const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: item.price, listingId: item.id }),
+        body: JSON.stringify({
+          userId: user.uid,
+          partnerId: item.partnerId,
+          listingId: item.id,
+          amount: item.price,
+          checkIn,
+          checkOut,
+          guests,
+        }),
       });
 
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Order creation failed");
+      if (!data.success) throw new Error(data.error || "Booking creation failed");
 
       openRazorpayCheckout({
         amount: item.price,
-        orderId: data.id,
+        orderId: data.order.id, // must be the Razorpay order id
         name: item.name,
         email: user.email || "",
         onSuccess: (resp) => alert("✅ Payment successful: " + resp.razorpay_payment_id),
         onFailure: (err) => alert("❌ Payment failed: " + err.error),
       });
     } catch (err: any) {
-      console.error(err);
+      console.error("Booking error:", err);
       alert("Booking failed: " + err.message);
     }
   };
@@ -212,7 +225,7 @@ export default function UserDashboardFinal() {
             {recentBookings.map((b, idx) => (
               <li key={idx} className="border rounded-lg p-2 flex justify-between items-center">
                 <span>{b.listingName || "Trip"}</span>
-                <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+                <span className="text-gray-400 text-sm">{b.date ? new Date(b.date).toLocaleString() : ""}</span>
               </li>
             ))}
           </ul>
@@ -241,6 +254,7 @@ export default function UserDashboardFinal() {
   );
 }
 
+// Subcomponent for items
 function Section({ title, items, onBook }: { title: string; items: Item[]; onBook: (item: Item) => void }) {
   if (!items.length) return <div className="mb-12">{title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}<p className="text-center text-gray-500">No items found.</p></div>;
 

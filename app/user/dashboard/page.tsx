@@ -1,226 +1,65 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { auth, db } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
-import {
-  collection,
-  query,
-  where,
-  onSnapshot,
-  orderBy,
-  doc,
-  getDoc,
-} from "firebase/firestore";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { openRazorpayCheckout, createOrder } from "@/lib/payments-razorpay";
+import { auth, db } from "@/lib/firebase";
+import DashboardLayout from "@/components/layouts/DashboardLayout";
 
-interface Booking {
-  id: string;
-  listingName?: string;
-  date: string;
-  amount?: number;
-}
-
-interface Stay {
-  id: string;
-  name: string;
-  location: string;
-  price: number;
-  image?: string;
-  bookingsCount?: number;
-  partnerId?: string;
-}
-
-export default function UserDashboard() {
+export default function UserDashboardPage() {
+  const [userData, setUserData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
   const router = useRouter();
 
-  const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-
-  const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
-  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
-  const [allStays, setAllStays] = useState<Stay[]>([]);
-
-  // ------------------- Auth & Profile -------------------
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (currentUser) => {
-      if (!currentUser) return router.push("/auth/login");
-
-      setUser(currentUser);
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (!user) {
+        router.push("/auth/login");
+        return;
+      }
 
       try {
-        const userRef = doc(db, "users", currentUser.uid);
-        const userSnap = await getDoc(userRef);
-
-        if (!userSnap.exists()) {
-          console.warn("User profile not found, creating safe default.");
-          setProfile({ name: "User", role: "user", profilePic: "" });
-          setLoading(false);
-          return;
+        const docRef = doc(db, "users", user.uid);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          setUserData({ id: user.uid, ...docSnap.data() });
+        } else {
+          console.warn("⚠️ No user document found for:", user.uid);
         }
-
-        const data = userSnap.data();
-        if (data.role !== "user") {
-          alert("Not authorized");
-          router.push("/");
-          return;
-        }
-
-        setProfile(data);
       } catch (err) {
-        console.error("Error loading profile:", err);
-        // Safe fallback profile
-        setProfile({ name: "User", role: "user", profilePic: "" });
+        console.error("Error loading user data:", err);
       } finally {
         setLoading(false);
       }
     });
 
-    return () => unsub();
+    return () => unsubscribe();
   }, [router]);
 
-  // ------------------- Real-time Bookings -------------------
-  useEffect(() => {
-    if (!user) return;
+  if (loading) return <div className="p-6">Loading dashboard...</div>;
 
-    const bookingsQuery = query(
-      collection(db, "bookings"),
-      where("userId", "==", user.uid),
-      orderBy("date", "desc")
-    );
-
-    const unsub = onSnapshot(
-      bookingsQuery,
-      (snap) => {
-        const allBookings: Booking[] = snap.docs.map((d) => ({
-          id: d.id,
-          listingName: d.data().listingName,
-          date: d.data().date,
-          amount: d.data().amount,
-        }));
-
-        const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-        const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
-
-        setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-        setRecentBookings(allBookings.slice(0, 5));
-      },
-      (err) => console.error("Error fetching bookings:", err)
-    );
-
-    return () => unsub();
-  }, [user]);
-
-  // ------------------- Real-time Stays -------------------
-  useEffect(() => {
-    const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
-
-    const unsubStays = onSnapshot(
-      staysQuery,
-      (snap) => {
-        const stays: Stay[] = snap.docs.map((d) => ({
-          id: d.id,
-          name: d.data().name,
-          location: d.data().location,
-          price: d.data().price,
-          image: d.data().image,
-          bookingsCount: d.data().bookingsCount,
-          partnerId: d.data().partnerId,
-        }));
-
-        setAllStays(stays);
-      },
-      (err) => console.error("Error fetching stays:", err)
-    );
-
-    return () => unsubStays();
-  }, []);
-
-  // ------------------- Handle Razorpay Payment -------------------
-  const handleBookingPayment = async (stay: Stay) => {
-    try {
-      const order = await createOrder({ amount: stay.price });
-      openRazorpayCheckout({
-        amount: stay.price,
-        orderId: order.id,
-        name: profile?.name || "Booking",
-        email: profile?.email || "",
-        onSuccess: (res) => {
-          alert("Payment successful!");
-          console.log("Payment response:", res);
-        },
-        onFailure: (err) => {
-          alert("Payment failed!");
-          console.error(err);
-        },
-      });
-    } catch (err) {
-      console.error("Razorpay order error:", err);
-      alert("Unable to create payment order");
-    }
-  };
-
-  // ------------------- Render -------------------
-  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
-  if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
+  if (!userData) return <div className="p-6">User data not found.</div>;
 
   return (
     <DashboardLayout
       title="User Dashboard"
-      profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}
+      profile={{
+        name: userData.name || userData.email || "User",
+        role: userData.role || "user",
+        profilePic: userData.profilePic || "",
+      }}
     >
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
-        {Object.entries(stats).map(([key, value]) => (
-          <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
-            <h2 className="text-2xl font-bold">{value}</h2>
-            <p className="text-gray-600 capitalize">{key}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Recent Bookings */}
-      <div className="bg-white shadow rounded-2xl p-6 mb-12">
-        <h3 className="text-lg font-semibold mb-4">Recent Bookings</h3>
-        {recentBookings.length === 0 ? (
-          <p>No bookings yet.</p>
-        ) : (
-          <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {recentBookings.map((b) => (
-              <li key={b.id} className="border rounded-lg p-2 flex justify-between">
-                <span>{b.listingName || "Trip"}</span>
-                <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-
-      {/* All Stays */}
-      <div className="mb-12">
-        <h2 className="text-2xl font-bold mb-4">All Stays / Listings</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {allStays.map((stay) => (
-            <div key={stay.id} className="bg-white shadow rounded-2xl p-4 flex flex-col">
-              <img
-                src={stay.image || "/default-stay.jpg"}
-                alt={stay.name}
-                className="w-full h-48 object-cover rounded-xl mb-2 shadow"
-              />
-              <h3 className="font-semibold text-lg">{stay.name}</h3>
-              <p className="text-gray-500">{stay.location}</p>
-              <p className="text-indigo-600 font-bold mt-1">₹{stay.price}</p>
-              <button
-                className="mt-2 bg-indigo-600 text-white py-1 px-3 rounded hover:bg-indigo-700"
-                onClick={() => handleBookingPayment(stay)}
-              >
-                Book Now
-              </button>
-            </div>
-          ))}
-        </div>
+      <div className="bg-white p-6 rounded-xl shadow-sm">
+        <h2 className="text-2xl font-semibold mb-4">
+          Welcome, {userData.name || "User"} 👋
+        </h2>
+        <p>Your email: {userData.email}</p>
+        <p>Role: {userData.role}</p>
+        <p className="mt-4 text-gray-500">
+          You can view your trips, manage bookings, and update your profile from
+          the sidebar.
+        </p>
       </div>
     </DashboardLayout>
   );

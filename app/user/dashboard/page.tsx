@@ -13,6 +13,7 @@ import {
   getDoc,
 } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 
 interface Booking {
   id: string;
@@ -28,6 +29,7 @@ interface Stay {
   price: number;
   image?: string;
   bookingsCount?: number;
+  partnerId?: string;
 }
 
 export default function UserDashboard() {
@@ -40,13 +42,12 @@ export default function UserDashboard() {
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [allStays, setAllStays] = useState<Stay[]>([]);
 
-  // ------------------- Auth -------------------
+  // ------------------- Auth & Profile -------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
       setUser(currentUser);
 
-      // Fetch user profile
       try {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
@@ -66,64 +67,55 @@ export default function UserDashboard() {
         setLoading(false);
       }
     });
+
     return () => unsub();
   }, [router]);
 
-  // ------------------- Real-time bookings -------------------
+  // ------------------- Real-time Bookings -------------------
   useEffect(() => {
     if (!user) return;
 
-    try {
-      const bookingsQuery = query(
-        collection(db, "bookings"),
-        where("userId", "==", user.uid),
-        orderBy("date", "desc")
-      );
+    const bookingsQuery = query(
+      collection(db, "bookings"),
+      where("userId", "==", user.uid),
+      orderBy("date", "desc")
+    );
 
-      const unsub = onSnapshot(
-        bookingsQuery,
-        (snap) => {
-          const allBookings: Booking[] = snap.docs.map((d) => ({
-            id: d.id,
-            ...d.data(),
-          } as Booking));
+    const unsub = onSnapshot(bookingsQuery, (snap) => {
+      const allBookings: Booking[] = snap.docs.map((d) => ({
+        id: d.id,
+        listingName: d.data().listingName,
+        date: d.data().date,
+        amount: d.data().amount,
+      }));
 
-          const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-          const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
+      const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+      const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
 
-          setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-          setRecentBookings(allBookings.slice(0, 5));
-        },
-        (err) => console.error("Error fetching bookings:", err)
-      );
+      setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
+      setRecentBookings(allBookings.slice(0, 5));
+    });
 
-      return () => unsub();
-    } catch (err) {
-      console.error("Unexpected error in bookings subscription:", err);
-    }
+    return () => unsub();
   }, [user]);
 
-  // ------------------- Real-time stays -------------------
+  // ------------------- Real-time Stays (Homepage view) -------------------
   useEffect(() => {
-    try {
-      const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
+    const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
+    const unsubStays = onSnapshot(staysQuery, (snap) => {
+      const stays: Stay[] = snap.docs.map((d) => ({
+        id: d.id,
+        name: d.data().name,
+        location: d.data().location,
+        price: d.data().price,
+        image: d.data().image,
+        bookingsCount: d.data().bookingsCount,
+        partnerId: d.data().partnerId,
+      }));
+      setAllStays(stays);
+    });
 
-      const unsub = onSnapshot(
-        staysQuery,
-        (snap) => {
-          const stays: Stay[] = snap.docs.map((d) => ({
-            id: d.id,
-            ...d.data(),
-          } as Stay));
-          setAllStays(stays);
-        },
-        (err) => console.error("Error fetching stays:", err)
-      );
-
-      return () => unsub();
-    } catch (err) {
-      console.error("Unexpected error in stays subscription:", err);
-    }
+    return () => unsubStays();
   }, []);
 
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
@@ -161,11 +153,11 @@ export default function UserDashboard() {
         )}
       </div>
 
-      {/* Trending Stays */}
+      {/* All Stays / Trending */}
       <div className="mb-12">
-        <h2 className="text-2xl font-bold mb-4">Trending Destinations</h2>
+        <h2 className="text-2xl font-bold mb-4">Explore Stays</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {allStays.slice(0, 6).map((stay) => (
+          {allStays.map((stay) => (
             <div key={stay.id} className="bg-white shadow rounded-2xl p-4 flex flex-col">
               <img
                 src={stay.image || "/default-stay.jpg"}
@@ -175,6 +167,22 @@ export default function UserDashboard() {
               <h3 className="font-semibold text-lg">{stay.name}</h3>
               <p className="text-gray-500">{stay.location}</p>
               <p className="text-indigo-600 font-bold mt-1">₹{stay.price}</p>
+              <button
+                className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-xl"
+                onClick={() => {
+                  // Example Razorpay integration
+                  openRazorpayCheckout({
+                    amount: stay.price,
+                    orderId: `temp_order_${Date.now()}`, // Replace with server-created orderId
+                    name: profile.name,
+                    email: profile.email,
+                    onSuccess: (res) => alert("Payment success!"),
+                    onFailure: (err) => alert("Payment failed"),
+                  });
+                }}
+              >
+                Book Now
+              </button>
             </div>
           ))}
         </div>

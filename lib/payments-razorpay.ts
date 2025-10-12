@@ -1,21 +1,57 @@
-// ================= RAZORPAY LIBRARY =================
+// lib/payments-razorpay.ts
 import Razorpay from "razorpay";
 
-// ---------------- SERVER-SIDE RAZORPAY INSTANCE ----------------
-export const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID || "",
-  key_secret: process.env.RAZORPAY_KEY_SECRET || "",
-});
+// ================= SERVER-SIDE =================
+let razorpayInstance: Razorpay | null = null;
 
-// ---------------- TYPE DEFINITIONS ----------------
+export function getRazorpayServerInstance() {
+  if (!razorpayInstance) {
+    const keyId = process.env.RAZORPAY_KEY_ID;
+    const keySecret = process.env.RAZORPAY_KEY_SECRET;
+
+    if (!keyId || !keySecret) {
+      throw new Error("❌ Razorpay server keys are missing!");
+    }
+
+    razorpayInstance = new Razorpay({
+      key_id: keyId,
+      key_secret: keySecret,
+    });
+  }
+
+  return razorpayInstance;
+}
+
 interface CreateOrderInput {
-  amount: number; // INR
+  amount: number; // in INR
   currency?: string;
   receipt?: string;
 }
 
+/**
+ * Create Razorpay order (server-side)
+ */
+export async function createOrder({
+  amount,
+  currency = "INR",
+  receipt,
+}: CreateOrderInput) {
+  if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
+
+  const razorpay = getRazorpayServerInstance();
+
+  const order = await razorpay.orders.create({
+    amount: Math.round(amount * 100), // convert to paise
+    currency,
+    receipt: receipt || `rcpt_${Date.now()}`,
+  });
+
+  return order;
+}
+
+// ================= CLIENT-SIDE =================
 interface OpenCheckoutInput {
-  amount: number; // INR
+  amount: number; // in INR
   orderId: string;
   name: string;
   email: string;
@@ -24,18 +60,9 @@ interface OpenCheckoutInput {
   onFailure?: (response: any) => void;
 }
 
-// ---------------- SERVER-SIDE: CREATE ORDER ----------------
-export async function createOrder({ amount, currency = "INR", receipt }: CreateOrderInput) {
-  if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
-
-  return await razorpay.orders.create({
-    amount: Math.round(amount * 100), // convert to paise
-    currency,
-    receipt: receipt || `rcpt_${Date.now()}`,
-  });
-}
-
-// ---------------- CLIENT-SIDE: OPEN CHECKOUT ----------------
+/**
+ * Open Razorpay Checkout (client-side)
+ */
 export function openRazorpayCheckout({
   amount,
   orderId,
@@ -47,9 +74,9 @@ export function openRazorpayCheckout({
 }: OpenCheckoutInput) {
   if (typeof window === "undefined") return;
 
-  const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID || "";
+  const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY;
   if (!key) {
-    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY_ID is missing in environment variables");
+    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY is missing");
     if (onFailure) onFailure({ error: "Payment key not configured" });
     return;
   }
@@ -60,7 +87,7 @@ export function openRazorpayCheckout({
     currency: "INR",
     order_id: orderId,
     name: name || "Booking",
-    prefill: { email: email || "", contact: phone || "" },
+    prefill: { email, contact: phone },
     theme: { color: "#6366f1" },
     handler: (response: any) => {
       console.log("✅ Payment success:", response);

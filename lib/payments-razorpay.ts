@@ -16,9 +16,11 @@ interface CreateOrderInput {
  * Create Razorpay order (server-side)
  */
 export async function createOrder({ amount, currency = "INR" }: CreateOrderInput) {
+  if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
   return await razorpay.orders.create({
-    amount: amount * 100, // convert to paise
+    amount: Math.round(amount * 100), // convert to paise
     currency,
+    receipt: `rcpt_${Date.now()}`,
   });
 }
 
@@ -47,25 +49,38 @@ export function openRazorpayCheckout({
 }: OpenCheckoutInput) {
   if (typeof window === "undefined") return;
 
+  const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY;
+  if (!key) {
+    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY is missing in environment variables");
+    if (onFailure) onFailure({ error: "Payment key not configured" });
+    return;
+  }
+
   const options: any = {
-    key: process.env.NEXT_PUBLIC_RAZORPAY_KEY, // ✅ must be exposed in env
-    amount: amount * 100,
+    key,
+    amount: Math.round(amount * 100),
     currency: "INR",
     order_id: orderId,
-    name,
-    prefill: { email, contact: phone },
+    name: name || "Booking",
+    prefill: { email: email || "", contact: phone || "" },
     theme: { color: "#6366f1" },
     handler: (response: any) => {
+      console.log("✅ Payment success:", response);
       if (onSuccess) onSuccess(response);
-      console.log("Payment success:", response);
     },
     modal: {
       ondismiss: () => {
-        if (onFailure) onFailure({ error: "Payment popup closed." });
+        console.log("⚠️ Payment popup closed");
+        if (onFailure) onFailure({ error: "Payment popup closed" });
       },
     },
   };
 
-  const rzp = new (window as any).Razorpay(options);
-  rzp.open();
+  try {
+    const rzp = new (window as any).Razorpay(options);
+    rzp.open();
+  } catch (err) {
+    console.error("❌ Razorpay Checkout error:", err);
+    if (onFailure) onFailure({ error: err });
+  }
 }

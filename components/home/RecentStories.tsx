@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import { getFirestore, collection, getDocs, orderBy, query, limit } from "firebase/firestore";
-import app from "@/lib/firebase";
+import { db } from "@/lib/firebase"; // ✅ use db directly
+import { collection, getDocs, orderBy, query, limit } from "firebase/firestore";
 
 interface Story {
   id: string;
@@ -19,10 +19,11 @@ export default function RecentStories() {
   useEffect(() => {
     const fetchStories = async () => {
       try {
-        const db = getFirestore(app);
         const q = query(collection(db, "stories"), orderBy("createdAt", "desc"), limit(5));
         const snapshot = await getDocs(q);
-        const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Story));
+        const data = snapshot.docs.map(
+          (doc) => ({ id: doc.id, ...doc.data() } as Story)
+        );
         setStories(data);
       } catch (error) {
         console.error("Error fetching stories:", error);
@@ -59,10 +60,13 @@ export default function RecentStories() {
                   className="w-full h-48 object-cover rounded-t-2xl"
                 />
                 <div className="p-4">
-                  <h3 className="text-xl font-semibold text-yellow-900 mb-1">{story.title}</h3>
-                  <p className="text-yellow-700/80 text-sm line-clamp-2">{story.excerpt}</p>
+                  <h3 className="text-xl font-semibold text-yellow-900 mb-1">
+                    {story.title}
+                  </h3>
+                  <p className="text-yellow-700/80 text-sm line-clamp-2">
+                    {story.excerpt}
+                  </p>
                 </div>
-                {/* Optional subtle gold glow on hover */}
                 <div className="absolute inset-0 rounded-2xl bg-gradient-to-tr from-yellow-100/20 via-yellow-200/10 to-transparent opacity-0 hover:opacity-30 transition-opacity duration-500 pointer-events-none"></div>
               </Link>
             </motion.div>

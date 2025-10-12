@@ -1,4 +1,3 @@
-// app/api/bookings/route.ts
 import { NextResponse } from "next/server";
 import { razorpay } from "@/lib/payments-razorpay";
 import { db } from "@/lib/firebase";
@@ -43,8 +42,10 @@ export async function POST(req: Request) {
       order: razorpayOrder,
       bookingId: docRef.id,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("❌ Booking API error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const message =
+      error instanceof Error ? error.message : "Unknown server error";
+    return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }

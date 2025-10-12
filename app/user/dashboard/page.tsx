@@ -5,7 +5,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import DashboardLayout from "@/components/layouts/DashboardLayout";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 export default function UserDashboardPage() {
   const [userData, setUserData] = useState<any>(null);

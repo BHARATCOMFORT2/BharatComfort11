@@ -15,7 +15,15 @@ import NewsletterSignup from "@/components/home/NewsletterSignup";
 import Footer from "@/components/home/Footer";
 import AIRecommendations from "@/components/home/AIRecommendations";
 
-import { doc, getDoc, collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  onSnapshot,
+  orderBy,
+} from "firebase/firestore";
 
 interface UserProfile {
   name?: string;
@@ -41,11 +49,12 @@ export default function UserDashboard() {
       try {
         const docRef = doc(db, "users", currentUser.uid);
         const docSnap = await getDoc(docRef);
+
         if (!docSnap.exists()) {
-          setProfile({ name: "User", role: "user", email: currentUser.email || "" });
+          setProfile({ name: "User", role: "user" });
         } else {
           const data = docSnap.data() as UserProfile;
-          if (data?.role !== "user") {
+          if (data.role !== "user") {
             alert("Not authorized");
             router.push("/");
             return;
@@ -53,8 +62,8 @@ export default function UserDashboard() {
           setProfile(data);
         }
       } catch (err) {
-        console.error("Profile fetch error:", err);
-        setProfile({ name: "User", role: "user", email: currentUser.email || "" });
+        console.error(err);
+        setProfile({ name: "User", role: "user" });
       } finally {
         setLoading(false);
       }
@@ -129,12 +138,12 @@ export default function UserDashboard() {
         <Testimonials />
       </section>
 
-      {/* Newsletter */}
+      {/* Newsletter Signup */}
       <section className="py-16 container mx-auto px-4 text-center">
         <NewsletterSignup />
       </section>
 
-      {/* AI Recommendations with Razorpay */}
+      {/* AI Recommendations + Razorpay */}
       <section className="py-12 container mx-auto px-4">
         <h2 className="text-3xl font-semibold mb-6 text-center">AI Travel Recommendations</h2>
         {profile && <AIRecommendations profile={profile} />}

@@ -1,55 +1,50 @@
+// app/api/bookings/route.ts
 import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { razorpay } from "@/lib/payments-razorpay";
+import { db } from "@/lib/firebase";
+import { collection, addDoc, Timestamp } from "firebase/firestore";
 
 export async function POST(req: Request) {
-  const { adminDb } = getFirebaseAdmin();
-
   try {
-    const data = await req.json();
-    const { userId, partnerId, listingId, amount, checkIn, checkOut, guests } = data;
+    const { userId, amount, bookingDetails } = await req.json();
 
-    if (!userId || !partnerId || !listingId || !amount) {
-      return NextResponse.json(
-        { success: false, error: "Missing required booking fields." },
-        { status: 400 }
-      );
+    if (!userId || !amount) {
+      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    }
+
+    // ✅ Check Razorpay instance before using
+    if (!razorpay) {
+      console.warn("⚠️ Razorpay keys missing. Skipping order creation (dev mode).");
+      return NextResponse.json({
+        success: false,
+        message: "Razorpay not configured. Please add keys in .env.local",
+      });
     }
 
     // ✅ Create Razorpay order
     const razorpayOrder = await razorpay.orders.create({
       amount: Math.round(amount * 100),
       currency: "INR",
-      receipt: `booking_${Date.now()}`,
+      receipt: `rcpt_${Date.now()}`,
     });
 
     // ✅ Save booking in Firestore
-    const newBooking = {
+    const docRef = await addDoc(collection(db, "bookings"), {
       userId,
-      partnerId,
-      listingId,
       amount,
-      checkIn: checkIn || null,
-      checkOut: checkOut || null,
-      guests: guests || 1,
-      status: "pending", // until payment verified
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      razorpayOrderId: razorpayOrder.id,
-    };
-
-    const docRef = await adminDb.collection("bookings").add(newBooking);
+      bookingDetails,
+      orderId: razorpayOrder.id,
+      createdAt: Timestamp.now(),
+      paymentStatus: "pending",
+    });
 
     return NextResponse.json({
       success: true,
-      id: docRef.id,
       order: razorpayOrder,
+      bookingId: docRef.id,
     });
-  } catch (err: any) {
-    console.error("Error creating booking:", err);
-    return NextResponse.json(
-      { success: false, error: err.message },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error("❌ Booking API error:", error);
+    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
   }
 }

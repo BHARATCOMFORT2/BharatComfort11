@@ -7,9 +7,10 @@ export async function POST(req: Request) {
   const { adminDb } = getFirebaseAdmin();
 
   try {
-    const { userId, partnerId, listingId, amount, checkIn, checkOut, guests } = await req.json();
+    const data = await req.json();
 
-    // ✅ Validation
+    // ✅ Basic validation
+    const { userId, partnerId, listingId, amount, checkIn, checkOut, guests } = data;
     if (!userId || !partnerId || !listingId || !amount) {
       return NextResponse.json(
         { success: false, error: "Missing required booking fields." },
@@ -18,21 +19,13 @@ export async function POST(req: Request) {
     }
 
     // ✅ Create Razorpay order
-    const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // paise
+    const razorpayOrder = await razorpay.orders.create({
+      amount: amount * 100, // convert to paise
       currency: "INR",
-      receipt: `rcpt_${Date.now()}`,
-      notes: {
-        userId,
-        partnerId,
-        listingId,
-        checkIn: checkIn || "",
-        checkOut: checkOut || "",
-        guests: guests ? String(guests) : "1",
-      },
+      receipt: `booking_${Date.now()}`,
     });
 
-    // ✅ Add booking to Firestore
+    // ✅ Save booking in Firestore
     const newBooking = {
       userId,
       partnerId,
@@ -41,28 +34,21 @@ export async function POST(req: Request) {
       checkIn: checkIn || null,
       checkOut: checkOut || null,
       guests: guests || 1,
-      status: "pending", // until payment verified
-      razorpayOrderId: order.id, // link order id
+      status: "pending", // until payment is verified
       createdAt: new Date(),
       updatedAt: new Date(),
+      razorpayOrderId: razorpayOrder.id,
     };
 
     const docRef = await adminDb.collection("bookings").add(newBooking);
 
-    // ✅ Return order info to frontend
     return NextResponse.json({
       success: true,
-      order: {
-        id: order.id,
-        amount: order.amount,
-        currency: order.currency,
-        status: order.status,
-      },
-      bookingId: docRef.id,
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY, // public key for client
+      id: docRef.id,
+      order: razorpayOrder, // send order details to frontend
     });
   } catch (err: any) {
-    console.error("❌ Error creating booking:", err);
+    console.error("Error creating booking:", err);
     return NextResponse.json(
       { success: false, error: err.message },
       { status: 500 }

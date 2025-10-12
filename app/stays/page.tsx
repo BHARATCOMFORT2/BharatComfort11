@@ -2,25 +2,108 @@
 
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  serverTimestamp,
+} from "firebase/firestore";
 import { motion } from "framer-motion";
 
+// Interfaces
+interface Stay {
+  id: string;
+  name: string;
+  location: string;
+  price: number;
+  image?: string;
+}
+
 export default function StaysPage() {
-  const [stays, setStays] = useState<any[]>([]);
+  const [stays, setStays] = useState<Stay[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Booking state
+  const [checkIn, setCheckIn] = useState("");
+  const [checkOut, setCheckOut] = useState("");
+  const [guests, setGuests] = useState(1);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, "stays"), (snapshot) => {
       const data = snapshot.docs.map((doc) => ({
         id: doc.id,
         ...doc.data(),
-      }));
+      })) as Stay[];
       setStays(data);
       setLoading(false);
     });
 
     return () => unsub();
   }, []);
+
+  // Razorpay checkout + server-side verification
+  const handleBookNow = async (stay: Stay) => {
+    if (!checkIn || !checkOut) {
+      alert("Please select check-in and check-out dates.");
+      return;
+    }
+
+    try {
+      // 1️⃣ Create Razorpay order
+      const orderRes = await fetch("/api/payments/razorpay", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amount: stay.price }),
+      });
+      const { order } = await orderRes.json();
+
+      if (!order?.id) throw new Error("Failed to create order.");
+
+      // 2️⃣ Open Razorpay Checkout
+      const options = {
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID!,
+        amount: order.amount,
+        currency: "INR",
+        name: "BharatComfort11",
+        description: `Booking for ${stay.name}`,
+        image: "/logo.png",
+        order_id: order.id,
+        handler: async function (response: any) {
+          // 3️⃣ Verify payment & create booking
+          const verifyRes = await fetch("/api/payments/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              listingId: stay.id,
+              checkIn,
+              checkOut,
+              guests,
+              totalPrice: stay.price,
+              userId: "USER_ID_HERE", // Replace with auth user id
+            }),
+          });
+
+          const data = await verifyRes.json();
+          if (data.success) alert("✅ Booking confirmed!");
+          else alert("❌ Payment verification failed.");
+        },
+        prefill: {
+          name: "Guest User",
+          email: "guest@example.com",
+          contact: "9999999999",
+        },
+        theme: { color: "#4f46e5" },
+      };
+
+      const rzp = new (window as any).Razorpay(options);
+      rzp.open();
+    } catch (err) {
+      console.error("Booking error:", err);
+      alert("❌ Payment failed. Please try again.");
+    }
+  };
 
   if (loading) {
     return (
@@ -38,6 +121,32 @@ export default function StaysPage() {
       transition={{ duration: 0.5 }}
     >
       <h1 className="text-3xl font-bold mb-6 text-center">Available Stays</h1>
+
+      <div className="mb-6 flex flex-col sm:flex-row gap-4 justify-center items-center">
+        <input
+          type="date"
+          value={checkIn}
+          onChange={(e) => setCheckIn(e.target.value)}
+          className="border rounded-lg p-2"
+          placeholder="Check-in"
+        />
+        <input
+          type="date"
+          value={checkOut}
+          onChange={(e) => setCheckOut(e.target.value)}
+          className="border rounded-lg p-2"
+          placeholder="Check-out"
+        />
+        <input
+          type="number"
+          min={1}
+          value={guests}
+          onChange={(e) => setGuests(Number(e.target.value))}
+          className="border rounded-lg p-2 w-24"
+          placeholder="Guests"
+        />
+      </div>
+
       {stays.length === 0 ? (
         <p className="text-center text-gray-500">No stays available.</p>
       ) : (
@@ -59,6 +168,12 @@ export default function StaysPage() {
                 <p className="text-indigo-600 font-bold mt-2">
                   ₹{stay.price}/night
                 </p>
+                <button
+                  onClick={() => handleBookNow(stay)}
+                  className="mt-3 w-full bg-indigo-600 text-white py-2 rounded-xl hover:bg-indigo-700 transition"
+                >
+                  Book Now
+                </button>
               </div>
             </motion.div>
           ))}

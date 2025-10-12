@@ -15,7 +15,7 @@ import NewsletterSignup from "@/components/home/NewsletterSignup";
 import Footer from "@/components/home/Footer";
 import AIRecommendations from "@/components/home/AIRecommendations";
 
-import { collection, query, where, onSnapshot, orderBy, doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, collection, query, where, orderBy, onSnapshot } from "firebase/firestore";
 
 interface UserProfile {
   name?: string;
@@ -41,9 +41,8 @@ export default function UserDashboard() {
       try {
         const docRef = doc(db, "users", currentUser.uid);
         const docSnap = await getDoc(docRef);
-
         if (!docSnap.exists()) {
-          setProfile({ name: "User", role: "user" });
+          setProfile({ name: "User", role: "user", email: currentUser.email || "" });
         } else {
           const data = docSnap.data() as UserProfile;
           if (data?.role !== "user") {
@@ -54,8 +53,8 @@ export default function UserDashboard() {
           setProfile(data);
         }
       } catch (err) {
-        console.error("Error fetching user profile:", err);
-        setProfile({ name: "User", role: "user" });
+        console.error("Profile fetch error:", err);
+        setProfile({ name: "User", role: "user", email: currentUser.email || "" });
       } finally {
         setLoading(false);
       }
@@ -64,7 +63,7 @@ export default function UserDashboard() {
     return () => unsub();
   }, [router]);
 
-  // ------------------ Real-time Bookings Stats ------------------
+  // ------------------ Real-time Bookings ------------------
   useEffect(() => {
     if (!user) return;
 
@@ -74,17 +73,13 @@ export default function UserDashboard() {
       orderBy("date", "desc")
     );
 
-    const unsub = onSnapshot(
-      bookingsQuery,
-      (snap) => {
-        const allBookings = snap.docs.map((d) => d.data());
-        const totalSpent = allBookings.reduce((sum: number, b: any) => sum + (b.amount || 0), 0);
-        const upcoming = allBookings.filter((b: any) => b.date && new Date(b.date) > new Date()).length;
+    const unsub = onSnapshot(bookingsQuery, (snap) => {
+      const allBookings = snap.docs.map((d) => d.data());
+      const totalSpent = allBookings.reduce((sum, b: any) => sum + (b.amount || 0), 0);
+      const upcoming = allBookings.filter((b: any) => b.date && new Date(b.date) > new Date()).length;
 
-        setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-      },
-      (err) => console.error("Error fetching bookings:", err)
-    );
+      setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
+    });
 
     return () => unsub();
   }, [user]);

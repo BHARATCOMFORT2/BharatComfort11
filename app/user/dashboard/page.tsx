@@ -93,10 +93,10 @@ export default function UserDashboard() {
 
     const q = query(collection(db, "bookings"), where("userId", "==", user.uid));
     const unsub = onSnapshot(q, (snap) => {
-      const bookings: Booking[] = snap.docs.map((d) => ({
-        id: d.id,
-        ...(d.data() as Booking),
-      }));
+    const bookings: Booking[] = snap.docs.map((d) => {
+  const { id: _, ...data } = d.data() as Booking;
+  return { id: d.id, ...data };
+});
 
       // Stats
       const totalSpent = bookings.reduce((sum, b) => sum + (b.amount || 0), 0);

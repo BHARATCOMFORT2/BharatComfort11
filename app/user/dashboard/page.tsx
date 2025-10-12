@@ -1,18 +1,18 @@
-// app/user/dashboard/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { doc, getDoc, onSnapshot, collection, query, where, orderBy } from "firebase/firestore";
+import { doc, onSnapshot, collection, query, where, orderBy } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-// ✅ Import homepage components
 import TrendingDestinations from "@/components/home/TrendingDestinations";
 import PromotionsStrip from "@/components/home/PromotionsStrip";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 import RecentStories from "@/components/home/RecentStories";
+import AIRecommendations from "@/components/home/AIRecommendations";
+import MapSection from "@/components/home/MapSection";
 
 export default function UserDashboard() {
   const router = useRouter();
@@ -21,32 +21,26 @@ export default function UserDashboard() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ------------------ Auth Check + Profile ------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
       setUser(currentUser);
-
       const userRef = doc(db, "users", currentUser.uid);
       const unsubProfile = onSnapshot(userRef, (snap) => {
         if (snap.exists()) setProfile(snap.data());
         else setProfile({ name: "User", role: "user" });
         setLoading(false);
       });
-
       return () => unsubProfile();
     });
-
     return () => unsub();
   }, [router]);
 
-  // ------------------ Real-time Bookings ------------------
   useEffect(() => {
     if (!user) return;
     const q = query(collection(db, "bookings"), where("userId", "==", user.uid), orderBy("date", "desc"));
     const unsub = onSnapshot(q, (snap) => {
-      const userBookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setBookings(userBookings);
+      setBookings(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
     return () => unsub();
   }, [user]);
@@ -62,20 +56,17 @@ export default function UserDashboard() {
         profilePic: profile?.profilePic || "",
       }}
     >
-      {/* Personalized welcome */}
       <div className="bg-white p-6 rounded-2xl shadow mb-8">
         <h1 className="text-2xl font-bold text-gray-800">
           Hello, {profile?.name || "Traveler"} 👋
         </h1>
         <p className="text-gray-600 mt-1">
-          Explore destinations, book stays, and enjoy exclusive offers.
+          Explore destinations, book stays, and get AI-powered suggestions!
         </p>
       </div>
 
-      {/* 🔹 Quick Actions (Book / Explore / My Trips etc.) */}
       <QuickActionStrip />
 
-      {/* 🔹 Real-time Bookings */}
       <div className="bg-white p-6 rounded-2xl shadow mb-8">
         <h2 className="text-xl font-semibold mb-3">My Recent Trips</h2>
         {bookings.length > 0 ? (
@@ -94,10 +85,12 @@ export default function UserDashboard() {
         )}
       </div>
 
-      {/* 🔹 Homepage sections (same as public homepage) */}
+      {/* Homepage + AI + Map sections */}
+      <AIRecommendations user={profile} />
       <TrendingDestinations />
       <PromotionsStrip />
       <RecentStories />
+      <MapSection />
       <NewsletterSignup />
     </DashboardLayout>
   );

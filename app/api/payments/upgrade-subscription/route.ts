@@ -1,24 +1,41 @@
-// app/api/payments/upgrade-subscription/route.ts
 import { NextResponse } from "next/server";
 import { razorpay } from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   try {
-    const { planId, customerId } = await req.json();
+    const { planId } = await req.json();
+
+    if (!planId) {
+      throw new Error("Plan ID is required to upgrade subscription.");
+    }
+
+    if (!razorpay) {
+      throw new Error("Razorpay client not initialized.");
+    }
 
     // ✅ Create subscription
     const subscription = await razorpay.subscriptions.create({
       plan_id: planId,
       total_count: 12, // example: 12 months
       customer_notify: 1,
-      notes: {
-        customer_id: customerId, // store it in notes instead
-      },
     });
 
-    return NextResponse.json({ success: true, subscription });
-  } catch (error: any) {
-    console.error("Subscription error:", error);
-    return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    return NextResponse.json({
+      success: true,
+      message: "Subscription upgraded successfully.",
+      subscription,
+    });
+  } catch (error) {
+    console.error("❌ Upgrade Subscription API error:", error);
+    const message =
+      error instanceof Error ? error.message : "Unknown server error";
+
+    return NextResponse.json(
+      {
+        success: false,
+        message,
+      },
+      { status: 500 }
+    );
   }
 }

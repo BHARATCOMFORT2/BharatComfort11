@@ -1,30 +1,39 @@
 import { NextResponse } from "next/server";
-import { getRazorpayInstance } from "@/lib/payments-razorpay";
+import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 
 export async function POST(req: Request) {
   try {
     const { amount } = await req.json();
 
-    if (!amount) throw new Error("Amount is required to create an order.");
+    if (!amount) {
+      return NextResponse.json(
+        { success: false, message: "Amount is required" },
+        { status: 400 }
+      );
+    }
 
-    const razorpay = getRazorpayInstance();
+    const razorpay = getRazorpayServerInstance();
+    if (!razorpay) {
+      return NextResponse.json(
+        { success: false, message: "Razorpay client not initialized" },
+        { status: 500 }
+      );
+    }
 
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // in paise
+      amount: Math.round(amount * 100), // amount in paise
       currency: "INR",
       receipt: `receipt_${Date.now()}`,
     });
 
-    const { id, currency } = order;
-
     return NextResponse.json({
       success: true,
-      order: { id, amount, currency },
+      message: "Order created successfully",
+      order,
     });
   } catch (error) {
     console.error("❌ Razorpay Order API Error:", error);
-    const message =
-      error instanceof Error ? error.message : "Unknown server error";
+    const message = error instanceof Error ? error.message : "Unknown server error";
 
     return NextResponse.json(
       { success: false, message },

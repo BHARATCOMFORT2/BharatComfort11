@@ -7,13 +7,13 @@ import {
   collection,
   query,
   where,
-  orderBy,
   onSnapshot,
+  orderBy,
   doc,
   getDoc,
 } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { openRazorpayCheckout } from "@/lib/payments-razorpay";
+import { openRazorpayCheckout, createOrder } from "@/lib/payments-razorpay";
 
 interface Booking {
   id: string;
@@ -34,6 +34,7 @@ interface Stay {
 
 export default function UserDashboard() {
   const router = useRouter();
+
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -42,12 +43,14 @@ export default function UserDashboard() {
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [allStays, setAllStays] = useState<Stay[]>([]);
 
-  // ------------------- Auth & Profile -------------------
+  // ------------------- Auth -------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
+
       setUser(currentUser);
 
+      // Fetch profile from Firestore
       try {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
@@ -55,11 +58,13 @@ export default function UserDashboard() {
           alert("Profile not found!");
           return router.push("/");
         }
+
         const data = userSnap.data();
         if (data.role !== "user") {
           alert("Not authorized");
           return router.push("/");
         }
+
         setProfile(data);
       } catch (err) {
         console.error("Error loading profile:", err);
@@ -71,7 +76,7 @@ export default function UserDashboard() {
     return () => unsub();
   }, [router]);
 
-  // ------------------- Real-time Bookings -------------------
+  // ------------------- Real-time bookings -------------------
   useEffect(() => {
     if (!user) return;
 
@@ -81,42 +86,76 @@ export default function UserDashboard() {
       orderBy("date", "desc")
     );
 
-    const unsub = onSnapshot(bookingsQuery, (snap) => {
-      const allBookings: Booking[] = snap.docs.map((d) => ({
-        id: d.id,
-        listingName: d.data().listingName,
-        date: d.data().date,
-        amount: d.data().amount,
-      }));
+    const unsub = onSnapshot(
+      bookingsQuery,
+      (snap) => {
+        const allBookings: Booking[] = snap.docs.map((d) => ({
+          id: d.id,
+          listingName: d.data().listingName,
+          date: d.data().date,
+          amount: d.data().amount,
+        }));
 
-      const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-      const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
+        const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+        const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
 
-      setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-      setRecentBookings(allBookings.slice(0, 5));
-    });
+        setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
+        setRecentBookings(allBookings.slice(0, 5));
+      },
+      (err) => console.error("Error fetching bookings:", err)
+    );
 
     return () => unsub();
   }, [user]);
 
-  // ------------------- Real-time Stays (Homepage view) -------------------
+  // ------------------- Real-time stays -------------------
   useEffect(() => {
     const staysQuery = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
-    const unsubStays = onSnapshot(staysQuery, (snap) => {
-      const stays: Stay[] = snap.docs.map((d) => ({
-        id: d.id,
-        name: d.data().name,
-        location: d.data().location,
-        price: d.data().price,
-        image: d.data().image,
-        bookingsCount: d.data().bookingsCount,
-        partnerId: d.data().partnerId,
-      }));
-      setAllStays(stays);
-    });
+
+    const unsubStays = onSnapshot(
+      staysQuery,
+      (snap) => {
+        const stays: Stay[] = snap.docs.map((d) => ({
+          id: d.id,
+          name: d.data().name,
+          location: d.data().location,
+          price: d.data().price,
+          image: d.data().image,
+          bookingsCount: d.data().bookingsCount,
+          partnerId: d.data().partnerId,
+        }));
+
+        setAllStays(stays);
+      },
+      (err) => console.error("Error fetching stays:", err)
+    );
 
     return () => unsubStays();
   }, []);
+
+  // ------------------- Handle Razorpay Payment -------------------
+  const handleBookingPayment = async (stay: Stay) => {
+    try {
+      const order = await createOrder({ amount: stay.price });
+      openRazorpayCheckout({
+        amount: stay.price,
+        orderId: order.id,
+        name: profile?.name || "Booking",
+        email: profile?.email || "",
+        onSuccess: (res) => {
+          alert("Payment successful!");
+          console.log("Payment response:", res);
+        },
+        onFailure: (err) => {
+          alert("Payment failed!");
+          console.error(err);
+        },
+      });
+    } catch (err) {
+      console.error("Razorpay order error:", err);
+      alert("Unable to create payment order");
+    }
+  };
 
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
   if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
@@ -153,9 +192,9 @@ export default function UserDashboard() {
         )}
       </div>
 
-      {/* All Stays / Trending */}
+      {/* All Stays */}
       <div className="mb-12">
-        <h2 className="text-2xl font-bold mb-4">Explore Stays</h2>
+        <h2 className="text-2xl font-bold mb-4">All Stays / Listings</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {allStays.map((stay) => (
             <div key={stay.id} className="bg-white shadow rounded-2xl p-4 flex flex-col">
@@ -168,18 +207,8 @@ export default function UserDashboard() {
               <p className="text-gray-500">{stay.location}</p>
               <p className="text-indigo-600 font-bold mt-1">₹{stay.price}</p>
               <button
-                className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-xl"
-                onClick={() => {
-                  // Example Razorpay integration
-                  openRazorpayCheckout({
-                    amount: stay.price,
-                    orderId: `temp_order_${Date.now()}`, // Replace with server-created orderId
-                    name: profile.name,
-                    email: profile.email,
-                    onSuccess: (res) => alert("Payment success!"),
-                    onFailure: (err) => alert("Payment failed"),
-                  });
-                }}
+                className="mt-2 bg-indigo-600 text-white py-1 px-3 rounded hover:bg-indigo-700"
+                onClick={() => handleBookingPayment(stay)}
               >
                 Book Now
               </button>

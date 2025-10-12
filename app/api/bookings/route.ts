@@ -1,4 +1,3 @@
-// app/api/bookings/route.ts
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { razorpay } from "@/lib/payments-razorpay";
@@ -9,7 +8,7 @@ export async function POST(req: Request) {
   try {
     const data = await req.json();
 
-    // ✅ Basic validation
+    // ------------------ Validation ------------------
     const { userId, partnerId, listingId, amount, checkIn, checkOut, guests } = data;
     if (!userId || !partnerId || !listingId || !amount) {
       return NextResponse.json(
@@ -18,14 +17,19 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Create Razorpay order
+    // ------------------ Create Razorpay Order ------------------
     const razorpayOrder = await razorpay.orders.create({
-      amount: amount * 100, // convert to paise
+      amount: Math.round(amount * 100), // in paise
       currency: "INR",
       receipt: `booking_${Date.now()}`,
+      notes: {
+        userId,
+        partnerId,
+        listingId,
+      },
     });
 
-    // ✅ Save booking in Firestore
+    // ------------------ Save Booking in Firestore ------------------
     const newBooking = {
       userId,
       partnerId,
@@ -34,7 +38,7 @@ export async function POST(req: Request) {
       checkIn: checkIn || null,
       checkOut: checkOut || null,
       guests: guests || 1,
-      status: "pending", // until payment is verified
+      status: "pending", // until payment verification
       createdAt: new Date(),
       updatedAt: new Date(),
       razorpayOrderId: razorpayOrder.id,
@@ -45,12 +49,18 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       id: docRef.id,
-      order: razorpayOrder, // send order details to frontend
+      order: {
+        id: razorpayOrder.id,
+        amount: razorpayOrder.amount,
+        currency: razorpayOrder.currency,
+        status: razorpayOrder.status,
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY, // send frontend key
+      },
     });
   } catch (err: any) {
-    console.error("Error creating booking:", err);
+    console.error("❌ Error creating booking:", err);
     return NextResponse.json(
-      { success: false, error: err.message },
+      { success: false, error: err.message || "Server error" },
       { status: 500 }
     );
   }

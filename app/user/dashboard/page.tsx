@@ -1,184 +1,97 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore";
+import { useRouter } from "next/navigation";
+import { doc, onSnapshot, collection, query, where, orderBy } from "firebase/firestore";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-// Components
-import Hero from "@/components/home/Hero";
-import QuickActionStrip from "@/components/home/QuickActionStrip";
-import FeaturedListings from "@/components/home/FeaturedListings";
-import PromotionsStrip from "@/components/home/PromotionsStrip";
 import TrendingDestinations from "@/components/home/TrendingDestinations";
-import RecentStories from "@/components/home/RecentStories";
-import Testimonials from "@/components/home/Testimonials";
+import PromotionsStrip from "@/components/home/PromotionsStrip";
+import QuickActionStrip from "@/components/home/QuickActionStrip";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
-import Footer from "@/components/home/Footer";
+import RecentStories from "@/components/home/RecentStories";
 import AIRecommendations from "@/components/home/AIRecommendations";
-
-interface UserProfile {
-  name?: string;
-  email?: string;
-  role?: string;
-  profilePic?: string;
-}
+import MapSection from "@/components/home/MapSection";
 
 export default function UserDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
 
-  // ------------------ Auth & Profile ------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
-      if (!currentUser) {
-        router.push("/auth/login");
-        return;
-      }
+      if (!currentUser) return router.push("/auth/login");
       setUser(currentUser);
-
-      try {
-        const docRef = doc(db, "users", currentUser.uid);
-        const docSnap = await getDoc(docRef);
-        if (!docSnap.exists()) {
-          // Create a temporary default profile if missing
-          setProfile({ name: "User", role: "user" });
-        } else {
-          const data = docSnap.data() as UserProfile;
-          if (data?.role && data.role !== "user") {
-            alert("Not authorized");
-            router.push("/");
-            return;
-          }
-          setProfile(data);
-        }
-      } catch (err) {
-        console.error("Profile fetch error:", err);
-        setProfile({ name: "User", role: "user" });
-      } finally {
+      const userRef = doc(db, "users", currentUser.uid);
+      const unsubProfile = onSnapshot(userRef, (snap) => {
+        if (snap.exists()) setProfile(snap.data());
+        else setProfile({ name: "User", role: "user" });
         setLoading(false);
-      }
+      });
+      return () => unsubProfile();
     });
-
     return () => unsub();
   }, [router]);
 
-  // ------------------ Real-time Bookings ------------------
   useEffect(() => {
     if (!user) return;
-
-    const bookingsQuery = query(
-      collection(db, "bookings"),
-      where("userId", "==", user.uid),
-      orderBy("createdAt", "desc") // Ensure all docs have createdAt
-    );
-
-    const unsub = onSnapshot(
-      bookingsQuery,
-      (snap) => {
-        if (!snap.empty) {
-          const allBookings = snap.docs.map((d) => d.data() || {});
-          const totalSpent = allBookings.reduce(
-            (sum, b: any) => sum + (b?.amount || 0),
-            0
-          );
-          const upcoming = allBookings.filter(
-            (b: any) => b?.checkIn && new Date(b.checkIn) > new Date()
-          ).length;
-
-          setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-        } else {
-          // No bookings yet
-          setStats({ bookings: 0, upcoming: 0, spent: 0 });
-        }
-      },
-      (err) => {
-        console.error("Bookings snapshot error:", err);
-        setStats({ bookings: 0, upcoming: 0, spent: 0 });
-      }
-    );
-
+    const q = query(collection(db, "bookings"), where("userId", "==", user.uid), orderBy("date", "desc"));
+    const unsub = onSnapshot(q, (snap) => {
+      setBookings(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    });
     return () => unsub();
   }, [user]);
 
-  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
-  if (!profile)
-    return (
-      <p className="text-center py-12 text-red-500">
-        Profile not found! Please contact support.
-      </p>
-    );
+  if (loading) return <p className="text-center py-10">Loading your dashboard...</p>;
 
   return (
-    <main className="bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-gray-900 min-h-screen font-sans overflow-x-hidden">
+    <DashboardLayout
+      title="Welcome Back!"
+      profile={{
+        name: profile?.name,
+        role: "user",
+        profilePic: profile?.profilePic || "",
+      }}
+    >
+      <div className="bg-white p-6 rounded-2xl shadow mb-8">
+        <h1 className="text-2xl font-bold text-gray-800">
+          Hello, {profile?.name || "Traveler"} 👋
+        </h1>
+        <p className="text-gray-600 mt-1">
+          Explore destinations, book stays, and get AI-powered suggestions!
+        </p>
+      </div>
 
-      {/* Hero Section */}
-      <Hero />
+      <QuickActionStrip />
 
-      {/* Quick Actions */}
-      <section className="py-16 container mx-auto px-4">
-        <QuickActionStrip />
-      </section>
+      <div className="bg-white p-6 rounded-2xl shadow mb-8">
+        <h2 className="text-xl font-semibold mb-3">My Recent Trips</h2>
+        {bookings.length > 0 ? (
+          <ul className="space-y-2 max-h-60 overflow-y-auto">
+            {bookings.map((b) => (
+              <li key={b.id} className="flex justify-between border-b py-2">
+                <span>{b.listingName || "Trip"}</span>
+                <span className="text-gray-500 text-sm">
+                  {new Date(b.date).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-gray-500">No bookings yet.</p>
+        )}
+      </div>
 
-      {/* Featured Listings */}
-      <section className="py-16 container mx-auto px-4">
-        <h2 className="text-4xl font-serif font-bold text-yellow-800 mb-8 text-center">
-          Featured Trips
-        </h2>
-        <FeaturedListings />
-      </section>
-
-      {/* Promotions */}
-      <section className="py-16 container mx-auto px-4 bg-white/20 backdrop-blur-lg rounded-2xl shadow-lg">
-        <PromotionsStrip />
-      </section>
-
-      {/* Trending Destinations */}
-      <section className="py-16 container mx-auto px-4">
-        <h2 className="text-4xl font-serif font-bold text-yellow-800 mb-8 text-center">
-          Trending Destinations
-        </h2>
-        <TrendingDestinations />
-      </section>
-
-      {/* Recent Stories */}
-      <section className="py-16 container mx-auto px-4">
-        <RecentStories />
-      </section>
-
-      {/* Testimonials */}
-      <section className="py-16 container mx-auto px-4 bg-white/20 backdrop-blur-lg rounded-2xl shadow-lg">
-        <Testimonials />
-      </section>
-
-      {/* Newsletter */}
-      <section className="py-16 container mx-auto px-4 text-center">
-        <NewsletterSignup />
-      </section>
-
-      {/* AI Recommendations (client-side only) */}
-      {typeof window !== "undefined" && profile && (
-        <section className="py-12 container mx-auto px-4">
-          <h2 className="text-3xl font-semibold mb-6 text-center">
-            AI Travel Recommendations
-          </h2>
-          <AIRecommendations profile={profile} />
-        </section>
-      )}
-
-      {/* Footer */}
-      <Footer />
-    </main>
+      {/* Homepage + AI + Map sections */}
+      <AIRecommendations user={profile} />
+      <TrendingDestinations />
+      <PromotionsStrip />
+      <RecentStories />
+      <MapSection />
+      <NewsletterSignup />
+    </DashboardLayout>
   );
 }

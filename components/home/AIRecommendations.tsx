@@ -14,18 +14,17 @@ export interface AIRecommendationsProps {
 interface Recommendation {
   title: string;
   description: string;
-  price: number; // always required for booking
+  price?: number;
 }
 
 export default function AIRecommendations({ profile }: AIRecommendationsProps) {
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ---------------- Fetch AI recommendations ----------------
   useEffect(() => {
     if (!profile) return;
 
-    const fetchRecommendations = async () => {
+    async function fetchRecommendations() {
       setLoading(true);
       try {
         const res = await fetch("/api/recommendations", {
@@ -39,26 +38,29 @@ export default function AIRecommendations({ profile }: AIRecommendationsProps) {
         const data = await res.json();
         setRecommendations(data.data || []);
       } catch (err) {
-        console.error("AI fetch error:", err);
+        console.error("AI recommendations fetch error:", err);
         setRecommendations([]);
       } finally {
         setLoading(false);
       }
-    };
+    }
 
     fetchRecommendations();
   }, [profile]);
 
-  // ---------------- Handle Razorpay Booking ----------------
   const handleBooking = async (rec: Recommendation) => {
+    if (!rec.price || !profile) {
+      alert("Price or profile missing.");
+      return;
+    }
+
     try {
       const order = await createOrder({ amount: rec.price });
-
       openRazorpayCheckout({
         amount: rec.price,
         orderId: order.id,
-        name: profile?.name || "Booking",
-        email: profile?.email || "",
+        name: profile.name || "Booking",
+        email: profile.email || "",
         onSuccess: (res) => {
           alert(`Payment successful for ${rec.title}!`);
           console.log("Razorpay response:", res);
@@ -69,14 +71,13 @@ export default function AIRecommendations({ profile }: AIRecommendationsProps) {
         },
       });
     } catch (err) {
-      console.error("Razorpay order creation error:", err);
+      console.error("Razorpay order error:", err);
       alert("Unable to create payment order.");
     }
   };
 
-  if (loading) return <p className="text-center py-6">Loading AI Recommendations...</p>;
-  if (!recommendations.length)
-    return <p className="text-center py-6">No AI recommendations available.</p>;
+  if (loading) return <p>Loading AI Recommendations...</p>;
+  if (!recommendations.length) return <p>No AI recommendations available.</p>;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -88,15 +89,18 @@ export default function AIRecommendations({ profile }: AIRecommendationsProps) {
           <div>
             <h3 className="font-semibold text-lg">{rec.title}</h3>
             <p className="text-gray-500 mt-1">{rec.description}</p>
-            <p className="text-indigo-600 font-bold mt-2">₹{rec.price}</p>
+            {rec.price && (
+              <p className="text-indigo-600 font-bold mt-2">₹{rec.price}</p>
+            )}
           </div>
-
-          <button
-            className="mt-4 bg-indigo-600 text-white py-2 px-4 rounded hover:bg-indigo-700"
-            onClick={() => handleBooking(rec)}
-          >
-            Book Now
-          </button>
+          {rec.price && (
+            <button
+              className="mt-4 bg-indigo-600 text-white py-2 px-4 rounded hover:bg-indigo-700"
+              onClick={() => handleBooking(rec)}
+            >
+              Book Now
+            </button>
+          )}
         </div>
       ))}
     </div>

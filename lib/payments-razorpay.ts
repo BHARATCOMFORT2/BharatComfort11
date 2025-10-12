@@ -1,43 +1,14 @@
 // lib/payments-razorpay.ts
-import Razorpay from "razorpay";
-
-// ================== SERVER-SIDE ==================
-export const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID as string,
-  key_secret: process.env.RAZORPAY_KEY_SECRET as string,
-});
-
-interface CreateOrderInput {
-  amount: number; // in INR
-  currency?: string;
-}
-
-/**
- * Create Razorpay order (server-side)
- */
-export async function createOrder({ amount, currency = "INR" }: CreateOrderInput) {
-  if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
-  return await razorpay.orders.create({
-    amount: Math.round(amount * 100), // convert to paise
-    currency,
-    receipt: `rcpt_${Date.now()}`,
-  });
-}
-
-// ================== CLIENT-SIDE ==================
 interface OpenCheckoutInput {
-  amount: number; // in INR
+  amount: number;
   orderId: string;
   name: string;
   email: string;
   phone?: string;
-  onSuccess?: (response: any) => void;
-  onFailure?: (response: any) => void;
+  onSuccess?: (res: any) => void;
+  onFailure?: (err: any) => void;
 }
 
-/**
- * Open Razorpay Checkout (client-side)
- */
 export function openRazorpayCheckout({
   amount,
   orderId,
@@ -51,7 +22,7 @@ export function openRazorpayCheckout({
 
   const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY;
   if (!key) {
-    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY is missing in environment variables");
+    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY is missing");
     if (onFailure) onFailure({ error: "Payment key not configured" });
     return;
   }
@@ -62,17 +33,11 @@ export function openRazorpayCheckout({
     currency: "INR",
     order_id: orderId,
     name: name || "Booking",
-    prefill: { email: email || "", contact: phone || "" },
+    prefill: { email, contact: phone },
     theme: { color: "#6366f1" },
-    handler: (response: any) => {
-      console.log("✅ Payment success:", response);
-      if (onSuccess) onSuccess(response);
-    },
+    handler: (response: any) => onSuccess && onSuccess(response),
     modal: {
-      ondismiss: () => {
-        console.log("⚠️ Payment popup closed");
-        if (onFailure) onFailure({ error: "Payment popup closed" });
-      },
+      ondismiss: () => onFailure && onFailure({ error: "Payment popup closed" }),
     },
   };
 
@@ -80,7 +45,7 @@ export function openRazorpayCheckout({
     const rzp = new (window as any).Razorpay(options);
     rzp.open();
   } catch (err) {
-    console.error("❌ Razorpay Checkout error:", err);
+    console.error("❌ Razorpay checkout error:", err);
     if (onFailure) onFailure({ error: err });
   }
 }

@@ -1,8 +1,8 @@
 "use client";
 
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { auth } from "@/lib/firebase";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Menu, X, LogOut } from "lucide-react";
 
 interface Props {
@@ -17,12 +17,25 @@ interface Props {
 
 export default function DashboardLayout({ title, children, profile }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    // Ensure component is mounted on client before rendering (avoids hydration issues)
+    setMounted(true);
+  }, []);
 
   const handleLogout = async () => {
-    await auth.signOut();
-    router.push("/auth/login");
+    try {
+      await auth.signOut();
+      router.push("/auth/login");
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
   };
+
+  if (!mounted) return null; // prevents blank flashes during hydration
 
   const navLinks =
     profile?.role === "partner"
@@ -56,7 +69,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
             <div className="w-16 h-16 rounded-full bg-gray-200 mb-3" />
           )}
           <h2 className="text-lg font-semibold">{profile?.name || "User"}</h2>
-          <p className="text-sm text-gray-500 capitalize">{profile?.role}</p>
+          <p className="text-sm text-gray-500 capitalize">{profile?.role || "user"}</p>
         </div>
 
         <nav className="mt-6 space-y-2 px-4">
@@ -64,7 +77,11 @@ export default function DashboardLayout({ title, children, profile }: Props) {
             <button
               key={link.name}
               onClick={() => router.push(link.path)}
-              className="block w-full text-left px-4 py-2 rounded-lg hover:bg-blue-50 text-gray-700"
+              className={`block w-full text-left px-4 py-2 rounded-lg ${
+                pathname === link.path
+                  ? "bg-blue-100 text-blue-700 font-semibold"
+                  : "hover:bg-blue-50 text-gray-700"
+              }`}
             >
               {link.name}
             </button>
@@ -91,6 +108,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
             <h1 className="text-xl font-bold text-gray-800">{title}</h1>
           </div>
         </header>
+
         <main className="p-6">{children}</main>
       </div>
     </div>

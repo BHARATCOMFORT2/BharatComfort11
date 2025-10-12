@@ -56,7 +56,7 @@ export default function UserDashboard() {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [filters, setFilters] = useState<Filters>({});
 
-  // ---------------- Auth & Profile ----------------
+  // ---------------- AUTH ----------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -67,87 +67,87 @@ export default function UserDashboard() {
         const userSnap = await getDoc(userRef);
 
         if (!userSnap.exists()) {
-          console.warn("Profile not found for UID:", currentUser.uid);
-          setProfile(null);
-          setLoading(false);
-          return;
+          console.warn("Profile not found for user:", currentUser.uid);
+          return router.push("/");
         }
 
         const data = userSnap.data();
         if (data.role !== "user") {
-          alert("❌ Not authorized as user");
+          console.warn("Unauthorized access by:", currentUser.uid);
           return router.push("/");
         }
 
         setProfile(data);
       } catch (err) {
-        console.error("Error fetching profile:", err);
+        console.error("Error loading profile:", err);
       } finally {
         setLoading(false);
       }
     });
-
     return () => unsub();
   }, [router]);
 
-  // ---------------- Fetch Dashboard Data ----------------
+  // ---------------- REAL-TIME BOOKINGS ----------------
   useEffect(() => {
     if (!user) return;
 
-    const fetchDashboardData = async () => {
-      try {
-        // --- Bookings ---
-        const bookingsSnap = await getDocs(
-          query(collection(db, "bookings"), where("userId", "==", user.uid))
-        );
+    const q = query(collection(db, "bookings"), where("userId", "==", user.uid));
+    const unsub = onSnapshot(q, (snap) => {
+      const bookings: Booking[] = snap.docs.map((d) => ({
+        id: d.id,
+        ...(d.data() as Booking),
+      }));
 
-        const totalSpent = bookingsSnap.docs.reduce(
-          (sum, b) => sum + (b.data().amount || 0),
-          0
-        );
+      // Stats
+      const totalSpent = bookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+      const upcoming = bookings.filter(
+        (b) => b.date && new Date(b.date) > new Date()
+      ).length;
 
-        const upcoming = bookingsSnap.docs.filter(
-          (b) => b.data().date && new Date(b.data().date) > new Date()
-        ).length;
+      setStats({ bookings: bookings.length, upcoming, spent: totalSpent });
 
-        setStats({
-          bookings: bookingsSnap.size,
-          upcoming,
-          spent: totalSpent,
-        });
+      // Recent bookings (latest 5)
+      const recent = bookings
+        .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
+        .slice(0, 5);
 
-        const recent: Booking[] = bookingsSnap.docs
-          .map((d) => ({ id: d.id, ...(d.data() as Partial<Booking>) } as Booking))
-          .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
-          .slice(0, 5);
+      setRecentBookings(recent);
 
-        setRecentBookings(recent);
+      // Recommended
+      const bookedIds = bookings.map((b) => (b as any).listingId);
+      getDocs(collection(db, "stays")).then((staysSnap) => {
+        const items: Item[] = staysSnap.docs.map((d) => ({
+          id: d.id,
+          bookingsCount: 0,
+          ...d.data(),
+        } as Item));
 
-        // --- Items ---
-        const staysSnap = await getDocs(collection(db, "stays"));
-        const items: Item[] = staysSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Item));
         setAllItems(items);
-
-        const bookedIds = bookingsSnap.docs.map((b) => b.data().listingId);
         setRecommended(items.filter((i) => !bookedIds.includes(i.id)).slice(0, 6));
-      } catch (err) {
-        console.error("Error fetching dashboard data:", err);
-      }
-    };
+      });
+    }, (err) => console.error("Bookings snapshot error:", err));
 
-    fetchDashboardData();
+    return () => unsub();
   }, [user]);
 
-  // ---------------- Real-time Trending ----------------
+  // ---------------- REAL-TIME TRENDING ----------------
   useEffect(() => {
-    const q = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
+    const q = query(
+      collection(db, "stays"),
+      orderBy("bookingsCount", "desc")
+    );
     const unsub = onSnapshot(q, (snap) => {
-      setTrending(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Item)).slice(0, 6));
-    });
+      const items: Item[] = snap.docs.map((d) => ({
+        id: d.id,
+        bookingsCount: 0,
+        ...d.data(),
+      } as Item));
+      setTrending(items.slice(0, 6));
+    }, (err) => console.error("Trending snapshot error:", err));
     return () => unsub();
   }, []);
 
-  // ---------------- Filters ----------------
+  // ---------------- FILTERS ----------------
   const handleFilterChange = (field: keyof Filters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
@@ -160,66 +160,49 @@ export default function UserDashboard() {
     return true;
   });
 
-  // ---------------- Booking ----------------
+  // ---------------- BOOKING ----------------
   const handleBooking = async (item: Item) => {
     if (!user) return alert("Login required");
 
+    const checkIn = prompt("Enter check-in date (YYYY-MM-DD)") || "";
+    const checkOut = prompt("Enter check-out date (YYYY-MM-DD)") || "";
+    const guests = Number(prompt("Enter number of guests") || 1);
+
     try {
-      // Step 1: Create Razorpay Order
-      const res = await fetch("/api/payments/create-order", {
+      // 1️⃣ Create Razorpay Order
+      const orderRes = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: item.price }),
       });
+      const orderData = await orderRes.json();
+      if (!orderData.success) throw new Error(orderData.error || "Order creation failed");
 
-      const orderData = await res.json();
-      if (!orderData.id) throw new Error("Failed to create Razorpay order");
+      // 2️⃣ Save booking in Firestore
+      const bookingRes = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          userId: user.uid,
+          partnerId: item.partnerId,
+          listingId: item.id,
+          amount: item.price,
+          checkIn,
+          checkOut,
+          guests,
+          orderId: orderData.id, // save Razorpay orderId
+        }),
+      });
+      const booking = await bookingRes.json();
+      if (!booking.success) throw new Error(booking.error || "Booking save failed");
 
-      // Step 2: Open Razorpay checkout
+      // 3️⃣ Open Razorpay checkout
       openRazorpayCheckout({
         amount: item.price,
         orderId: orderData.id,
         name: item.name,
         email: user.email || "",
-        onSuccess: async (resp) => {
-          alert("✅ Payment successful: " + resp.razorpay_payment_id);
-
-          // Step 3: Save booking in Firestore
-          const checkIn = prompt("Enter check-in date (YYYY-MM-DD)") || "";
-          const checkOut = prompt("Enter check-out date (YYYY-MM-DD)") || "";
-          const guests = Number(prompt("Enter number of guests") || 1);
-
-          await fetch("/api/bookings", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              userId: user.uid,
-              partnerId: item.partnerId,
-              listingId: item.id,
-              amount: item.price,
-              checkIn,
-              checkOut,
-              guests,
-              paymentId: resp.razorpay_payment_id,
-              status: "paid",
-            }),
-          });
-
-          // Refresh dashboard data
-          const updatedBookingsSnap = await getDocs(
-            query(collection(db, "bookings"), where("userId", "==", user.uid))
-          );
-          setStats({
-            bookings: updatedBookingsSnap.size,
-            upcoming: updatedBookingsSnap.docs.filter(
-              (b) => b.data().date && new Date(b.data().date) > new Date()
-            ).length,
-            spent: updatedBookingsSnap.docs.reduce(
-              (sum, b) => sum + (b.data().amount || 0),
-              0
-            ),
-          });
-        },
+        onSuccess: (resp) => alert("✅ Payment successful: " + resp.razorpay_payment_id),
         onFailure: (err) => alert("❌ Payment failed: " + err.error),
       });
     } catch (err: any) {
@@ -228,11 +211,15 @@ export default function UserDashboard() {
     }
   };
 
+  // ---------------- RENDER ----------------
   if (loading) return <Loading message="Loading your dashboard..." />;
   if (!profile) return <div className="flex justify-center items-center h-[60vh] text-gray-500">No profile found.</div>;
 
   return (
-    <DashboardLayout title="User Dashboard" profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}>
+    <DashboardLayout
+      title="User Dashboard"
+      profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}
+    >
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
@@ -264,7 +251,7 @@ export default function UserDashboard() {
       <Section title="Trending Destinations" items={trending} onBook={handleBooking} />
       <Section title="Recommended for You" items={recommended} onBook={handleBooking} />
 
-      {/* Explore All */}
+      {/* Explore */}
       <h2 className="text-2xl font-bold mb-4">Explore All</h2>
       <div className="mb-4 flex flex-wrap gap-4">
         <input type="text" placeholder="Location" onChange={(e) => handleFilterChange("location", e.target.value)} className="p-2 rounded-lg border" />
@@ -282,9 +269,14 @@ export default function UserDashboard() {
   );
 }
 
-// ---------------- Subcomponent for Items ----------------
+// ---------------- SUBCOMPONENT ----------------
 function Section({ title, items, onBook }: { title: string; items: Item[]; onBook: (item: Item) => void }) {
-  if (!items.length) return <div className="mb-12">{title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}<p className="text-center text-gray-500">No items found.</p></div>;
+  if (!items.length) return (
+    <div className="mb-12">
+      {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
+      <p className="text-center text-gray-500">No items found.</p>
+    </div>
+  );
 
   return (
     <div className="mb-12">

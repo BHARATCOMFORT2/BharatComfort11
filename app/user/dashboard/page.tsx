@@ -56,38 +56,60 @@ export default function UserDashboardFinal() {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [filters, setFilters] = useState<Filters>({});
 
-  // Track auth state
+  // ✅ Auth listener (guarantees user available before fetching)
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
-      if (!currentUser) return router.push("/auth/login");
+      if (!currentUser) {
+        router.push("/auth/login");
+        return;
+      }
+
       setUser(currentUser);
 
-      // Validate user role
-      const userDoc = await getDoc(doc(db, "users", currentUser.uid));
-      if (!userDoc.exists() || userDoc.data().role !== "user") {
-        alert("❌ Not authorized");
-        return router.push("/");
+      // Fetch user profile
+      try {
+        const userRef = doc(db, "users", currentUser.uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) {
+          alert("⚠️ Profile not found. Please complete signup.");
+          router.push("/");
+          return;
+        }
+
+        const data = userSnap.data();
+        if (data.role !== "user") {
+          alert("❌ Not authorized to access user dashboard");
+          router.push("/");
+          return;
+        }
+
+        setProfile(data);
+      } catch (err) {
+        console.error("Error loading user profile:", err);
+      } finally {
+        setLoading(false);
       }
-      setProfile(userDoc.data());
     });
+
     return () => unsub();
   }, [router]);
 
-  // Fetch bookings, stats & recommendations
+  // ✅ Fetch bookings, stats & recommendations
   useEffect(() => {
     if (!user) return;
 
-    const fetchUserData = async () => {
+    const fetchData = async () => {
       try {
         const bookingsSnap = await getDocs(
           query(collection(db, "bookings"), where("userId", "==", user.uid))
         );
 
-        // Stats
         const totalSpent = bookingsSnap.docs.reduce(
           (sum, b) => sum + (b.data().amount || 0),
           0
         );
+
         const upcoming = bookingsSnap.docs.filter(
           (b) => new Date(b.data().date) > new Date()
         ).length;
@@ -98,7 +120,6 @@ export default function UserDashboardFinal() {
           spent: totalSpent,
         });
 
-        // Recent bookings
         const recent: Booking[] = bookingsSnap.docs
           .map((d) => ({ id: d.id, ...(d.data() as Partial<Booking>) }))
           .filter((b): b is Booking => !!b.date)
@@ -106,44 +127,41 @@ export default function UserDashboardFinal() {
             (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
           )
           .slice(0, 5);
+
         setRecentBookings(recent);
 
-        // Recommended stays (not booked yet)
-        const bookedListingIds = bookingsSnap.docs.map(
-          (b) => b.data().listingId
-        );
+        const bookedIds = bookingsSnap.docs.map((b) => b.data().listingId);
         const staysSnap = await getDocs(collection(db, "stays"));
         const items: Item[] = staysSnap.docs.map(
           (d) => ({ id: d.id, ...d.data() } as Item)
         );
+
         setAllItems(items);
         const recommendedItems = items
-          .filter((i) => !bookedListingIds.includes(i.id))
+          .filter((i) => !bookedIds.includes(i.id))
           .slice(0, 6);
         setRecommended(recommendedItems);
       } catch (err) {
-        console.error("Error loading user data:", err);
-      } finally {
-        setLoading(false);
+        console.error("Error fetching user dashboard data:", err);
       }
     };
 
-    fetchUserData();
+    fetchData();
   }, [user]);
 
-  // Real-time trending destinations
+  // ✅ Real-time trending data
   useEffect(() => {
     const q = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
     const unsub = onSnapshot(q, (snap) => {
-      const topTrending = snap.docs
+      const trendingItems = snap.docs
         .map((d) => ({ id: d.id, ...d.data() } as Item))
         .slice(0, 6);
-      setTrending(topTrending);
+      setTrending(trendingItems);
     });
     return () => unsub();
   }, []);
 
-  // Filters
+  // ✅ Filters
   const handleFilterChange = (field: keyof Filters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
@@ -160,7 +178,7 @@ export default function UserDashboardFinal() {
     return true;
   });
 
-  // Booking handler
+  // ✅ Booking
   const handleBooking = async (item: Item) => {
     if (!user) return alert("Login required");
 
@@ -185,8 +203,8 @@ export default function UserDashboardFinal() {
         name: item.name,
         email: user.email || "",
         onSuccess: (resp) =>
-          alert("Payment successful: " + resp.razorpay_payment_id),
-        onFailure: (err) => alert("Payment failed: " + err.error),
+          alert("✅ Payment successful: " + resp.razorpay_payment_id),
+        onFailure: (err) => alert("❌ Payment failed: " + err.error),
       });
     } catch (err: any) {
       console.error(err);
@@ -194,18 +212,26 @@ export default function UserDashboardFinal() {
     }
   };
 
-  if (loading) return <Loading message="Loading dashboard..." />;
+  // ✅ Loading / fallback UI
+  if (loading) return <Loading message="Loading your dashboard..." />;
+  if (!profile)
+    return (
+      <div className="flex justify-center items-center h-[60vh] text-gray-500">
+        No profile found.
+      </div>
+    );
 
+  // ✅ Main Render
   return (
     <DashboardLayout
       title="User Dashboard"
       profile={{
-        name: profile?.name,
+        name: profile.name,
         role: "user",
-        profilePic: profile?.profilePic,
+        profilePic: profile.profilePic,
       }}
     >
-      {/* --- Stats Section --- */}
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
           <div
@@ -218,78 +244,35 @@ export default function UserDashboardFinal() {
         ))}
       </div>
 
-      {/* --- Recent Bookings --- */}
+      {/* Recent Bookings */}
       <div className="bg-white shadow rounded-2xl p-6 mb-12">
         <h3 className="text-lg font-semibold mb-4">Recent Bookings</h3>
-        {recentBookings.length === 0 && <p>No bookings yet.</p>}
-        <ul className="space-y-2 max-h-64 overflow-y-auto">
-          {recentBookings.map((b, idx) => (
-            <li
-              key={idx}
-              className="border rounded-lg p-2 flex justify-between items-center"
-            >
-              <span>{b.listingName || "Trip"}</span>
-              <span className="text-gray-400 text-sm">
-                {new Date(b.date).toLocaleString()}
-              </span>
-            </li>
-          ))}
-        </ul>
+        {recentBookings.length === 0 ? (
+          <p>No bookings yet.</p>
+        ) : (
+          <ul className="space-y-2 max-h-64 overflow-y-auto">
+            {recentBookings.map((b, idx) => (
+              <li
+                key={idx}
+                className="border rounded-lg p-2 flex justify-between items-center"
+              >
+                <span>{b.listingName || "Trip"}</span>
+                <span className="text-gray-400 text-sm">
+                  {new Date(b.date).toLocaleString()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
-      {/* --- Trending --- */}
-      <h2 className="text-2xl font-bold mb-4">Trending Destinations</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
-        {trending.map((item) => (
-          <div
-            key={item.id}
-            className="bg-white shadow rounded-2xl p-4 flex flex-col"
-          >
-            <img
-              src={item.image || "/default-stay.jpg"}
-              alt={item.name}
-              className="w-full h-48 object-cover rounded-xl mb-2 shadow"
-            />
-            <h3 className="font-semibold text-lg">{item.name}</h3>
-            <p className="text-gray-500">{item.location}</p>
-            <p className="text-indigo-600 font-bold mt-1">₹{item.price}</p>
-            <button
-              onClick={() => handleBooking(item)}
-              className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
-            >
-              Book Now
-            </button>
-          </div>
-        ))}
-      </div>
+      {/* Trending */}
+      <Section title="Trending Destinations" items={trending} onBook={handleBooking} />
 
-      {/* --- Recommended --- */}
-      <h2 className="text-2xl font-bold mb-4">Recommended for You</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-12">
-        {recommended.map((item) => (
-          <div
-            key={item.id}
-            className="bg-white shadow rounded-2xl p-4 flex flex-col"
-          >
-            <img
-              src={item.image || "/default-stay.jpg"}
-              alt={item.name}
-              className="w-full h-48 object-cover rounded-xl mb-2 shadow"
-            />
-            <h3 className="font-semibold text-lg">{item.name}</h3>
-            <p className="text-gray-500">{item.location}</p>
-            <p className="text-indigo-600 font-bold mt-1">₹{item.price}</p>
-            <button
-              onClick={() => handleBooking(item)}
-              className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
-            >
-              Book Now
-            </button>
-          </div>
-        ))}
-      </div>
+      {/* Recommended */}
+      <Section title="Recommended for You" items={recommended} onBook={handleBooking} />
 
-      {/* --- Explore All --- */}
+      {/* Explore */}
       <h2 className="text-2xl font-bold mb-4">Explore All</h2>
       <div className="mb-4 flex flex-wrap gap-4">
         <input
@@ -329,9 +312,34 @@ export default function UserDashboardFinal() {
         />
       </div>
 
-      {/* Listings Grid */}
+      <Section title="" items={filteredItems} onBook={handleBooking} />
+    </DashboardLayout>
+  );
+}
+
+// ✅ Subcomponent for displaying items
+function Section({
+  title,
+  items,
+  onBook,
+}: {
+  title: string;
+  items: Item[];
+  onBook: (item: Item) => void;
+}) {
+  if (!items.length)
+    return (
+      <div className="mb-12">
+        {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
+        <p className="text-center text-gray-500">No items found.</p>
+      </div>
+    );
+
+  return (
+    <div className="mb-12">
+      {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredItems.map((item) => (
+        {items.map((item) => (
           <div
             key={item.id}
             className="bg-white shadow rounded-2xl p-4 flex flex-col"
@@ -345,19 +353,14 @@ export default function UserDashboardFinal() {
             <p className="text-gray-500">{item.location}</p>
             <p className="text-indigo-600 font-bold mt-1">₹{item.price}</p>
             <button
-              onClick={() => handleBooking(item)}
+              onClick={() => onBook(item)}
               className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
             >
               Book Now
             </button>
           </div>
         ))}
-        {filteredItems.length === 0 && (
-          <p className="col-span-full text-center text-gray-500">
-            No stays or listings found.
-          </p>
-        )}
       </div>
-    </DashboardLayout>
+    </div>
   );
 }

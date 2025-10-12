@@ -6,62 +6,36 @@ export async function POST(req: Request) {
   const { adminDb } = getFirebaseAdmin();
 
   try {
-    const data = await req.json();
+    const { userId, partnerId, listingId, amount } = await req.json();
 
-    // ------------------ Validation ------------------
-    const { userId, partnerId, listingId, amount, checkIn, checkOut, guests } = data;
     if (!userId || !partnerId || !listingId || !amount) {
-      return NextResponse.json(
-        { success: false, error: "Missing required booking fields." },
-        { status: 400 }
-      );
+      return NextResponse.json({ success: false, error: "Missing required fields" }, { status: 400 });
     }
 
-    // ------------------ Create Razorpay Order ------------------
-    const razorpayOrder = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // in paise
+    // ✅ Create Razorpay order
+    const order = await razorpay.orders.create({
+      amount: Math.round(amount * 100),
       currency: "INR",
       receipt: `booking_${Date.now()}`,
-      notes: {
-        userId,
-        partnerId,
-        listingId,
-      },
     });
 
-    // ------------------ Save Booking in Firestore ------------------
+    // ✅ Save booking in Firestore
     const newBooking = {
       userId,
       partnerId,
       listingId,
       amount,
-      checkIn: checkIn || null,
-      checkOut: checkOut || null,
-      guests: guests || 1,
-      status: "pending", // until payment verification
+      status: "pending",
       createdAt: new Date(),
       updatedAt: new Date(),
-      razorpayOrderId: razorpayOrder.id,
+      razorpayOrderId: order.id,
     };
 
     const docRef = await adminDb.collection("bookings").add(newBooking);
 
-    return NextResponse.json({
-      success: true,
-      id: docRef.id,
-      order: {
-        id: razorpayOrder.id,
-        amount: razorpayOrder.amount,
-        currency: razorpayOrder.currency,
-        status: razorpayOrder.status,
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY, // send frontend key
-      },
-    });
+    return NextResponse.json({ success: true, id: docRef.id, order });
   } catch (err: any) {
-    console.error("❌ Error creating booking:", err);
-    return NextResponse.json(
-      { success: false, error: err.message || "Server error" },
-      { status: 500 }
-    );
+    console.error("Booking error:", err);
+    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
   }
 }

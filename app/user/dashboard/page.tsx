@@ -9,11 +9,11 @@ import {
   where,
   onSnapshot,
   orderBy,
-  getDoc,
   doc,
+  getDoc,
 } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { createRazorpayOrder, openRazorpayCheckout } from "@/lib/payments-razorpay";
+import { createOrder, openRazorpayCheckout } from "@/lib/payments-razorpay";
 
 interface Booking {
   id: string;
@@ -43,7 +43,7 @@ export default function UserDashboard() {
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [allStays, setAllStays] = useState<Stay[]>([]);
 
-  // ------------------- Auth + Profile -------------------
+  // ------------------- Auth -------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -53,7 +53,6 @@ export default function UserDashboard() {
       try {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
-
         if (!userSnap.exists()) {
           alert("Profile not found!");
           return router.push("/");
@@ -134,25 +133,24 @@ export default function UserDashboard() {
   }, []);
 
   // ------------------- Razorpay Payment -------------------
-  const handlePay = async (amount: number, listingName: string) => {
-    if (!user?.email) return alert("User email not found!");
+  const handlePay = async (amount: number) => {
+    if (!user) return;
 
     try {
-      // 1️⃣ Create Razorpay order (server-side)
-      const order = await createRazorpayOrder({ amount });
+      // Create order via server-side function
+      const order = await createOrder({ amount });
 
-      // 2️⃣ Open Razorpay Checkout
       openRazorpayCheckout({
         amount,
         orderId: order.id,
-        name: user.displayName || listingName,
-        email: user.email,
-        onSuccess: (res) => alert("Payment successful!"),
-        onFailure: (err) => alert("Payment failed!"),
+        name: profile?.name || "Booking",
+        email: user.email || "",
+        onSuccess: (res) => alert("Payment successful! ✅"),
+        onFailure: (err) => alert("Payment failed ⚠️"),
       });
     } catch (err) {
       console.error("Payment error:", err);
-      alert("Payment failed!");
+      alert("Error creating payment order");
     }
   };
 
@@ -185,17 +183,23 @@ export default function UserDashboard() {
               <li key={b.id} className="border rounded-lg p-2 flex justify-between">
                 <span>{b.listingName || "Trip"}</span>
                 <span className="text-gray-400 text-sm">{new Date(b.date).toLocaleString()}</span>
+                <button
+                  onClick={() => handlePay(b.amount || 0)}
+                  className="bg-indigo-600 text-white px-2 py-1 rounded text-sm"
+                >
+                  Pay
+                </button>
               </li>
             ))}
           </ul>
         )}
       </div>
 
-      {/* All Stays */}
+      {/* Trending Stays */}
       <div className="mb-12">
-        <h2 className="text-2xl font-bold mb-4">All Listings</h2>
+        <h2 className="text-2xl font-bold mb-4">Trending Destinations</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {allStays.map((stay) => (
+          {allStays.slice(0, 6).map((stay) => (
             <div key={stay.id} className="bg-white shadow rounded-2xl p-4 flex flex-col">
               <img
                 src={stay.image || "/default-stay.jpg"}
@@ -205,12 +209,6 @@ export default function UserDashboard() {
               <h3 className="font-semibold text-lg">{stay.name}</h3>
               <p className="text-gray-500">{stay.location}</p>
               <p className="text-indigo-600 font-bold mt-1">₹{stay.price}</p>
-              <button
-                onClick={() => handlePay(stay.price, stay.name)}
-                className="mt-2 bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700"
-              >
-                Book Now
-              </button>
             </div>
           ))}
         </div>

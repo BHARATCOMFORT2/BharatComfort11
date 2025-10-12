@@ -14,9 +14,9 @@ import {
   getDoc,
 } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import Loading from "@/components/Loading";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 
+// ----- Types -----
 interface Booking {
   id: string;
   listingName?: string;
@@ -42,6 +42,7 @@ interface Filters {
   maxPrice?: number;
 }
 
+// ----- Component -----
 export default function UserDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
@@ -56,7 +57,7 @@ export default function UserDashboard() {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [filters, setFilters] = useState<Filters>({});
 
-  // ---------------- AUTH ----------------
+  // ----- Auth & Profile -----
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -66,88 +67,57 @@ export default function UserDashboard() {
         const userRef = doc(db, "users", currentUser.uid);
         const userSnap = await getDoc(userRef);
 
-        if (!userSnap.exists()) {
-          console.warn("Profile not found for user:", currentUser.uid);
+        if (!userSnap.exists() || userSnap.data().role !== "user") {
+          alert("❌ Not authorized");
           return router.push("/");
         }
 
-        const data = userSnap.data();
-        if (data.role !== "user") {
-          console.warn("Unauthorized access by:", currentUser.uid);
-          return router.push("/");
-        }
-
-        setProfile(data);
+        setProfile(userSnap.data());
       } catch (err) {
         console.error("Error loading profile:", err);
       } finally {
         setLoading(false);
       }
     });
+
     return () => unsub();
   }, [router]);
 
-  // ---------------- REAL-TIME BOOKINGS ----------------
+  // ----- Real-time Bookings & Stats -----
   useEffect(() => {
     if (!user) return;
 
-    const q = query(collection(db, "bookings"), where("userId", "==", user.uid));
-    const unsub = onSnapshot(q, (snap) => {
-    const bookings: Booking[] = snap.docs.map((d) => {
-  const { id: _, ...data } = d.data() as Booking;
-  return { id: d.id, ...data };
-});
+    const bookingsQuery = query(collection(db, "bookings"), where("userId", "==", user.uid));
+    const unsub = onSnapshot(bookingsQuery, (snap) => {
+      const allBookings = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Booking) }));
 
-      // Stats
-      const totalSpent = bookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-      const upcoming = bookings.filter(
-        (b) => b.date && new Date(b.date) > new Date()
-      ).length;
+      const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+      const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
 
-      setStats({ bookings: bookings.length, upcoming, spent: totalSpent });
+      setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
 
-      // Recent bookings (latest 5)
-      const recent = bookings
-        .sort((a, b) => (b.date ? new Date(b.date).getTime() : 0) - (a.date ? new Date(a.date).getTime() : 0))
+      const recent = allBookings
+        .filter((b): b is Booking => !!b.date)
+        .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
         .slice(0, 5);
 
       setRecentBookings(recent);
-
-      // Recommended
-      const bookedIds = bookings.map((b) => (b as any).listingId);
-      getDocs(collection(db, "stays")).then((staysSnap) => {
-        const items: Item[] = staysSnap.docs.map((d) => ({
-          id: d.id,
-          bookingsCount: 0,
-          ...d.data(),
-        } as Item));
-
-        setAllItems(items);
-        setRecommended(items.filter((i) => !bookedIds.includes(i.id)).slice(0, 6));
-      });
-    }, (err) => console.error("Bookings snapshot error:", err));
+    });
 
     return () => unsub();
   }, [user]);
 
-  // ---------------- REAL-TIME TRENDING ----------------
+  // ----- Trending Destinations -----
   useEffect(() => {
-    const q = query(
-      collection(db, "stays"),
-      orderBy("bookingsCount", "desc")
-    );
+    const q = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
     const unsub = onSnapshot(q, (snap) => {
-      const items: Item[] = snap.docs.map((d) => ({
-        id: d.id,
-        bookingsCount: 0,
-        ...d.data(),
-      } as Item));
-      setTrending(items.slice(0, 6));
-    }, (err) => console.error("Trending snapshot error:", err));
+      setTrending(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Item)).slice(0, 6));
+      setAllItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Item)));
+    });
     return () => unsub();
   }, []);
 
-  // ---------------- FILTERS ----------------
+  // ----- Filters -----
   const handleFilterChange = (field: keyof Filters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
@@ -160,26 +130,12 @@ export default function UserDashboard() {
     return true;
   });
 
-  // ---------------- BOOKING ----------------
+  // ----- Booking -----
   const handleBooking = async (item: Item) => {
     if (!user) return alert("Login required");
 
-    const checkIn = prompt("Enter check-in date (YYYY-MM-DD)") || "";
-    const checkOut = prompt("Enter check-out date (YYYY-MM-DD)") || "";
-    const guests = Number(prompt("Enter number of guests") || 1);
-
     try {
-      // 1️⃣ Create Razorpay Order
-      const orderRes = await fetch("/api/payments/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ amount: item.price }),
-      });
-      const orderData = await orderRes.json();
-      if (!orderData.success) throw new Error(orderData.error || "Order creation failed");
-
-      // 2️⃣ Save booking in Firestore
-      const bookingRes = await fetch("/api/bookings", {
+      const res = await fetch("/api/bookings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -187,19 +143,15 @@ export default function UserDashboard() {
           partnerId: item.partnerId,
           listingId: item.id,
           amount: item.price,
-          checkIn,
-          checkOut,
-          guests,
-          orderId: orderData.id, // save Razorpay orderId
         }),
       });
-      const booking = await bookingRes.json();
-      if (!booking.success) throw new Error(booking.error || "Booking save failed");
 
-      // 3️⃣ Open Razorpay checkout
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Booking failed");
+
       openRazorpayCheckout({
         amount: item.price,
-        orderId: orderData.id,
+        orderId: data.id, // Razorpay order id returned from API
         name: item.name,
         email: user.email || "",
         onSuccess: (resp) => alert("✅ Payment successful: " + resp.razorpay_payment_id),
@@ -211,15 +163,12 @@ export default function UserDashboard() {
     }
   };
 
-  // ---------------- RENDER ----------------
-  if (loading) return <Loading message="Loading your dashboard..." />;
-  if (!profile) return <div className="flex justify-center items-center h-[60vh] text-gray-500">No profile found.</div>;
+  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
+  if (!profile) return <p className="text-center py-12 text-red-500">Profile not found</p>;
 
+  // ----- Render -----
   return (
-    <DashboardLayout
-      title="User Dashboard"
-      profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}
-    >
+    <DashboardLayout title="User Dashboard" profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}>
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
@@ -237,8 +186,8 @@ export default function UserDashboard() {
           <p>No bookings yet.</p>
         ) : (
           <ul className="space-y-2 max-h-64 overflow-y-auto">
-            {recentBookings.map((b, idx) => (
-              <li key={idx} className="border rounded-lg p-2 flex justify-between items-center">
+            {recentBookings.map((b) => (
+              <li key={b.id} className="border rounded-lg p-2 flex justify-between">
                 <span>{b.listingName || "Trip"}</span>
                 <span className="text-gray-400 text-sm">{b.date ? new Date(b.date).toLocaleString() : ""}</span>
               </li>
@@ -251,7 +200,7 @@ export default function UserDashboard() {
       <Section title="Trending Destinations" items={trending} onBook={handleBooking} />
       <Section title="Recommended for You" items={recommended} onBook={handleBooking} />
 
-      {/* Explore */}
+      {/* Explore / Filters */}
       <h2 className="text-2xl font-bold mb-4">Explore All</h2>
       <div className="mb-4 flex flex-wrap gap-4">
         <input type="text" placeholder="Location" onChange={(e) => handleFilterChange("location", e.target.value)} className="p-2 rounded-lg border" />
@@ -263,20 +212,20 @@ export default function UserDashboard() {
         <input type="number" placeholder="Min Price" onChange={(e) => handleFilterChange("minPrice", Number(e.target.value))} className="p-2 rounded-lg border" />
         <input type="number" placeholder="Max Price" onChange={(e) => handleFilterChange("maxPrice", Number(e.target.value))} className="p-2 rounded-lg border" />
       </div>
-
       <Section title="" items={filteredItems} onBook={handleBooking} />
     </DashboardLayout>
   );
 }
 
-// ---------------- SUBCOMPONENT ----------------
+// ----- Section Component -----
 function Section({ title, items, onBook }: { title: string; items: Item[]; onBook: (item: Item) => void }) {
-  if (!items.length) return (
-    <div className="mb-12">
-      {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
-      <p className="text-center text-gray-500">No items found.</p>
-    </div>
-  );
+  if (!items.length)
+    return (
+      <div className="mb-12">
+        {title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}
+        <p className="text-center text-gray-500">No items found.</p>
+      </div>
+    );
 
   return (
     <div className="mb-12">
@@ -288,7 +237,9 @@ function Section({ title, items, onBook }: { title: string; items: Item[]; onBoo
             <h3 className="font-semibold text-lg">{item.name}</h3>
             <p className="text-gray-500">{item.location}</p>
             <p className="text-indigo-600 font-bold mt-1">₹{item.price}</p>
-            <button onClick={() => onBook(item)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">Book Now</button>
+            <button onClick={() => onBook(item)} className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition">
+              Book Now
+            </button>
           </div>
         ))}
       </div>

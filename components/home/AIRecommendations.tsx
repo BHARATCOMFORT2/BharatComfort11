@@ -1,4 +1,3 @@
-// app/components/home/AIRecommendations.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -9,7 +8,7 @@ export interface AIRecommendationsProps {
     name?: string;
     email?: string;
     role?: string;
-  };
+  } | null;
 }
 
 interface Recommendation {
@@ -25,7 +24,7 @@ export default function AIRecommendations({ profile }: AIRecommendationsProps) {
   useEffect(() => {
     if (!profile) return;
 
-    async function fetchRecommendations() {
+    const fetchRecommendations = async () => {
       setLoading(true);
       try {
         const res = await fetch("/api/recommendations", {
@@ -43,16 +42,13 @@ export default function AIRecommendations({ profile }: AIRecommendationsProps) {
       } finally {
         setLoading(false);
       }
-    }
+    };
 
     fetchRecommendations();
   }, [profile]);
 
   const handleBooking = async (rec: Recommendation) => {
-    if (!rec.price) {
-      alert("Price not set for this recommendation");
-      return;
-    }
+    if (!rec.price) return alert("Price not set for this recommendation");
 
     try {
       const order = await createOrder({ amount: rec.price });

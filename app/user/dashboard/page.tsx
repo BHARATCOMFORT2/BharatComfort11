@@ -37,24 +37,24 @@ export default function UserDashboard() {
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
-
   const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
 
   // ------------------ Auth & Profile ------------------
   useEffect(() => {
-    const unsubAuth = auth.onAuthStateChanged(async (currentUser) => {
-      if (!currentUser) return router.push("/auth/login");
-
+    const unsub = auth.onAuthStateChanged(async (currentUser) => {
+      if (!currentUser) {
+        router.push("/auth/login");
+        return;
+      }
       setUser(currentUser);
 
       try {
         const docRef = doc(db, "users", currentUser.uid);
         const docSnap = await getDoc(docRef);
-
         if (!docSnap.exists()) {
           setProfile({ name: "User", role: "user" });
         } else {
-          const data = docSnap.data();
+          const data = docSnap.data() as UserProfile;
           if (data?.role !== "user") {
             alert("Not authorized");
             router.push("/");
@@ -63,14 +63,14 @@ export default function UserDashboard() {
           setProfile(data);
         }
       } catch (err) {
-        console.error("Error fetching profile:", err);
+        console.error("Profile fetch error:", err);
         setProfile({ name: "User", role: "user" });
       } finally {
         setLoading(false);
       }
     });
 
-    return () => unsubAuth();
+    return () => unsub();
   }, [router]);
 
   // ------------------ Real-time Bookings ------------------
@@ -80,7 +80,7 @@ export default function UserDashboard() {
     const bookingsQuery = query(
       collection(db, "bookings"),
       where("userId", "==", user.uid),
-      orderBy("date", "desc")
+      orderBy("createdAt", "desc")
     );
 
     const unsub = onSnapshot(bookingsQuery, (snap) => {
@@ -90,7 +90,7 @@ export default function UserDashboard() {
         0
       );
       const upcoming = allBookings.filter(
-        (b: any) => b.date && new Date(b.date) > new Date()
+        (b: any) => b.checkIn && new Date(b.checkIn) > new Date()
       ).length;
 
       setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
@@ -99,10 +99,11 @@ export default function UserDashboard() {
     return () => unsub();
   }, [user]);
 
-  if (loading)
-    return <p className="text-center py-12">Loading dashboard...</p>;
+  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
   if (!profile)
-    return <p className="text-center py-12 text-red-500">Profile not found!</p>;
+    return (
+      <p className="text-center py-12 text-red-500">Profile not found!</p>
+    );
 
   return (
     <main className="bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-gray-900 min-h-screen font-sans overflow-x-hidden">
@@ -151,15 +152,15 @@ export default function UserDashboard() {
         <NewsletterSignup />
       </section>
 
-      {/* AI Recommendations with Razorpay (client-only) */}
-      <section className="py-12 container mx-auto px-4">
-        <h2 className="text-3xl font-semibold mb-6 text-center">
-          AI Travel Recommendations
-        </h2>
-        {typeof window !== "undefined" && profile && (
+      {/* AI Recommendations (client-side only) */}
+      {typeof window !== "undefined" && profile && (
+        <section className="py-12 container mx-auto px-4">
+          <h2 className="text-3xl font-semibold mb-6 text-center">
+            AI Travel Recommendations
+          </h2>
           <AIRecommendations profile={profile} />
-        )}
-      </section>
+        </section>
+      )}
 
       {/* Footer */}
       <Footer />

@@ -1,9 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
+import {
+  getAuth,
+  onAuthStateChanged,
+  User as FirebaseUser,
+} from "firebase/auth";
+import {
+  doc,
+  getDoc,
+  collection,
+  query,
+  where,
+  orderBy,
+  onSnapshot,
+  Firestore,
+  getFirestore,
+} from "firebase/firestore";
+import { app } from "@/lib/firebase"; // modular firebase init
 
+// Components
 import Hero from "@/components/home/Hero";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
 import FeaturedListings from "@/components/home/FeaturedListings";
@@ -15,16 +32,7 @@ import NewsletterSignup from "@/components/home/NewsletterSignup";
 import Footer from "@/components/home/Footer";
 import AIRecommendations from "@/components/home/AIRecommendations";
 
-import {
-  doc,
-  getDoc,
-  collection,
-  query,
-  where,
-  onSnapshot,
-  orderBy,
-} from "firebase/firestore";
-
+// ---------------- Types ----------------
 interface UserProfile {
   name?: string;
   email?: string;
@@ -32,29 +40,38 @@ interface UserProfile {
   profilePic?: string;
 }
 
+interface Stats {
+  bookings: number;
+  upcoming: number;
+  spent: number;
+}
+
+// ---------------- Component ----------------
 export default function UserDashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<Stats>({ bookings: 0, upcoming: 0, spent: 0 });
 
-  const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
+  const auth = getAuth(app);
+  const db = getFirestore(app);
 
-  // ------------------ Auth & Profile ------------------
+  // ---------------- Auth & Profile ----------------
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (currentUser) => {
+    const unsub = onAuthStateChanged(auth, async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
       setUser(currentUser);
 
       try {
-        const docRef = doc(db, "users", currentUser.uid);
-        const docSnap = await getDoc(docRef);
+        const userDocRef = doc(db, "users", currentUser.uid);
+        const docSnap = await getDoc(userDocRef);
 
         if (!docSnap.exists()) {
           setProfile({ name: "User", role: "user" });
         } else {
           const data = docSnap.data() as UserProfile;
-          if (data.role !== "user") {
+          if (data?.role !== "user") {
             alert("Not authorized");
             router.push("/");
             return;
@@ -62,7 +79,7 @@ export default function UserDashboard() {
           setProfile(data);
         }
       } catch (err) {
-        console.error(err);
+        console.error("Error fetching profile:", err);
         setProfile({ name: "User", role: "user" });
       } finally {
         setLoading(false);
@@ -70,9 +87,9 @@ export default function UserDashboard() {
     });
 
     return () => unsub();
-  }, [router]);
+  }, [auth, db, router]);
 
-  // ------------------ Real-time Bookings ------------------
+  // ---------------- Real-time Bookings ----------------
   useEffect(() => {
     if (!user) return;
 
@@ -83,15 +100,15 @@ export default function UserDashboard() {
     );
 
     const unsub = onSnapshot(bookingsQuery, (snap) => {
-      const allBookings = snap.docs.map((d) => d.data());
-      const totalSpent = allBookings.reduce((sum, b: any) => sum + (b.amount || 0), 0);
-      const upcoming = allBookings.filter((b: any) => b.date && new Date(b.date) > new Date()).length;
+      const allBookings = snap.docs.map((d) => d.data() as any);
+      const totalSpent = allBookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+      const upcoming = allBookings.filter((b) => b.date && new Date(b.date) > new Date()).length;
 
       setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
     });
 
     return () => unsub();
-  }, [user]);
+  }, [user, db]);
 
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
   if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
@@ -138,7 +155,7 @@ export default function UserDashboard() {
         <Testimonials />
       </section>
 
-      {/* Newsletter Signup */}
+      {/* Newsletter */}
       <section className="py-16 container mx-auto px-4 text-center">
         <NewsletterSignup />
       </section>
@@ -146,7 +163,7 @@ export default function UserDashboard() {
       {/* AI Recommendations + Razorpay */}
       <section className="py-12 container mx-auto px-4">
         <h2 className="text-3xl font-semibold mb-6 text-center">AI Travel Recommendations</h2>
-        {profile && <AIRecommendations profile={profile} />}
+        <AIRecommendations profile={profile} />
       </section>
 
       {/* Footer */}

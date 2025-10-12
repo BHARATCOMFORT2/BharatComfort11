@@ -11,6 +11,7 @@ import {
   where,
   orderBy,
   onSnapshot,
+  DocumentData,
 } from "firebase/firestore";
 
 // Components
@@ -35,7 +36,7 @@ interface UserProfile {
 export default function UserDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<UserProfile>({ name: "User", role: "user" });
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ bookings: 0, upcoming: 0, spent: 0 });
 
@@ -51,9 +52,7 @@ export default function UserDashboard() {
       try {
         const docRef = doc(db, "users", currentUser.uid);
         const docSnap = await getDoc(docRef);
-        if (!docSnap.exists()) {
-          setProfile({ name: "User", role: "user" });
-        } else {
+        if (docSnap.exists()) {
           const data = docSnap.data() as UserProfile;
           if (data?.role !== "user") {
             alert("Not authorized");
@@ -64,7 +63,6 @@ export default function UserDashboard() {
         }
       } catch (err) {
         console.error("Profile fetch error:", err);
-        setProfile({ name: "User", role: "user" });
       } finally {
         setLoading(false);
       }
@@ -83,32 +81,28 @@ export default function UserDashboard() {
       orderBy("createdAt", "desc")
     );
 
-    const unsub = onSnapshot(bookingsQuery, (snap) => {
-      const allBookings = snap.docs.map((d) => d.data());
-      const totalSpent = allBookings.reduce(
-        (sum, b: any) => sum + (b.amount || 0),
-        0
-      );
-      const upcoming = allBookings.filter(
-        (b: any) => b.checkIn && new Date(b.checkIn) > new Date()
-      ).length;
+    const unsub = onSnapshot(
+      bookingsQuery,
+      (snap) => {
+        const allBookings = snap.docs.map((d) => d.data());
+        const totalSpent = allBookings.reduce((sum: number, b: any) => sum + (b.amount || 0), 0);
+        const upcoming = allBookings.filter((b: any) => b.checkIn && new Date(b.checkIn) > new Date()).length;
 
-      setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
-    });
+        setStats({ bookings: allBookings.length, upcoming, spent: totalSpent });
+      },
+      (err) => {
+        console.error("Bookings snapshot error:", err);
+      }
+    );
 
     return () => unsub();
   }, [user]);
 
   if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
-  if (!profile)
-    return (
-      <p className="text-center py-12 text-red-500">Profile not found!</p>
-    );
 
   return (
     <main className="bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-gray-900 min-h-screen font-sans overflow-x-hidden">
-
-      {/* Hero Section */}
+      {/* Hero */}
       <Hero />
 
       {/* Quick Actions */}
@@ -152,8 +146,8 @@ export default function UserDashboard() {
         <NewsletterSignup />
       </section>
 
-      {/* AI Recommendations (client-side only) */}
-      {typeof window !== "undefined" && profile && (
+      {/* AI Recommendations */}
+      {profile && typeof window !== "undefined" && (
         <section className="py-12 container mx-auto px-4">
           <h2 className="text-3xl font-semibold mb-6 text-center">
             AI Travel Recommendations

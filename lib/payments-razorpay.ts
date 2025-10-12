@@ -13,7 +13,8 @@ export function getRazorpayServerInstance() {
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
     if (!keyId || !keySecret) {
-      throw new Error("❌ Razorpay server keys are missing!");
+      console.warn("⚠️ Razorpay server keys are missing. Skipping instance creation (dev mode).");
+      return null; // <- don’t throw, just skip
     }
 
     razorpayInstance = new Razorpay({
@@ -25,11 +26,11 @@ export function getRazorpayServerInstance() {
   return razorpayInstance;
 }
 
-// ✅ Named export `razorpay` for API routes
+// ✅ Named export for API routes
 export const razorpay = getRazorpayServerInstance();
 
 interface CreateOrderInput {
-  amount: number; // in INR
+  amount: number;
   currency?: string;
   receipt?: string;
 }
@@ -43,9 +44,10 @@ export async function createOrder({
   receipt,
 }: CreateOrderInput) {
   if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
+  if (!razorpay) throw new Error("⚠️ Razorpay not configured. Please add keys to .env.local");
 
   const order = await razorpay.orders.create({
-    amount: Math.round(amount * 100), // convert to paise
+    amount: Math.round(amount * 100),
     currency,
     receipt: receipt || `rcpt_${Date.now()}`,
   });
@@ -55,7 +57,7 @@ export async function createOrder({
 
 // ================= CLIENT-SIDE =================
 interface OpenCheckoutInput {
-  amount: number; // in INR
+  amount: number;
   orderId: string;
   name: string;
   email: string;
@@ -80,7 +82,7 @@ export function openRazorpayCheckout({
 
   const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY;
   if (!key) {
-    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY is missing");
+    console.warn("⚠️ NEXT_PUBLIC_RAZORPAY_KEY is missing. Skipping checkout (dev mode).");
     if (onFailure) onFailure({ error: "Payment key not configured" });
     return;
   }

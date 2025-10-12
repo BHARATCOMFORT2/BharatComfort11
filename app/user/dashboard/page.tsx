@@ -42,7 +42,7 @@ interface Filters {
   maxPrice?: number;
 }
 
-export default function UserDashboardFinal() {
+export default function UserDashboard() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
@@ -56,7 +56,7 @@ export default function UserDashboardFinal() {
   const [allItems, setAllItems] = useState<Item[]>([]);
   const [filters, setFilters] = useState<Filters>({});
 
-  // ✅ Auth listener
+  // ---------------- Auth & Profile ----------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
@@ -67,32 +67,36 @@ export default function UserDashboardFinal() {
         const userSnap = await getDoc(userRef);
 
         if (!userSnap.exists()) {
-          alert("⚠️ Profile not found");
-          return router.push("/");
+          console.warn("Profile not found for UID:", currentUser.uid);
+          setProfile(null);
+          setLoading(false);
+          return;
         }
 
         const data = userSnap.data();
         if (data.role !== "user") {
-          alert("❌ Not authorized");
+          alert("❌ Not authorized as user");
           return router.push("/");
         }
 
         setProfile(data);
       } catch (err) {
-        console.error("Error loading profile:", err);
+        console.error("Error fetching profile:", err);
       } finally {
         setLoading(false);
       }
     });
+
     return () => unsub();
   }, [router]);
 
-  // ✅ Fetch bookings, stats & recommendations
+  // ---------------- Fetch Dashboard Data ----------------
   useEffect(() => {
     if (!user) return;
 
-    const fetchData = async () => {
+    const fetchDashboardData = async () => {
       try {
+        // --- Bookings ---
         const bookingsSnap = await getDocs(
           query(collection(db, "bookings"), where("userId", "==", user.uid))
         );
@@ -119,23 +123,22 @@ export default function UserDashboardFinal() {
 
         setRecentBookings(recent);
 
-        const bookedIds = bookingsSnap.docs.map((b) => b.data().listingId);
+        // --- Items ---
         const staysSnap = await getDocs(collection(db, "stays"));
-        const items: Item[] = staysSnap.docs.map(
-          (d) => ({ id: d.id, ...d.data() } as Item)
-        );
-
+        const items: Item[] = staysSnap.docs.map((d) => ({ id: d.id, ...d.data() } as Item));
         setAllItems(items);
+
+        const bookedIds = bookingsSnap.docs.map((b) => b.data().listingId);
         setRecommended(items.filter((i) => !bookedIds.includes(i.id)).slice(0, 6));
       } catch (err) {
         console.error("Error fetching dashboard data:", err);
       }
     };
 
-    fetchData();
+    fetchDashboardData();
   }, [user]);
 
-  // ✅ Real-time trending
+  // ---------------- Real-time Trending ----------------
   useEffect(() => {
     const q = query(collection(db, "stays"), orderBy("bookingsCount", "desc"));
     const unsub = onSnapshot(q, (snap) => {
@@ -144,7 +147,7 @@ export default function UserDashboardFinal() {
     return () => unsub();
   }, []);
 
-  // ✅ Filters
+  // ---------------- Filters ----------------
   const handleFilterChange = (field: keyof Filters, value: any) => {
     setFilters((prev) => ({ ...prev, [field]: value }));
   };
@@ -157,38 +160,66 @@ export default function UserDashboardFinal() {
     return true;
   });
 
-  // ✅ Booking
+  // ---------------- Booking ----------------
   const handleBooking = async (item: Item) => {
     if (!user) return alert("Login required");
 
-    const checkIn = prompt("Enter check-in date (YYYY-MM-DD)") || "";
-    const checkOut = prompt("Enter check-out date (YYYY-MM-DD)") || "";
-    const guests = Number(prompt("Enter number of guests") || 1);
-
     try {
-      const res = await fetch("/api/bookings", {
+      // Step 1: Create Razorpay Order
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: user.uid,
-          partnerId: item.partnerId,
-          listingId: item.id,
-          amount: item.price,
-          checkIn,
-          checkOut,
-          guests,
-        }),
+        body: JSON.stringify({ amount: item.price }),
       });
 
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Booking creation failed");
+      const orderData = await res.json();
+      if (!orderData.id) throw new Error("Failed to create Razorpay order");
 
+      // Step 2: Open Razorpay checkout
       openRazorpayCheckout({
         amount: item.price,
-        orderId: data.order.id, // must be the Razorpay order id
+        orderId: orderData.id,
         name: item.name,
         email: user.email || "",
-        onSuccess: (resp) => alert("✅ Payment successful: " + resp.razorpay_payment_id),
+        onSuccess: async (resp) => {
+          alert("✅ Payment successful: " + resp.razorpay_payment_id);
+
+          // Step 3: Save booking in Firestore
+          const checkIn = prompt("Enter check-in date (YYYY-MM-DD)") || "";
+          const checkOut = prompt("Enter check-out date (YYYY-MM-DD)") || "";
+          const guests = Number(prompt("Enter number of guests") || 1);
+
+          await fetch("/api/bookings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              userId: user.uid,
+              partnerId: item.partnerId,
+              listingId: item.id,
+              amount: item.price,
+              checkIn,
+              checkOut,
+              guests,
+              paymentId: resp.razorpay_payment_id,
+              status: "paid",
+            }),
+          });
+
+          // Refresh dashboard data
+          const updatedBookingsSnap = await getDocs(
+            query(collection(db, "bookings"), where("userId", "==", user.uid))
+          );
+          setStats({
+            bookings: updatedBookingsSnap.size,
+            upcoming: updatedBookingsSnap.docs.filter(
+              (b) => b.data().date && new Date(b.data().date) > new Date()
+            ).length,
+            spent: updatedBookingsSnap.docs.reduce(
+              (sum, b) => sum + (b.data().amount || 0),
+              0
+            ),
+          });
+        },
         onFailure: (err) => alert("❌ Payment failed: " + err.error),
       });
     } catch (err: any) {
@@ -201,10 +232,7 @@ export default function UserDashboardFinal() {
   if (!profile) return <div className="flex justify-center items-center h-[60vh] text-gray-500">No profile found.</div>;
 
   return (
-    <DashboardLayout
-      title="User Dashboard"
-      profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}
-    >
+    <DashboardLayout title="User Dashboard" profile={{ name: profile.name, role: "user", profilePic: profile.profilePic }}>
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
@@ -236,7 +264,7 @@ export default function UserDashboardFinal() {
       <Section title="Trending Destinations" items={trending} onBook={handleBooking} />
       <Section title="Recommended for You" items={recommended} onBook={handleBooking} />
 
-      {/* Explore */}
+      {/* Explore All */}
       <h2 className="text-2xl font-bold mb-4">Explore All</h2>
       <div className="mb-4 flex flex-wrap gap-4">
         <input type="text" placeholder="Location" onChange={(e) => handleFilterChange("location", e.target.value)} className="p-2 rounded-lg border" />
@@ -254,7 +282,7 @@ export default function UserDashboardFinal() {
   );
 }
 
-// Subcomponent for items
+// ---------------- Subcomponent for Items ----------------
 function Section({ title, items, onBook }: { title: string; items: Item[]; onBook: (item: Item) => void }) {
   if (!items.length) return <div className="mb-12">{title && <h2 className="text-2xl font-bold mb-4">{title}</h2>}<p className="text-center text-gray-500">No items found.</p></div>;
 

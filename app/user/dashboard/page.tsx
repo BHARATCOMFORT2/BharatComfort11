@@ -4,13 +4,13 @@ import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import { doc, onSnapshot, collection, query, where, orderBy } from "firebase/firestore";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import QuickActionStrip from "@/components/home/QuickActionStrip";
 import TrendingDestinations from "@/components/home/TrendingDestinations";
 import PromotionsStrip from "@/components/home/PromotionsStrip";
-import QuickActionStrip from "@/components/home/QuickActionStrip";
-import NewsletterSignup from "@/components/home/NewsletterSignup";
 import RecentStories from "@/components/home/RecentStories";
+import NewsletterSignup from "@/components/home/NewsletterSignup";
 import AIRecommendations from "@/components/home/AIRecommendations";
 import MapSection from "@/components/home/MapSection";
 
@@ -21,51 +21,75 @@ export default function UserDashboard() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ------------------ Auth & Profile ------------------
+  // -------------------- Auth & Profile --------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
-      if (!currentUser) return router.push("/auth/login");
+      if (!currentUser) {
+        router.push("/auth/login");
+        return;
+      }
       setUser(currentUser);
 
       const userRef = doc(db, "users", currentUser.uid);
-      const unsubProfile = onSnapshot(userRef, (snap) => {
-        if (snap.exists()) setProfile(snap.data());
-        else setProfile({ name: "User", role: "user" });
-        setLoading(false);
-      });
+      const unsubProfile = onSnapshot(
+        userRef,
+        (snap) => {
+          if (snap.exists()) setProfile(snap.data());
+          else setProfile({ name: "User", role: "user" });
+          setLoading(false);
+        },
+        (err) => {
+          console.error("Profile fetch error:", err);
+          setProfile({ name: "User", role: "user" });
+          setLoading(false);
+        }
+      );
 
       return () => unsubProfile();
     });
+
     return () => unsub();
   }, [router]);
 
-  // ------------------ Real-time Bookings ------------------
+  // -------------------- Real-time Bookings --------------------
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, "bookings"),
-      where("userId", "==", user.uid),
-      orderBy("date", "desc") // Make sure all bookings have 'date'
-    );
 
-    const unsub = onSnapshot(q, (snap) => {
-      setBookings(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-    });
+    try {
+      const q = query(
+        collection(db, "bookings"),
+        where("userId", "==", user.uid),
+        orderBy("createdAt", "desc") // Ensure each booking has createdAt timestamp
+      );
 
-    return () => unsub();
+      const unsubBookings = onSnapshot(
+        q,
+        (snap) => {
+          const allBookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+          setBookings(allBookings);
+        },
+        (err) => console.error("Bookings fetch error:", err)
+      );
+
+      return () => unsubBookings();
+    } catch (err) {
+      console.error("Bookings query failed:", err);
+    }
   }, [user]);
 
-  if (loading) return <p className="text-center py-10">Loading your dashboard...</p>;
+  if (loading) return <p className="text-center py-12">Loading your dashboard...</p>;
+  if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
 
   return (
     <DashboardLayout
-      title="Welcome Back!"
+      title={`Welcome Back, ${profile.name || "Traveler"}!`}
       profile={{
-        name: profile?.name || "Traveler",
+        name: profile?.name,
         role: "user",
         profilePic: profile?.profilePic || "",
       }}
     >
+      {/* Greeting */}
       <div className="bg-white p-6 rounded-2xl shadow mb-8">
         <h1 className="text-2xl font-bold text-gray-800">
           Hello, {profile?.name || "Traveler"} 👋
@@ -75,8 +99,10 @@ export default function UserDashboard() {
         </p>
       </div>
 
+      {/* Quick Actions */}
       <QuickActionStrip />
 
+      {/* Recent Bookings */}
       <div className="bg-white p-6 rounded-2xl shadow mb-8">
         <h2 className="text-xl font-semibold mb-3">My Recent Trips</h2>
         {bookings.length > 0 ? (
@@ -85,7 +111,9 @@ export default function UserDashboard() {
               <li key={b.id} className="flex justify-between border-b py-2">
                 <span>{b.listingName || "Trip"}</span>
                 <span className="text-gray-500 text-sm">
-                  {b.date ? new Date(b.date).toLocaleString() : "Date unknown"}
+                  {b.createdAt?.toDate
+                    ? b.createdAt.toDate().toLocaleString()
+                    : new Date().toLocaleString()}
                 </span>
               </li>
             ))}
@@ -95,8 +123,8 @@ export default function UserDashboard() {
         )}
       </div>
 
-      {/* Homepage + AI + Map sections */}
-      {profile && <AIRecommendations profile={profile} />}
+      {/* Homepage Sections */}
+      <AIRecommendations profile={profile} />
       <TrendingDestinations />
       <PromotionsStrip />
       <RecentStories />

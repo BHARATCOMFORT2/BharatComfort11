@@ -21,37 +21,27 @@ export default function UserDashboard() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ------------------ Auth & Profile ------------------
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) return router.push("/auth/login");
       setUser(currentUser);
-
       const userRef = doc(db, "users", currentUser.uid);
       const unsubProfile = onSnapshot(userRef, (snap) => {
         if (snap.exists()) setProfile(snap.data());
         else setProfile({ name: "User", role: "user" });
         setLoading(false);
       });
-
       return () => unsubProfile();
     });
     return () => unsub();
   }, [router]);
 
-  // ------------------ Real-time Bookings ------------------
   useEffect(() => {
     if (!user) return;
-    const q = query(
-      collection(db, "bookings"),
-      where("userId", "==", user.uid),
-      orderBy("date", "desc") // Make sure all bookings have 'date'
-    );
-
+    const q = query(collection(db, "bookings"), where("userId", "==", user.uid), orderBy("date", "desc"));
     const unsub = onSnapshot(q, (snap) => {
       setBookings(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     });
-
     return () => unsub();
   }, [user]);
 
@@ -85,7 +75,7 @@ export default function UserDashboard() {
               <li key={b.id} className="flex justify-between border-b py-2">
                 <span>{b.listingName || "Trip"}</span>
                 <span className="text-gray-500 text-sm">
-                  {b.date ? new Date(b.date).toLocaleString() : "Date unknown"}
+                  {new Date(b.date).toLocaleString()}
                 </span>
               </li>
             ))}
@@ -96,7 +86,7 @@ export default function UserDashboard() {
       </div>
 
       {/* Homepage + AI + Map sections */}
-      {profile && <AIRecommendations profile={profile} />}
+      <AIRecommendations profile={profile} />
       <TrendingDestinations />
       <PromotionsStrip />
       <RecentStories />

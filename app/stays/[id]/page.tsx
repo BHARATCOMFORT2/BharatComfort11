@@ -50,6 +50,7 @@ const unsubscribe = onSnapshot(docRef, (docSnap) => {
 
 return () => unsubscribe(); // Cleanup listener on unmount
 
+
       } catch (err) {
         console.error("Error fetching stay:", err);
         setStay(null);
@@ -215,7 +216,17 @@ return () => unsubscribe(); // Cleanup listener on unmount
           />
         </div>
       </div>
-
+<div className="flex flex-col gap-2 mb-6">
+  <label className="block font-medium">Guests</label>
+  <input
+    type="number"
+    min={1}
+    max={10}
+    value={guests}
+    onChange={(e) => setGuests(parseInt(e.target.value))}
+    className="w-24 border rounded-lg p-2"
+  />
+</div>
       {/* Price summary */}
       <div className="mb-6 p-4 rounded-lg bg-white shadow-sm border">
         <div className="flex items-center justify-between mb-2">

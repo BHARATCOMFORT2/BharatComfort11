@@ -8,6 +8,7 @@ import Loading from "@/components/Loading";
 import DatePicker from "react-datepicker";
 import "react-datepicker/dist/react-datepicker.css";
 import { getAuth } from "firebase/auth";
+import { onSnapshot } from "firebase/firestore";
 
 interface Stay {
   id: string;
@@ -37,14 +38,18 @@ export default function StayPage() {
     const fetchStay = async () => {
       try {
         setLoading(true);
-        const docRef = doc(db, "stays", stayId);
-        const docSnap = await getDoc(docRef);
+     
+const docRef = doc(db, "stays", stayId);
+const unsubscribe = onSnapshot(docRef, (docSnap) => {
+  if (docSnap.exists()) {
+    setStay({ id: docSnap.id, ...(docSnap.data() as any) });
+  } else {
+    setStay(null);
+  }
+});
 
-        if (docSnap.exists()) {
-          setStay({ id: docSnap.id, ...(docSnap.data() as any) });
-        } else {
-          setStay(null);
-        }
+return () => unsubscribe(); // Cleanup listener on unmount
+
       } catch (err) {
         console.error("Error fetching stay:", err);
         setStay(null);

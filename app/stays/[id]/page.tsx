@@ -62,12 +62,14 @@ return () => unsubscribe(); // Cleanup listener on unmount
     fetchStay();
   }, [stayId]);
 
-  // compute nights and total amount
-  const nights = checkIn && checkOut
-    ? Math.max(1, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24)))
-    : 0;
+  const getNights = () => {
+  if (!checkIn || !checkOut) return 0;
+  const diffTime = checkOut.getTime() - checkIn.getTime();
+  return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+};
 
-  const totalAmount = stay ? stay.price * Math.max(1, nights) : 0;
+const totalPrice = stay ? stay.price * guests * getNights() : 0;
+
 
   const handleBooking = async () => {
     const auth = getAuth();

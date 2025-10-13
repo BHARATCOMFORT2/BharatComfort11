@@ -58,18 +58,22 @@ export default function AdminDashboard() {
   const [destinations, setDestinations] = useState<Destination[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Search & Filter
   const [search, setSearch] = useState("");
   const [minPrice, setMinPrice] = useState("");
   const [maxPrice, setMaxPrice] = useState("");
 
+  // Stay Management
   const [newStay, setNewStay] = useState<Partial<Stay>>({});
   const [stayImages, setStayImages] = useState<File[]>([]);
   const [editingStayId, setEditingStayId] = useState<string | null>(null);
 
+  // Destination Management
   const [newDestination, setNewDestination] = useState<Partial<Destination>>({});
   const [destinationImage, setDestinationImage] = useState<File | null>(null);
   const [editingDestinationId, setEditingDestinationId] = useState<string | null>(null);
 
+  // Analytics
   const [analyticsStart, setAnalyticsStart] = useState("");
   const [analyticsEnd, setAnalyticsEnd] = useState("");
   const [analyticsStayFilter, setAnalyticsStayFilter] = useState("all");
@@ -118,7 +122,7 @@ export default function AdminDashboard() {
   // ---------- Stay management ----------
   const handleSaveStay = async () => {
     try {
-      let imageUrls: string[] = [];
+      const imageUrls: string[] = [];
       for (const file of stayImages) {
         const storageRef = ref(storage, `stays/${file.name}_${Date.now()}`);
         const snap = await uploadBytes(storageRef, file);
@@ -202,16 +206,18 @@ export default function AdminDashboard() {
   };
 
   // ---------- Analytics ----------
-  const analyticsData = stays.map((stay) => {
-    const stayBookings = bookings.filter((b) => {
-      if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
-      if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
-      if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
-      return true;
-    });
-    const revenue = stayBookings.reduce((acc, b) => acc + b.amount, 0);
-    return { name: stay.name, bookings: stayBookings.length, revenue };
-  }).filter((d) => analyticsStayFilter === "all" || d.bookings > 0);
+  const analyticsData = stays
+    .map((stay) => {
+      const stayBookings = bookings.filter((b) => {
+        if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
+        if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
+        if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
+        return true;
+      });
+      const revenue = stayBookings.reduce((acc, b) => acc + b.amount, 0);
+      return { name: stay.name, bookings: stayBookings.length, revenue };
+    })
+    .filter((d) => analyticsStayFilter === "all" || d.bookings > 0);
 
   if (loading) return <div className="p-8 text-center">Loading dashboard...</div>;
 
@@ -222,22 +228,26 @@ export default function AdminDashboard() {
       {/* ---------- Stay Management ---------- */}
       <section className="bg-white p-4 rounded shadow">
         <h2 className="text-2xl font-semibold mb-4">Manage Stays</h2>
+
+        {/* Add/Edit Stay */}
         <div className="flex flex-col md:flex-row gap-4 mb-4">
-          <input type="text" placeholder="Name" value={newStay.name || ""} onChange={e=>setNewStay({...newStay,name:e.target.value})} className="border p-2 rounded"/>
-          <input type="text" placeholder="Location" value={newStay.location || ""} onChange={e=>setNewStay({...newStay,location:e.target.value})} className="border p-2 rounded"/>
-          <input type="number" placeholder="Price" value={newStay.price || ""} onChange={e=>setNewStay({...newStay,price:Number(e.target.value)})} className="border p-2 rounded"/>
-          <input type="file" multiple onChange={e=>setStayImages(e.target.files ? Array.from(e.target.files) : [])} className="border p-2 rounded"/>
+          <input type="text" placeholder="Name" value={newStay.name || ""} onChange={e => setNewStay({...newStay,name:e.target.value})} className="border p-2 rounded"/>
+          <input type="text" placeholder="Location" value={newStay.location || ""} onChange={e => setNewStay({...newStay,location:e.target.value})} className="border p-2 rounded"/>
+          <input type="number" placeholder="Price" value={newStay.price || ""} onChange={e => setNewStay({...newStay,price:Number(e.target.value)})} className="border p-2 rounded"/>
+          <input type="file" multiple onChange={e => setStayImages(e.target.files ? Array.from(e.target.files) : [])} className="border p-2 rounded"/>
           <button onClick={handleSaveStay} className="bg-indigo-600 text-white px-4 rounded">
             {editingStayId ? "Update" : "Add"} Stay
           </button>
         </div>
 
+        {/* Filter & Search */}
         <div className="flex flex-wrap gap-2 mb-4">
-          <input type="text" placeholder="Search" value={search} onChange={e=>setSearch(e.target.value)} className="border p-2 rounded"/>
-          <input type="number" placeholder="Min Price" value={minPrice} onChange={e=>setMinPrice(e.target.value)} className="border p-2 rounded w-24"/>
-          <input type="number" placeholder="Max Price" value={maxPrice} onChange={e=>setMaxPrice(e.target.value)} className="border p-2 rounded w-24"/>
+          <input type="text" placeholder="Search" value={search} onChange={e => setSearch(e.target.value)} className="border p-2 rounded"/>
+          <input type="number" placeholder="Min Price" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="border p-2 rounded w-24"/>
+          <input type="number" placeholder="Max Price" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="border p-2 rounded w-24"/>
         </div>
 
+        {/* Stay List */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {filteredStays.map(stay => (
             <div key={stay.id} className="border rounded p-2 relative">
@@ -259,8 +269,8 @@ export default function AdminDashboard() {
       <section className="bg-white p-4 rounded shadow">
         <h2 className="text-2xl font-semibold mb-4">Trending Destinations</h2>
         <div className="flex flex-col md:flex-row gap-4 mb-4">
-          <input type="text" placeholder="Name" value={newDestination.name || ""} onChange={e=>setNewDestination({...newDestination,name:e.target.value})} className="border p-2 rounded"/>
-          <input type="file" onChange={e=>setDestinationImage(e.target.files ? e.target.files[0] : null)} className="border p-2 rounded"/>
+          <input type="text" placeholder="Name" value={newDestination.name || ""} onChange={e => setNewDestination({...newDestination,name:e.target.value})} className="border p-2 rounded"/>
+          <input type="file" onChange={e => setDestinationImage(e.target.files ? e.target.files[0] : null)} className="border p-2 rounded"/>
           <button onClick={handleSaveDestination} className="bg-indigo-600 text-white px-4 rounded">{editingDestinationId ? "Update" : "Add"} Destination</button>
         </div>
 
@@ -282,27 +292,27 @@ export default function AdminDashboard() {
       <section className="bg-white p-4 rounded shadow">
         <h2 className="text-2xl font-semibold mb-4">Bookings & Analytics</h2>
         <div className="flex flex-col md:flex-row gap-4 mb-4">
-          <input type="date" value={analyticsStart} onChange={e=>setAnalyticsStart(e.target.value)} className="border p-2 rounded"/>
-          <input type="date" value={analyticsEnd} onChange={e=>setAnalyticsEnd(e.target.value)} className="border p-2 rounded"/>
-          <select value={analyticsStayFilter} onChange={e=>setAnalyticsStayFilter(e.target.value)} className="border p-2 rounded">
+          <input type="date" value={analyticsStart} onChange={e => setAnalyticsStart(e.target.value)} className="border p-2 rounded"/>
+          <input type="date" value={analyticsEnd} onChange={e => setAnalyticsEnd(e.target.value)} className="border p-2 rounded"/>
+          <select value={analyticsStayFilter} onChange={e => setAnalyticsStayFilter(e.target.value)} className="border p-2 rounded">
             <option value="all">All Stays</option>
-            {stays.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
+            {stays.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
         </div>
 
-        <p>Total Bookings: {bookings.filter(b=>{
+        <p>Total Bookings: {bookings.filter(b => {
           if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
           if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
           if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
           return true;
         }).length}</p>
 
-        <p>Total Revenue: ₹{bookings.filter(b=>{
+        <p>Total Revenue: ₹{bookings.filter(b => {
           if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
           if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
           if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
           return true;
-        }).reduce((acc,b)=>acc+b.amount,0)}</p>
+        }).reduce((acc, b) => acc + b.amount, 0)}</p>
 
         <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
           <div className="p-4 bg-gray-100 rounded">

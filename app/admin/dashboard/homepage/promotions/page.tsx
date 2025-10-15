@@ -10,8 +10,8 @@ import {
   deleteDoc,
   doc,
 } from "firebase/firestore";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/Input";
+import { Button } from "@/components/ui/Button";
 
 export default function PromotionsEditor() {
   const [promotions, setPromotions] = useState<

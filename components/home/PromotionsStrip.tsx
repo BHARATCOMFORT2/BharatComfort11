@@ -2,62 +2,65 @@
 
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
+import { collection, onSnapshot } from "firebase/firestore";
 import { motion } from "framer-motion";
 
 export default function PromotionsStrip() {
-  const [promotions, setPromotions] = useState<any[]>([]);
+  const [promotions, setPromotions] = useState<
+    { id: string; title: string; description: string; imageUrl: string }[]
+  >([]);
 
   useEffect(() => {
-    const q = query(
+    const unsub = onSnapshot(
       collection(db, "homepage", "promotions", "items"),
-      where("active", "==", true),
-      orderBy("createdAt", "desc")
+      (snap) => {
+        setPromotions(
+          snap.docs.map((doc) => ({
+            id: doc.id,
+            ...(doc.data() as any),
+          }))
+        );
+      }
     );
-    const unsub = onSnapshot(q, (snapshot) => {
-      const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-      setPromotions(items);
-    });
     return () => unsub();
   }, []);
 
-  if (!promotions.length)
+  if (promotions.length === 0)
     return (
-      <div className="text-center py-10 text-gray-500">
-        No active promotions right now.
+      <div className="text-center py-20 text-gray-500 italic">
+        ✨ No promotions active right now
       </div>
     );
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-      {promotions.map((promo, index) => (
+    <section className="container mx-auto px-4 py-10 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+      {promotions.map((promo, i) => (
         <motion.div
           key={promo.id}
-          className="bg-white/80 p-4 rounded-2xl shadow-lg backdrop-blur-md hover:shadow-xl transition-shadow"
-          initial={{ opacity: 0, y: 30 }}
+          className="relative overflow-hidden rounded-2xl shadow-lg group"
+          initial={{ opacity: 0, y: 40 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: index * 0.1 }}
+          transition={{ duration: 0.6, delay: i * 0.1 }}
           viewport={{ once: true }}
         >
-          <img
-            src={promo.imageUrl}
-            alt={promo.title}
-            className="w-full h-48 object-cover rounded-xl mb-4"
-          />
-          <h3 className="text-xl font-semibold text-yellow-800 mb-2">
-            {promo.title}
-          </h3>
-          <p className="text-gray-700 text-sm mb-3">{promo.description}</p>
-          {promo.link && (
-            <a
-              href={promo.link}
-              className="text-yellow-700 hover:underline font-medium"
-            >
-              Learn More →
-            </a>
-          )}
+          {/* Background image */}
+          <div
+            className="h-64 bg-cover bg-center transition-transform duration-500 group-hover:scale-110"
+            style={{
+              backgroundImage: `url(${promo.imageUrl || "/placeholder-promo.jpg"})`,
+            }}
+          ></div>
+
+          {/* Overlay */}
+          <div className="absolute inset-0 bg-black/40 group-hover:bg-black/30 transition" />
+
+          {/* Text content */}
+          <div className="absolute bottom-0 p-6 text-white z-10">
+            <h3 className="text-2xl font-bold drop-shadow-md">{promo.title}</h3>
+            <p className="text-sm mt-2 drop-shadow-md">{promo.description}</p>
+          </div>
         </motion.div>
       ))}
-    </div>
+    </section>
   );
 }

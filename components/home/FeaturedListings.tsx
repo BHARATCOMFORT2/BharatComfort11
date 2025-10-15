@@ -1,66 +1,58 @@
 "use client";
 
-import Link from "next/link";
-
-const listings = [
-  {
-    id: "1",
-    title: "Luxury Palace Stay",
-    image: "https://images.unsplash.com/photo-1542314831-068cd1dbfeeb?auto=format&fit=crop&w=800&q=80",
-    location: "Jaipur, Rajasthan",
-    description: "Experience royal luxury in the heart of Jaipur with stunning palaces and modern amenities.",
-  },
-  {
-    id: "2",
-    title: "Beachside Resort",
-    image: "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
-    location: "Goa",
-    description: "Relax at this serene beachside resort with beautiful ocean views and excellent service.",
-  },
-  {
-    id: "3",
-    title: "Mountain Retreat",
-    image: "https://images.unsplash.com/photo-1501785888041-af3ef285b470?auto=format&fit=crop&w=800&q=80",
-    location: "Manali, Himachal Pradesh",
-    description: "Enjoy nature and tranquility at this cozy mountain retreat surrounded by peaks.",
-  },
-];
+import { useEffect, useState } from "react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot } from "firebase/firestore";
+import { motion } from "framer-motion";
 
 export default function FeaturedListings() {
-  return (
-    <section className="py-16 bg-[#fff8f0]">
-      <div className="max-w-7xl mx-auto px-6">
-        <h2 className="text-3xl font-bold text-yellow-800 mb-10 text-center">
-          Featured Listings
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-10 justify-items-center">
-          {listings.map((listing) => (
-            <div
-              key={listing.id}
-              className="w-full sm:w-64 md:w-72 rounded-2xl overflow-hidden shadow-lg bg-white/40 backdrop-blur-lg border border-white/10 hover:scale-105 transition"
-            >
-              <img
-                src={listing.image}
-                alt={listing.title}
-                className="w-full h-32 object-cover"
-              />
-              <div className="p-6">
-                <h3 className="text-lg font-semibold text-yellow-900 mb-1">
-                  {listing.title}
-                </h3>
-                <p className="text-gray-700 text-sm mb-2">{listing.location}</p>
-                <p className="text-gray-600 text-sm line-clamp-2 mb-3">{listing.description}</p>
-                <Link
-                  href={`/listings/${listing.id}`}
-                  className="text-yellow-700 font-semibold hover:underline text-sm"
-                >
-                  Read More →
-                </Link>
-              </div>
-            </div>
-          ))}
-        </div>
+  const [listings, setListings] = useState<
+    { id: string; title: string; location: string; price: number; imageUrl: string }[]
+  >([]);
+
+  useEffect(() => {
+    const unsub = onSnapshot(
+      collection(db, "homepage", "featured", "items"),
+      (snap) => {
+        setListings(
+          snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        );
+      }
+    );
+    return () => unsub();
+  }, []);
+
+  if (listings.length === 0)
+    return (
+      <div className="text-center py-16 text-gray-500 italic">
+        🏕 No featured listings available
       </div>
+    );
+
+  return (
+    <section className="container mx-auto px-4 grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+      {listings.map((item, i) => (
+        <motion.div
+          key={item.id}
+          className="rounded-2xl overflow-hidden shadow-md bg-white/50"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: i * 0.1 }}
+          viewport={{ once: true }}
+        >
+          <div
+            className="h-60 bg-cover bg-center"
+            style={{
+              backgroundImage: `url(${item.imageUrl || "/placeholder.jpg"})`,
+            }}
+          ></div>
+          <div className="p-4">
+            <h3 className="text-lg font-bold">{item.title}</h3>
+            <p className="text-sm text-gray-600">{item.location}</p>
+            <p className="font-semibold mt-1">₹{item.price}/night</p>
+          </div>
+        </motion.div>
+      ))}
     </section>
   );
 }

@@ -1,352 +1,193 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { db, storage } from "@/lib/firebase";
+import { useState, useEffect } from "react";
+import { auth, db, storage } from "@/lib/firebase";
+import { useRouter } from "next/navigation";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import Modal from "@/components/dashboard/Modal";
 import {
   collection,
+  doc,
+  getDoc,
   onSnapshot,
-  addDoc,
   updateDoc,
   deleteDoc,
-  doc,
+  query,
+  where,
   serverTimestamp,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { motion } from "framer-motion";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
 
-// ---------- Interfaces ----------
-interface Stay {
-  id: string;
-  name: string;
-  location: string;
-  price: number;
-  images?: string[];
-  partnerId?: string;
-  featured?: boolean;
-}
+// ---------- SIMPLE IMAGE UPLOAD ----------
+const ImageUpload = ({ images, onChange, maxFiles = 5 }: { images: string[]; onChange: (urls: string[]) => void; maxFiles?: number }) => {
+  const [localFiles, setLocalFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
 
-interface Booking {
-  id: string;
-  listingId: string;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  amount: number;
-}
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const filesArray = Array.from(e.target.files).slice(0, maxFiles - images.length);
+    setLocalFiles((prev) => [...prev, ...filesArray]);
+  };
 
-interface Destination {
-  id: string;
-  name: string;
-  image?: string;
-}
-
-// ---------- Component ----------
-export default function AdminDashboard() {
-  // ---------- State ----------
-  const [stays, setStays] = useState<Stay[]>([]);
-  const [filteredStays, setFilteredStays] = useState<Stay[]>([]);
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [destinations, setDestinations] = useState<Destination[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  // Search & Filter
-  const [search, setSearch] = useState("");
-  const [minPrice, setMinPrice] = useState("");
-  const [maxPrice, setMaxPrice] = useState("");
-
-  // Stay Management
-  const [newStay, setNewStay] = useState<Partial<Stay>>({});
-  const [stayImages, setStayImages] = useState<File[]>([]);
-  const [editingStayId, setEditingStayId] = useState<string | null>(null);
-
-  // Destination Management
-  const [newDestination, setNewDestination] = useState<Partial<Destination>>({});
-  const [destinationImage, setDestinationImage] = useState<File | null>(null);
-  const [editingDestinationId, setEditingDestinationId] = useState<string | null>(null);
-
-  // Analytics
-  const [analyticsStart, setAnalyticsStart] = useState("");
-  const [analyticsEnd, setAnalyticsEnd] = useState("");
-  const [analyticsStayFilter, setAnalyticsStayFilter] = useState("all");
-
-  // ---------- Real-time fetch ----------
   useEffect(() => {
-    const unsubStays = onSnapshot(collection(db, "stays"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Stay[];
-      setStays(data);
-      setFilteredStays(data);
-      setLoading(false);
-    });
-
-    const unsubBookings = onSnapshot(collection(db, "bookings"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Booking[];
-      setBookings(data);
-    });
-
-    const unsubDest = onSnapshot(collection(db, "destinations"), (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Destination[];
-      setDestinations(data);
-    });
-
-    return () => {
-      unsubStays();
-      unsubBookings();
-      unsubDest();
+    if (localFiles.length === 0) return;
+    const uploadAll = async () => {
+      setUploading(true);
+      const uploadedUrls: string[] = [];
+      for (const file of localFiles) {
+        const storageRef = ref(storage, `homepage/${file.name}-${Date.now()}`);
+        const snapshot = await uploadBytesResumable(storageRef, file);
+        const url = await getDownloadURL(snapshot.ref);
+        uploadedUrls.push(url);
+      }
+      onChange([...images, ...uploadedUrls]);
+      setLocalFiles([]);
+      setUploading(false);
     };
-  }, []);
+    uploadAll();
+  }, [localFiles]);
 
-  // ---------- Filter stays ----------
-  useEffect(() => {
-    let result = stays;
-    if (search.trim()) {
-      result = result.filter(
-        (s) =>
-          s.name.toLowerCase().includes(search.toLowerCase()) ||
-          s.location.toLowerCase().includes(search.toLowerCase())
-      );
-    }
-    if (minPrice) result = result.filter((s) => s.price >= parseInt(minPrice));
-    if (maxPrice) result = result.filter((s) => s.price <= parseInt(maxPrice));
-    setFilteredStays(result);
-  }, [search, minPrice, maxPrice, stays]);
-
-  // ---------- Stay management ----------
-  const handleSaveStay = async () => {
-    try {
-      const imageUrls: string[] = [];
-      for (const file of stayImages) {
-        const storageRef = ref(storage, `stays/${file.name}_${Date.now()}`);
-        const snap = await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(snap.ref);
-        imageUrls.push(url);
-      }
-
-      if (editingStayId) {
-        await updateDoc(doc(db, "stays", editingStayId), {
-          ...newStay,
-          images: imageUrls.length ? imageUrls : undefined,
-        });
-        alert("Stay updated!");
-      } else {
-        await addDoc(collection(db, "stays"), {
-          ...newStay,
-          images: imageUrls,
-          featured: false,
-          createdAt: serverTimestamp(),
-        });
-        alert("Stay added!");
-      }
-
-      setNewStay({});
-      setStayImages([]);
-      setEditingStayId(null);
-    } catch (err: any) {
-      console.error(err);
-      alert("Error saving stay: " + err.message);
-    }
-  };
-
-  const handleDeleteStay = async (id: string) => {
-    if (!confirm("Delete this stay?")) return;
-    await deleteDoc(doc(db, "stays", id));
-    alert("Stay deleted!");
-  };
-
-  const toggleFeatured = async (stay: Stay) => {
-    await updateDoc(doc(db, "stays", stay.id), { featured: !stay.featured });
-  };
-
-  // ---------- Destination management ----------
-  const handleSaveDestination = async () => {
-    try {
-      let imageUrl = "";
-      if (destinationImage) {
-        const storageRef = ref(storage, `destinations/${destinationImage.name}_${Date.now()}`);
-        const snap = await uploadBytes(storageRef, destinationImage);
-        imageUrl = await getDownloadURL(snap.ref);
-      }
-
-      if (editingDestinationId) {
-        await updateDoc(doc(db, "destinations", editingDestinationId), {
-          ...newDestination,
-          image: imageUrl || undefined,
-        });
-        alert("Destination updated!");
-      } else {
-        await addDoc(collection(db, "destinations"), {
-          ...newDestination,
-          image: imageUrl,
-          createdAt: serverTimestamp(),
-        });
-        alert("Destination added!");
-      }
-
-      setNewDestination({});
-      setDestinationImage(null);
-      setEditingDestinationId(null);
-    } catch (err: any) {
-      console.error(err);
-      alert("Error saving destination: " + err.message);
-    }
-  };
-
-  const handleDeleteDestination = async (id: string) => {
-    if (!confirm("Delete this destination?")) return;
-    await deleteDoc(doc(db, "destinations", id));
-    alert("Destination deleted!");
-  };
-
-  // ---------- Analytics ----------
-  const analyticsData = stays
-    .map((stay) => {
-      const stayBookings = bookings.filter((b) => {
-        if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
-        if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
-        if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
-        return true;
-      });
-      const revenue = stayBookings.reduce((acc, b) => acc + b.amount, 0);
-      return { name: stay.name, bookings: stayBookings.length, revenue };
-    })
-    .filter((d) => analyticsStayFilter === "all" || d.bookings > 0);
-
-  if (loading) return <div className="p-8 text-center">Loading dashboard...</div>;
+  const handleRemove = (url: string) => onChange(images.filter((i) => i !== url));
 
   return (
-    <div className="p-6 space-y-12">
-      <h1 className="text-3xl font-bold mb-4">Admin Dashboard</h1>
-
-      {/* ---------- Stay Management ---------- */}
-      <section className="bg-white p-4 rounded shadow">
-        <h2 className="text-2xl font-semibold mb-4">Manage Stays</h2>
-
-        {/* Add/Edit Stay */}
-        <div className="flex flex-col md:flex-row gap-4 mb-4">
-          <input type="text" placeholder="Name" value={newStay.name || ""} onChange={e => setNewStay({...newStay,name:e.target.value})} className="border p-2 rounded"/>
-          <input type="text" placeholder="Location" value={newStay.location || ""} onChange={e => setNewStay({...newStay,location:e.target.value})} className="border p-2 rounded"/>
-          <input type="number" placeholder="Price" value={newStay.price || ""} onChange={e => setNewStay({...newStay,price:Number(e.target.value)})} className="border p-2 rounded"/>
-          <input type="file" multiple onChange={e => setStayImages(e.target.files ? Array.from(e.target.files) : [])} className="border p-2 rounded"/>
-          <button onClick={handleSaveStay} className="bg-indigo-600 text-white px-4 rounded">
-            {editingStayId ? "Update" : "Add"} Stay
-          </button>
-        </div>
-
-        {/* Filter & Search */}
-        <div className="flex flex-wrap gap-2 mb-4">
-          <input type="text" placeholder="Search" value={search} onChange={e => setSearch(e.target.value)} className="border p-2 rounded"/>
-          <input type="number" placeholder="Min Price" value={minPrice} onChange={e => setMinPrice(e.target.value)} className="border p-2 rounded w-24"/>
-          <input type="number" placeholder="Max Price" value={maxPrice} onChange={e => setMaxPrice(e.target.value)} className="border p-2 rounded w-24"/>
-        </div>
-
-        {/* Stay List */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredStays.map(stay => (
-            <div key={stay.id} className="border rounded p-2 relative">
-              <h3 className="font-semibold">{stay.name}</h3>
-              <p>{stay.location}</p>
-              <p>₹{stay.price}</p>
-              <p>Featured: {stay.featured ? "Yes" : "No"}</p>
-              <div className="flex gap-2 mt-2">
-                <button onClick={()=>{setEditingStayId(stay.id); setNewStay(stay)}} className="bg-yellow-500 px-2 rounded">Edit</button>
-                <button onClick={()=>handleDeleteStay(stay.id)} className="bg-red-500 px-2 rounded text-white">Delete</button>
-                <button onClick={()=>toggleFeatured(stay)} className="bg-green-500 px-2 rounded text-white">Toggle Featured</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ---------- Trending Destinations ---------- */}
-      <section className="bg-white p-4 rounded shadow">
-        <h2 className="text-2xl font-semibold mb-4">Trending Destinations</h2>
-        <div className="flex flex-col md:flex-row gap-4 mb-4">
-          <input type="text" placeholder="Name" value={newDestination.name || ""} onChange={e => setNewDestination({...newDestination,name:e.target.value})} className="border p-2 rounded"/>
-          <input type="file" onChange={e => setDestinationImage(e.target.files ? e.target.files[0] : null)} className="border p-2 rounded"/>
-          <button onClick={handleSaveDestination} className="bg-indigo-600 text-white px-4 rounded">{editingDestinationId ? "Update" : "Add"} Destination</button>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {destinations.map(dest => (
-            <div key={dest.id} className="border rounded p-2 relative">
-              <h3 className="font-semibold">{dest.name}</h3>
-              {dest.image && <img src={dest.image} alt={dest.name} className="h-24 w-full object-cover"/>}
-              <div className="flex gap-2 mt-2">
-                <button onClick={()=>{setEditingDestinationId(dest.id); setNewDestination(dest)}} className="bg-yellow-500 px-2 rounded">Edit</button>
-                <button onClick={()=>handleDeleteDestination(dest.id)} className="bg-red-500 px-2 rounded text-white">Delete</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ---------- Bookings Analytics ---------- */}
-      <section className="bg-white p-4 rounded shadow">
-        <h2 className="text-2xl font-semibold mb-4">Bookings & Analytics</h2>
-        <div className="flex flex-col md:flex-row gap-4 mb-4">
-          <input type="date" value={analyticsStart} onChange={e => setAnalyticsStart(e.target.value)} className="border p-2 rounded"/>
-          <input type="date" value={analyticsEnd} onChange={e => setAnalyticsEnd(e.target.value)} className="border p-2 rounded"/>
-          <select value={analyticsStayFilter} onChange={e => setAnalyticsStayFilter(e.target.value)} className="border p-2 rounded">
-            <option value="all">All Stays</option>
-            {stays.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-        </div>
-
-        <p>Total Bookings: {bookings.filter(b => {
-          if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
-          if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
-          if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
-          return true;
-        }).length}</p>
-
-        <p>Total Revenue: ₹{bookings.filter(b => {
-          if (analyticsStayFilter !== "all" && b.listingId !== analyticsStayFilter) return false;
-          if (analyticsStart && new Date(b.checkIn) < new Date(analyticsStart)) return false;
-          if (analyticsEnd && new Date(b.checkOut) > new Date(analyticsEnd)) return false;
-          return true;
-        }).reduce((acc, b) => acc + b.amount, 0)}</p>
-
-        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="p-4 bg-gray-100 rounded">
-            <h3 className="font-semibold mb-2">Bookings per Stay</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={analyticsData}>
-                <CartesianGrid strokeDasharray="3 3"/>
-                <XAxis dataKey="name"/>
-                <YAxis allowDecimals={false}/>
-                <Tooltip/>
-                <Bar dataKey="bookings" fill="#4f46e5"/>
-              </BarChart>
-            </ResponsiveContainer>
+    <div>
+      <input type="file" multiple accept="image/*" onChange={handleFileChange} disabled={uploading || images.length >= maxFiles} className="mb-2"/>
+      {uploading && <p className="text-blue-600 mb-2">Uploading...</p>}
+      <div className="flex flex-wrap gap-2">
+        {images.map(url => (
+          <div key={url} className="relative w-24 h-24 border rounded overflow-hidden">
+            <img src={url} alt="preview" className="object-cover w-full h-full"/>
+            <button onClick={() => handleRemove(url)} className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">×</button>
           </div>
-          <div className="p-4 bg-gray-100 rounded">
-            <h3 className="font-semibold mb-2">Revenue per Stay</h3>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={analyticsData}>
-                <CartesianGrid strokeDasharray="3 3"/>
-                <XAxis dataKey="name"/>
-                <YAxis/>
-                <Tooltip/>
-                <Bar dataKey="revenue" fill="#f59e0b"/>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      </section>
-
-      {/* ---------- Staff Management Placeholder ---------- */}
-      <section className="bg-white p-4 rounded shadow">
-        <h2 className="text-2xl font-semibold mb-4">Staff Management (Coming Soon)</h2>
-        <p>You can implement roles and staff management here later.</p>
-      </section>
+        ))}
+      </div>
     </div>
+  );
+};
+
+// ---------- SIMPLE EDITOR FOR ANY SECTION ----------
+const SectionEditor = ({ sectionId }: { sectionId: string }) => {
+  const [title, setTitle] = useState("");
+  const [subtitle, setSubtitle] = useState("");
+  const [images, setImages] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const snap = await getDoc(doc(db, "homepage", sectionId));
+      if (snap.exists()) {
+        const data = snap.data();
+        setTitle(data.title || "");
+        setSubtitle(data.subtitle || "");
+        setImages(data.images || []);
+      }
+      setLoading(false);
+    };
+    fetchData();
+  }, [sectionId]);
+
+  const handleSave = async () => {
+    await updateDoc(doc(db, "homepage", sectionId), { title, subtitle, images });
+    alert(`✅ ${sectionId} updated`);
+  };
+
+  if (loading) return <p>Loading editor...</p>;
+
+  return (
+    <div className="space-y-4">
+      <label className="block">
+        Title
+        <input type="text" value={title} onChange={e => setTitle(e.target.value)} className="border rounded w-full p-2"/>
+      </label>
+      <label className="block">
+        Subtitle
+        <input type="text" value={subtitle} onChange={e => setSubtitle(e.target.value)} className="border rounded w-full p-2"/>
+      </label>
+      <label className="block">
+        Images
+        <ImageUpload images={images} onChange={setImages} maxFiles={5}/>
+      </label>
+      <button onClick={handleSave} className="px-4 py-2 bg-yellow-700 text-white rounded hover:bg-yellow-800">Save Changes</button>
+    </div>
+  );
+};
+
+// ---------- DASHBOARD PAGE ----------
+export default function AdminDashboardPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [userName, setUserName] = useState("");
+  const [stats, setStats] = useState({ users: 0, partners: 0, listings: 0, staffs: 0 });
+  const [chartData, setChartData] = useState<{ date: string; count: number }[]>([]);
+  const [activeSection, setActiveSection] = useState<string | null>(null);
+
+  // ---------- LOAD DATA ----------
+  useEffect(() => {
+    const unsub: (() => void)[] = [];
+    const init = async () => {
+      const user = auth.currentUser;
+      if (!user) return router.push("/auth/login");
+
+      const userDoc = await getDoc(doc(db, "users", user.uid));
+      if (!userDoc.exists() || userDoc.data().role !== "admin") {
+        alert("❌ Not authorized");
+        return router.push("/");
+      }
+      setUserName(userDoc.data().name || "Admin");
+
+      unsub.push(onSnapshot(collection(db, "users"), snap => setStats(s => ({ ...s, users: snap.docs.length }))));
+      unsub.push(onSnapshot(collection(db, "partners"), snap => setStats(s => ({ ...s, partners: snap.docs.length }))));
+      unsub.push(onSnapshot(collection(db, "listings"), snap => setStats(s => ({ ...s, listings: snap.docs.length }))));
+      unsub.push(onSnapshot(collection(db, "staffs"), snap => setStats(s => ({ ...s, staffs: snap.docs.length }))));
+      unsub.push(onSnapshot(collection(db, "bookings"), snap => {
+        const last7Days = Array.from({length:7}).map((_,i)=>{const d=new Date();d.setDate(new Date().getDate()-i);return {date:d.toISOString().split("T")[0],count:0};}).reverse();
+        snap.docs.forEach(b=>{const date = b.data().date?.split?.("T")?.[0]; const found = last7Days.find(d=>d.date===date); if(found) found.count+=1;});
+        setChartData(last7Days);
+      }));
+
+      setLoading(false);
+    };
+    init();
+    return () => unsub.forEach(u => u());
+  }, [router]);
+
+  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
+
+  const homepageSections = ["Hero","QuickActions","FeaturedListings","TrendingDestinations","Promotions","RecentStories","Testimonials"];
+
+  return (
+    <DashboardLayout title="Admin Dashboard" profile={{ name: userName, role:"admin" }}>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+        {Object.entries(stats).map(([k,v]) => <div key={k} className="p-6 bg-white shadow rounded-lg text-center"><h2 className="text-2xl font-bold">{v}</h2><p className="text-gray-600 capitalize">{k}</p></div>)}
+      </div>
+
+      <section className="mb-12">
+        <h3 className="font-semibold mb-4">Homepage Sections</h3>
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+          {homepageSections.map(s => (
+            <button key={s} onClick={()=>setActiveSection(s)} className="p-4 bg-white rounded shadow hover:shadow-lg text-center">{s}</button>
+          ))}
+        </div>
+      </section>
+
+      <section className="bg-white shadow rounded-lg p-6 mb-12">
+        <h3 className="font-semibold mb-4">Bookings (Last 7 Days)</h3>
+        <ResponsiveContainer width="100%" height={250}>
+          <LineChart data={chartData}>
+            <CartesianGrid strokeDasharray="3 3"/>
+            <XAxis dataKey="date"/>
+            <YAxis/>
+            <Tooltip/>
+            <Line type="monotone" dataKey="count" stroke="#2563eb" strokeWidth={2}/>
+          </LineChart>
+        </ResponsiveContainer>
+      </section>
+
+      {/* Modal for homepage section editor */}
+      <Modal isOpen={!!activeSection} onClose={()=>setActiveSection(null)}>
+        {activeSection && <SectionEditor sectionId={activeSection} />}
+      </Modal>
+    </DashboardLayout>
   );
 }

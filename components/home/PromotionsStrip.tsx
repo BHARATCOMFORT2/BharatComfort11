@@ -1,37 +1,63 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { db } from "@/lib/firebase";
+import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
 import { motion } from "framer-motion";
 
 export default function PromotionsStrip() {
+  const [promotions, setPromotions] = useState<any[]>([]);
+
+  useEffect(() => {
+    const q = query(
+      collection(db, "homepage", "promotions", "items"),
+      where("active", "==", true),
+      orderBy("createdAt", "desc")
+    );
+    const unsub = onSnapshot(q, (snapshot) => {
+      const items = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      setPromotions(items);
+    });
+    return () => unsub();
+  }, []);
+
+  if (!promotions.length)
+    return (
+      <div className="text-center py-10 text-gray-500">
+        No active promotions right now.
+      </div>
+    );
+
   return (
-    <motion.section
-      className="py-16 px-6 bg-white/20 backdrop-blur-lg rounded-2xl shadow-xl max-w-7xl mx-auto text-center"
-      initial={{ opacity: 0, y: 40 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true }}
-      transition={{ duration: 0.8 }}
-    >
-      <h2 className="text-4xl font-serif font-bold text-yellow-800 mb-4">
-        Special Festival Offers 🎉
-      </h2>
-      <p className="text-xl text-yellow-700 mb-6">
-        Save up to <span className="font-bold text-yellow-900">40%</span> on bookings this season!
-      </p>
-      <motion.a
-        href="/promotions"
-        className="relative inline-block px-8 py-4 bg-yellow-700 text-white font-semibold rounded-2xl shadow-lg overflow-hidden group"
-        whileHover={{ scale: 1.05 }}
-      >
-        <span className="relative z-20">Grab Deal</span>
-        {/* Shimmer effect */}
-        <motion.span
-          className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-50 transform -translate-x-full group-hover:opacity-80"
-          animate={{ x: ["-100%", "100%"] }}
-          transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
-        />
-        {/* Hover glow */}
-        <span className="absolute inset-0 rounded-2xl shadow-lg shadow-yellow-500/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
-      </motion.a>
-    </motion.section>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+      {promotions.map((promo, index) => (
+        <motion.div
+          key={promo.id}
+          className="bg-white/80 p-4 rounded-2xl shadow-lg backdrop-blur-md hover:shadow-xl transition-shadow"
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: index * 0.1 }}
+          viewport={{ once: true }}
+        >
+          <img
+            src={promo.imageUrl}
+            alt={promo.title}
+            className="w-full h-48 object-cover rounded-xl mb-4"
+          />
+          <h3 className="text-xl font-semibold text-yellow-800 mb-2">
+            {promo.title}
+          </h3>
+          <p className="text-gray-700 text-sm mb-3">{promo.description}</p>
+          {promo.link && (
+            <a
+              href={promo.link}
+              className="text-yellow-700 hover:underline font-medium"
+            >
+              Learn More →
+            </a>
+          )}
+        </motion.div>
+      ))}
+    </div>
   );
 }

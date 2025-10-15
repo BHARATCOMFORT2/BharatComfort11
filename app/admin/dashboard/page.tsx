@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { auth, db, storage } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import Modal from "@/components/dashboard/Modal";
+import Modal from "@/components/home/Modal";
 import {
   collection,
   doc,

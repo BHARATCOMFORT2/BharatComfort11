@@ -1,17 +1,35 @@
 "use client";
 
 import { motion, useScroll, useTransform } from "framer-motion";
+import { useEffect, useState } from "react";
+import { db } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 
 export default function Hero() {
   const { scrollY } = useScroll();
   const yHero = useTransform(scrollY, [0, 500], [0, -50]);
 
+  const [hero, setHero] = useState({
+    title: "",
+    subtitle: "",
+    imageUrl: "/hero-bg.jpg",
+  });
+
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, "homepage", "hero"), (snap) => {
+      if (snap.exists()) setHero(snap.data());
+    });
+    return () => unsub();
+  }, []);
+
   return (
     <section className="relative h-screen overflow-hidden">
-
       {/* Hero Image with Parallax */}
       <motion.div style={{ y: yHero }}>
-        <div className="relative h-full bg-[url('/hero-bg.jpg')] bg-cover bg-center">
+        <div
+          className="relative h-full bg-cover bg-center"
+          style={{ backgroundImage: `url(${hero.imageUrl})` }}
+        >
           <div className="absolute inset-0 bg-black/30"></div>
         </div>
       </motion.div>
@@ -49,8 +67,6 @@ export default function Hero() {
 
       {/* Hero Content with Soft Gold Rays */}
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4 z-10">
-
-        {/* Soft gold-white rays behind text */}
         <motion.div
           className="absolute w-full h-64 top-1/3"
           animate={{ rotate: [0, 8, -8, 0] }}
@@ -74,7 +90,7 @@ export default function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1 }}
         >
-          Welcome to BharatComfort
+          {hero.title || "Welcome to BharatComfort"}
         </motion.h1>
 
         <motion.p
@@ -83,7 +99,7 @@ export default function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, delay: 0.3 }}
         >
-          Discover Royal Journeys Across India
+          {hero.subtitle || "Discover Royal Journeys Across India"}
         </motion.p>
 
         <motion.div
@@ -96,13 +112,11 @@ export default function Hero() {
             className="mt-8 relative inline-block px-8 py-4 bg-yellow-700 text-white font-semibold rounded-2xl shadow-lg overflow-hidden group"
           >
             <span className="relative z-20">Explore Now</span>
-            {/* Shimmer Effect */}
             <motion.span
               className="absolute inset-0 bg-gradient-to-r from-transparent via-white/30 to-transparent opacity-50 transform -translate-x-full group-hover:opacity-80"
               animate={{ x: ["-100%", "100%"] }}
               transition={{ repeat: Infinity, duration: 2, ease: "linear" }}
             />
-            {/* Hover Glow */}
             <span className="absolute inset-0 rounded-2xl shadow-lg shadow-yellow-500/40 opacity-0 transition-opacity duration-300 group-hover:opacity-100"></span>
           </motion.a>
         </motion.div>

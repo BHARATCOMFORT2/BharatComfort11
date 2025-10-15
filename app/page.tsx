@@ -1,6 +1,10 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
+import { auth, db } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
+
 import Hero from "@/components/home/Hero";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
 import FeaturedListings from "@/components/home/FeaturedListings";
@@ -10,16 +14,35 @@ import TrendingDestinations from "@/components/home/TrendingDestinations";
 import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 import Footer from "@/components/home/Footer";
+import AIRecommendations from "@/components/home/AIRecommendations";
 
 export default function HomePage() {
   const { scrollY } = useScroll();
   const yHero = useTransform(scrollY, [0, 500], [0, -50]);
   const yCards = useTransform(scrollY, [0, 800], [0, 30]);
 
+  const [profile, setProfile] = useState<any>(null);
+
+  // -------------------- Fetch logged-in user profile --------------------
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        const docRef = doc(db, "users", user.uid);
+        const unsubProfile = onSnapshot(docRef, (snap) => {
+          if (snap.exists()) setProfile(snap.data());
+          else setProfile({ name: "Traveler", role: "user" });
+        });
+        return () => unsubProfile();
+      }
+    });
+    return () => unsub();
+  }, []);
+
   return (
     <main className="relative bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-gray-900 min-h-screen font-sans overflow-x-hidden">
+      
+      <Hero />
 
-          <Hero />
       {/* Quick Actions */}
       <motion.section
         className="py-16 container mx-auto px-4"
@@ -45,6 +68,22 @@ export default function HomePage() {
         </h2>
         <FeaturedListings />
       </motion.section>
+
+      {/* AI Recommendations */}
+      {profile && (
+        <motion.section
+          className="py-16 container mx-auto px-4"
+          initial={{ opacity: 0, y: 60 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8 }}
+          viewport={{ once: true }}
+        >
+          <h2 className="text-4xl font-serif font-bold text-yellow-800 mb-8 text-center">
+            Recommended For You
+          </h2>
+          <AIRecommendations profile={profile} />
+        </motion.section>
+      )}
 
       {/* Promotions */}
       <motion.section
@@ -104,7 +143,6 @@ export default function HomePage() {
         <NewsletterSignup />
       </motion.section>
 
-      {/* Footer */}
       <Footer />
     </main>
   );

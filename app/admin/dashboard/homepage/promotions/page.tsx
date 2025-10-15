@@ -4,119 +4,105 @@ import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
 import {
   collection,
+  onSnapshot,
   addDoc,
+  updateDoc,
   deleteDoc,
   doc,
-  onSnapshot,
-  updateDoc,
-  serverTimestamp,
 } from "firebase/firestore";
-import { Input } from "@/components/ui/Input";
-import { Button } from "@/components/ui/Button";
-import { Textarea } from "@/components/ui/Textarea";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
-export default function PromotionsAdmin() {
-  const [promotions, setPromotions] = useState<any[]>([]);
+export default function PromotionsEditor() {
+  const [promotions, setPromotions] = useState<
+    { id?: string; title: string; description: string; imageUrl: string }[]
+  >([]);
   const [newPromo, setNewPromo] = useState({
     title: "",
     description: "",
     imageUrl: "",
-    link: "",
-    active: true,
   });
 
-  // Real-time load
+  // Fetch all promotions in real-time
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, "homepage", "promotions", "items"),
-      (snap) => {
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setPromotions(items);
-      }
-    );
+    const unsub = onSnapshot(collection(db, "homepage", "promotions", "items"), (snap) => {
+      setPromotions(
+        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+      );
+    });
     return () => unsub();
   }, []);
 
+  // Add new promotion
   const handleAdd = async () => {
-    if (!newPromo.title) return alert("Please enter a title.");
-    await addDoc(collection(db, "homepage", "promotions", "items"), {
-      ...newPromo,
-      createdAt: serverTimestamp(),
-    });
-    setNewPromo({ title: "", description: "", imageUrl: "", link: "", active: true });
+    if (!newPromo.title.trim()) return alert("Enter title!");
+    await addDoc(collection(db, "homepage", "promotions", "items"), newPromo);
+    setNewPromo({ title: "", description: "", imageUrl: "" });
   };
 
+  // Update promotion
+  const handleUpdate = async (id: string, updated: any) => {
+    await updateDoc(doc(db, "homepage", "promotions", "items", id), updated);
+  };
+
+  // Delete promotion
   const handleDelete = async (id: string) => {
-    if (confirm("Delete this promotion?"))
-      await deleteDoc(doc(db, "homepage", "promotions", "items", id));
-  };
-
-  const toggleActive = async (id: string, current: boolean) => {
-    await updateDoc(doc(db, "homepage", "promotions", "items", id), {
-      active: !current,
-    });
+    await deleteDoc(doc(db, "homepage", "promotions", "items", id));
   };
 
   return (
-    <div className="p-8 space-y-8">
-      <h1 className="text-2xl font-bold text-yellow-800">
-        Manage Homepage Promotions
-      </h1>
+    <div className="p-8 space-y-6 max-w-3xl mx-auto">
+      <h1 className="text-2xl font-semibold">Manage Promotions</h1>
 
-      {/* Add New Promotion */}
-      <div className="bg-white p-6 rounded-2xl shadow space-y-3">
-        <h2 className="font-semibold text-lg">Add New Promotion</h2>
+      {/* Add new promo */}
+      <div className="space-y-2 border-b pb-4">
         <Input
           placeholder="Title"
           value={newPromo.title}
           onChange={(e) => setNewPromo({ ...newPromo, title: e.target.value })}
         />
-        <Textarea
+        <Input
           placeholder="Description"
           value={newPromo.description}
-          onChange={(e) =>
-            setNewPromo({ ...newPromo, description: e.target.value })
-          }
+          onChange={(e) => setNewPromo({ ...newPromo, description: e.target.value })}
         />
         <Input
           placeholder="Image URL"
           value={newPromo.imageUrl}
           onChange={(e) => setNewPromo({ ...newPromo, imageUrl: e.target.value })}
         />
-        <Input
-          placeholder="Link URL (optional)"
-          value={newPromo.link}
-          onChange={(e) => setNewPromo({ ...newPromo, link: e.target.value })}
-        />
-        <Button onClick={handleAdd} className="w-full">
-          Add Promotion
-        </Button>
+        <Button onClick={handleAdd}>Add Promotion</Button>
       </div>
 
-      {/* Existing Promotions List */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {promotions.map((p) => (
+      {/* Existing promotions */}
+      <div className="grid gap-4">
+        {promotions.map((promo) => (
           <div
-            key={p.id}
-            className="bg-white/80 rounded-2xl shadow p-4 space-y-2"
+            key={promo.id}
+            className="border p-4 rounded-lg shadow-sm bg-white/50 space-y-2"
           >
-            <img
-              src={p.imageUrl}
-              alt={p.title}
-              className="w-full h-40 object-cover rounded-lg"
+            <Input
+              value={promo.title}
+              onChange={(e) =>
+                handleUpdate(promo.id!, { ...promo, title: e.target.value })
+              }
             />
-            <h3 className="text-lg font-semibold">{p.title}</h3>
-            <p className="text-sm text-gray-600">{p.description}</p>
-            <div className="flex justify-between items-center pt-2">
-              <Button
-                variant="secondary"
-                onClick={() => toggleActive(p.id, p.active)}
-              >
-                {p.active ? "Deactivate" : "Activate"}
-              </Button>
+            <Input
+              value={promo.description}
+              onChange={(e) =>
+                handleUpdate(promo.id!, { ...promo, description: e.target.value })
+              }
+            />
+            <Input
+              value={promo.imageUrl}
+              onChange={(e) =>
+                handleUpdate(promo.id!, { ...promo, imageUrl: e.target.value })
+              }
+            />
+            <div className="flex justify-end">
               <Button
                 variant="destructive"
-                onClick={() => handleDelete(p.id)}
+                onClick={() => handleDelete(promo.id!)}
               >
                 Delete
               </Button>

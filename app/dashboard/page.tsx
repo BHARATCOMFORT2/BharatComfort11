@@ -49,7 +49,7 @@ interface Payment {
 }
 
 export default function DashboardPage() {
-  const { appUser, loading } = useAuth(); // ✅ unified user with role
+  const { firebaseUser, profile, loading } = useAuth(); // ✅ corrected
   const [stats, setStats] = useState({
     listings: 0,
     approved: 0,
@@ -66,22 +66,22 @@ export default function DashboardPage() {
 
   // ✅ Real-time dashboard data
   useEffect(() => {
-    if (!appUser) return;
-    const isAdmin = appUser.role === "admin";
+    if (!firebaseUser || !profile) return;
+    const isAdmin = profile.role === "admin";
 
     // --- LISTINGS ---
     const listingsQuery = isAdmin
       ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
       : query(
           collection(db, "listings"),
-          where("createdBy", "==", appUser.uid),
+          where("createdBy", "==", firebaseUser.uid),
           orderBy("createdAt", "desc")
         );
 
     const unsubListings = onSnapshot(listingsQuery, (snap) => {
       const all = snap.docs.map((d) => {
         const data = d.data() as Listing;
-        return { ...data, id: d.id }; // ✅ no duplicate id
+        return { ...data, id: d.id }; // ✅ prevent duplicate id
       });
 
       const approved = all.filter((l) => l.status === "approved").length;
@@ -101,7 +101,7 @@ export default function DashboardPage() {
       ? query(collection(db, "bookings"), orderBy("createdAt", "desc"))
       : query(
           collection(db, "bookings"),
-          where("userId", "==", appUser.uid),
+          where("userId", "==", firebaseUser.uid),
           orderBy("createdAt", "desc")
         );
 
@@ -119,7 +119,7 @@ export default function DashboardPage() {
       ? query(collection(db, "payments"), orderBy("createdAt", "desc"))
       : query(
           collection(db, "payments"),
-          where("userId", "==", appUser.uid),
+          where("userId", "==", firebaseUser.uid),
           orderBy("createdAt", "desc")
         );
 
@@ -155,7 +155,7 @@ export default function DashboardPage() {
       unsubBookings();
       unsubPayments();
     };
-  }, [appUser]);
+  }, [firebaseUser, profile]);
 
   // --- UI States ---
   if (loading)
@@ -165,14 +165,19 @@ export default function DashboardPage() {
       </div>
     );
 
-  if (!appUser)
+  if (!firebaseUser)
     return (
       <div className="p-10 text-center text-gray-600">
         Please log in to access your dashboard.
       </div>
     );
 
-  const isAdmin = appUser.role === "admin";
+  if (!profile)
+    return (
+      <div className="p-10 text-center text-gray-500">Loading profile...</div>
+    );
+
+  const isAdmin = profile.role === "admin";
 
   // --- Render ---
   return (
@@ -183,7 +188,7 @@ export default function DashboardPage() {
           {isAdmin ? "Admin Dashboard" : "Partner Dashboard"}
         </h1>
         <p className="text-gray-500">
-          Welcome back, {appUser.displayName || appUser.email}
+          Welcome back, {profile.displayName || firebaseUser.email}
         </p>
       </header>
 

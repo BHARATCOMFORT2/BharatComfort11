@@ -8,8 +8,6 @@ import {
   where,
   onSnapshot,
   orderBy,
-  getDoc,
-  doc,
 } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { Card } from "@/components/ui/Card";
@@ -51,8 +49,7 @@ interface Payment {
 }
 
 export default function DashboardPage() {
-  const { firebaseUser: user } = useAuth();
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const { appUser, loading } = useAuth(); // ✅ unified user with role
   const [stats, setStats] = useState({
     listings: 0,
     approved: 0,
@@ -66,42 +63,30 @@ export default function DashboardPage() {
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [recentPayments, setRecentPayments] = useState<Payment[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  // ✅ Fetch Firestore role once
+  // ✅ Real-time dashboard data
   useEffect(() => {
-    const fetchRole = async () => {
-      if (user?.uid) {
-        const ref = doc(db, "users", user.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          setUserRole(snap.data().role || "partner");
-        } else {
-          setUserRole("partner");
-        }
-      }
-    };
-    fetchRole();
-  }, [user]);
+    if (!appUser) return;
+    const isAdmin = appUser.role === "admin";
 
-  // ✅ Fetch dashboard data in real-time
-  useEffect(() => {
-    if (!user || !userRole) return;
-
-    // 🔹 LISTINGS
-    const listingsQuery =
-      userRole === "admin"
-        ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
-        : query(
-            collection(db, "listings"),
-            where("createdBy", "==", user.uid),
-            orderBy("createdAt", "desc")
-          );
+    // --- LISTINGS ---
+    const listingsQuery = isAdmin
+      ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
+      : query(
+          collection(db, "listings"),
+          where("createdBy", "==", appUser.uid),
+          orderBy("createdAt", "desc")
+        );
 
     const unsubListings = onSnapshot(listingsQuery, (snap) => {
-      const all = snap.docs.map((d) => ({ id: d.id, ...(d.data() as Listing) }));
+      const all = snap.docs.map((d) => {
+        const data = d.data() as Listing;
+        return { ...data, id: d.id }; // ✅ no duplicate id
+      });
+
       const approved = all.filter((l) => l.status === "approved").length;
       const pending = all.filter((l) => l.status === "pending").length;
+
       setStats((prev) => ({
         ...prev,
         listings: all.length,
@@ -111,15 +96,14 @@ export default function DashboardPage() {
       setRecentListings(all.slice(0, 5));
     });
 
-    // 🔹 BOOKINGS
-    const bookingsQuery =
-      userRole === "admin"
-        ? query(collection(db, "bookings"), orderBy("createdAt", "desc"))
-        : query(
-            collection(db, "bookings"),
-            where("userId", "==", user.uid),
-            orderBy("createdAt", "desc")
-          );
+    // --- BOOKINGS ---
+    const bookingsQuery = isAdmin
+      ? query(collection(db, "bookings"), orderBy("createdAt", "desc"))
+      : query(
+          collection(db, "bookings"),
+          where("userId", "==", appUser.uid),
+          orderBy("createdAt", "desc")
+        );
 
     const unsubBookings = onSnapshot(bookingsQuery, (snap) => {
       const all = snap.docs.map((d) => d.data() as Booking);
@@ -130,15 +114,14 @@ export default function DashboardPage() {
       setRecentBookings(all.slice(0, 5));
     });
 
-    // 🔹 PAYMENTS
-    const paymentsQuery =
-      userRole === "admin"
-        ? query(collection(db, "payments"), orderBy("createdAt", "desc"))
-        : query(
-            collection(db, "payments"),
-            where("userId", "==", user.uid),
-            orderBy("createdAt", "desc")
-          );
+    // --- PAYMENTS ---
+    const paymentsQuery = isAdmin
+      ? query(collection(db, "payments"), orderBy("createdAt", "desc"))
+      : query(
+          collection(db, "payments"),
+          where("userId", "==", appUser.uid),
+          orderBy("createdAt", "desc")
+        );
 
     const unsubPayments = onSnapshot(paymentsQuery, (snap) => {
       const all = snap.docs.map((d) => d.data() as Payment);
@@ -146,7 +129,7 @@ export default function DashboardPage() {
         .filter((p) => p.status === "success")
         .reduce((acc, p) => acc + (p.amount || 0), 0);
 
-      // Group by month for chart
+      // Group payments by month for chart
       const grouped = all.reduce((acc: any, p) => {
         const month = new Date(p.createdAt?.seconds * 1000 || Date.now())
           .toLocaleString("default", { month: "short" });
@@ -165,7 +148,6 @@ export default function DashboardPage() {
       }));
       setRecentPayments(all.slice(0, 5));
       setChartData(chart);
-      setLoading(false);
     });
 
     return () => {
@@ -173,22 +155,9 @@ export default function DashboardPage() {
       unsubBookings();
       unsubPayments();
     };
-  }, [user, userRole]);
+  }, [appUser]);
 
-  if (!user)
-    return (
-      <div className="p-10 text-center text-gray-600">
-        Please log in to access your dashboard.
-      </div>
-    );
-
-  if (!userRole)
-    return (
-      <div className="p-10 text-center text-gray-500">
-        Loading permissions...
-      </div>
-    );
-
+  // --- UI States ---
   if (loading)
     return (
       <div className="p-10 text-center text-gray-500 animate-pulse">
@@ -196,17 +165,29 @@ export default function DashboardPage() {
       </div>
     );
 
+  if (!appUser)
+    return (
+      <div className="p-10 text-center text-gray-600">
+        Please log in to access your dashboard.
+      </div>
+    );
+
+  const isAdmin = appUser.role === "admin";
+
+  // --- Render ---
   return (
     <div className="max-w-7xl mx-auto p-6 space-y-10">
       {/* Header */}
       <header className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-800">
-          {userRole === "admin" ? "Admin Dashboard" : "Partner Dashboard"}
+          {isAdmin ? "Admin Dashboard" : "Partner Dashboard"}
         </h1>
-        <p className="text-gray-500">Welcome back, {user.email}</p>
+        <p className="text-gray-500">
+          Welcome back, {appUser.displayName || appUser.email}
+        </p>
       </header>
 
-      {/* Stats */}
+      {/* Stats Section */}
       <section className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
         <Card className="p-6 text-center shadow">
           <h2 className="text-lg font-semibold">Total Listings</h2>
@@ -236,7 +217,7 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      {/* Chart */}
+      {/* Revenue Chart */}
       <section className="bg-white rounded-xl shadow p-6">
         <h2 className="text-xl font-semibold mb-4 text-gray-800">
           Monthly Revenue Trend
@@ -263,6 +244,7 @@ export default function DashboardPage() {
 
       {/* Recent Activity */}
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Listings */}
         <Card className="p-6 shadow">
           <h2 className="text-xl font-semibold mb-4">Recent Listings</h2>
           {recentListings.length === 0 ? (
@@ -289,6 +271,7 @@ export default function DashboardPage() {
           )}
         </Card>
 
+        {/* Bookings */}
         <Card className="p-6 shadow">
           <h2 className="text-xl font-semibold mb-4">Recent Bookings</h2>
           {recentBookings.length === 0 ? (
@@ -305,6 +288,7 @@ export default function DashboardPage() {
           )}
         </Card>
 
+        {/* Payments */}
         <Card className="p-6 shadow">
           <h2 className="text-xl font-semibold mb-4">Recent Payments</h2>
           {recentPayments.length === 0 ? (
@@ -326,7 +310,7 @@ export default function DashboardPage() {
 
       {/* Quick Actions */}
       <section className="text-center pt-8">
-        {userRole === "admin" ? (
+        {isAdmin ? (
           <Link href="/dashboard/listings">
             <Button className="bg-blue-600 text-white">Manage Listings</Button>
           </Link>

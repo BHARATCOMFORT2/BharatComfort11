@@ -15,6 +15,7 @@ import Testimonials from "@/components/home/Testimonials";
 import NewsletterSignup from "@/components/home/NewsletterSignup";
 import Footer from "@/components/home/Footer";
 import AIRecommendations from "@/components/home/AIRecommendations";
+import { getHomepageData, HomepageSection } from "@/lib/getHomepageData";
 
 export default function HomePage() {
   const { scrollY } = useScroll();

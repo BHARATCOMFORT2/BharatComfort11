@@ -1,73 +1,88 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ListingGrid from "@/components/listings/ListingGrid";
 import { Listing } from "@/components/listings/ListingCard";
-import nextDynamic from "next/dynamic"; // 👈 renamed here
+import nextDynamic from "next/dynamic"; // ✅ dynamic import for map
 
-// ✅ Dynamically import Leaflet-based map so it only renders in browser
+// ✅ Dynamically import Leaflet-based map so it only renders client-side
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
   ssr: false,
 });
 
-// ✅ Force this page to be client-rendered (no prerendering on Netlify build)
+// ✅ Disable SSR on Netlify build
 export const dynamic = "force-dynamic";
 
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
-  const [userData, setUserData] = useState<string | null>(null);
 
-  // ✅ Only access localStorage on the client
+  // ✅ Real-time Firestore listener for approved listings
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      setUserData(localStorage.getItem("user"));
+    try {
+      const q = query(
+        collection(db, "listings"),
+        where("status", "==", "approved"),
+        orderBy("createdAt", "desc")
+      );
+
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const data = snapshot.docs.map((doc) => ({
+            id: doc.id,
+            ...(doc.data() as Listing),
+          }));
+          setListings(data);
+          setLoading(false);
+        },
+        (error) => {
+          console.error("❌ Firestore listener error:", error);
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.error("Error setting up listener:", err);
+      setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    const fetchListings = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "listings"));
-        const data = querySnapshot.docs.map((doc) => {
-          const rawData = doc.data() as Omit<Listing, "id">;
-          return {
-            id: doc.id,
-            ...rawData,
-          };
-        });
-        setListings(data);
-      } catch (error) {
-        console.error("Error fetching listings:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  if (loading)
+    return (
+      <p className="p-6 text-gray-500 animate-pulse">Loading listings...</p>
+    );
 
-    fetchListings();
-  }, []);
-
-  if (loading) {
-    return <p className="p-6">Loading listings...</p>;
-  }
-
-  if (listings.length === 0) {
-    return <p className="p-6">No listings available.</p>;
-  }
+  if (listings.length === 0)
+    return (
+      <p className="p-6 text-gray-600">
+        No approved listings available yet. Please check back later.
+      </p>
+    );
 
   return (
     <div className="p-6 space-y-8">
-      <h1 className="text-2xl font-semibold">Available Listings</h1>
+      <header className="flex items-center justify-between">
+        <h1 className="text-2xl font-semibold text-gray-800">
+          Available Listings
+        </h1>
+        <span className="text-sm text-gray-500">
+          Showing {listings.length} places
+        </span>
+      </header>
 
       {/* Grid Section */}
       <ListingGrid listings={listings} />
 
       {/* Map Section */}
-      <section>
-        <h2 className="text-xl font-semibold mb-4">Explore on Map</h2>
-        <div className="w-full h-[400px]">
+      <section className="pt-8">
+        <h2 className="text-xl font-semibold mb-4 text-gray-800">
+          Explore on Map
+        </h2>
+        <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
           <ListingMap listings={listings} />
         </div>
       </section>

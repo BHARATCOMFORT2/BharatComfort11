@@ -163,7 +163,7 @@ export default function PartnerDashboard() {
       {/* ==================== MANAGE LISTINGS ==================== */}
       <section className="bg-white shadow rounded-2xl p-6 mb-12">
         <h3 className="text-xl font-semibold mb-6">Manage Your Listings</h3>
-        <ListingsManager /> {/* ✅ Embedded unified manager */}
+        <PartnerListingsManager /> {/* ✅ Embedded unified manager */}
       </section>
     </DashboardLayout>
   );

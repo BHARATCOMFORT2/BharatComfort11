@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { openRazorpayCheckout } from "@/lib/payments-razorpay"; // ✅ unified Razorpay import
 
 declare global {
   interface Window {
@@ -15,38 +16,31 @@ export default function SubscriptionForm() {
     try {
       setLoading(true);
 
-      // 1. Ask backend to create subscription
-      const res = await fetch("/api/subscription", {
+      // ✅ Step 1: Create subscription via unified API
+      const res = await fetch("/api/payments/upgrade-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan }),
       });
 
       const data = await res.json();
-      if (!data.subscriptionId) throw new Error("Subscription creation failed");
+      if (!data.success || !data.razorpaySubscriptionId)
+        throw new Error(data.error || "Subscription creation failed");
 
-      // 2. Razorpay subscription checkout
-      const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        subscription_id: data.subscriptionId,
+      // ✅ Step 2: Use unified Razorpay helper
+      openRazorpayCheckout({
+        amount: data.amount ?? 0,
+        orderId: data.razorpaySubscriptionId,
         name: "BharatComfort",
-        description: `Subscribe to ${plan.toUpperCase()} plan`,
-        handler: function (response: any) {
-          alert(
-            `✅ Subscription successful! Payment ID: ${response.razorpay_payment_id}`
-          );
-          // TODO: verify subscription on backend
+        email: "test@example.com", // replace with real user email later
+        phone: "9999999999",
+        onSuccess: (response: any) => {
+          alert(`✅ Subscription successful! Payment ID: ${response.razorpay_payment_id}`);
         },
-        prefill: {
-          name: "Test User",
-          email: "test@example.com",
-          contact: "9999999999",
+        onFailure: () => {
+          alert("❌ Subscription cancelled or failed");
         },
-        theme: { color: "#0f172a" },
-      };
-
-      const rzp = new window.Razorpay(options);
-      rzp.open();
+      });
     } catch (err: any) {
       alert("❌ Subscription failed: " + err.message);
     } finally {

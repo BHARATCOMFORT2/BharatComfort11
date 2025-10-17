@@ -22,7 +22,7 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
-import ListingsManager from "@/components/dashboard/ListingsManager"; // ✅ Unified component
+import ListingsManager from "@/components/dashboard/PartnerListingsManager"; // ✅ Unified component
 
 // ================= TYPES =================
 interface Booking {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import crypto from "crypto";
+import { verifyPayment } from "@/lib/payments-razorpay"; // ✅ unified import
 import { db } from "@/lib/firebase";
 import { collection, addDoc, serverTimestamp } from "firebase/firestore";
 
@@ -17,6 +17,7 @@ export async function POST(req: Request) {
       userId,
     } = await req.json();
 
+    // ✅ Validate input
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -24,34 +25,34 @@ export async function POST(req: Request) {
       !listingId
     ) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { success: false, error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    // 🔐 Step 1 — Verify Razorpay signature
-    const sign = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSign = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
-      .update(sign.toString())
-      .digest("hex");
+    // ✅ Step 1 — Verify Razorpay payment signature via unified helper
+    const isValid = verifyPayment({
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    });
 
-    if (razorpay_signature !== expectedSign) {
+    if (!isValid) {
       console.error("❌ Payment verification failed");
       return NextResponse.json(
-        { success: false, message: "Invalid signature" },
+        { success: false, error: "Invalid Razorpay signature" },
         { status: 400 }
       );
     }
 
-    // ✅ Step 2 — Store booking in Firestore
+    // ✅ Step 2 — Store verified booking in Firestore
     await addDoc(collection(db, "bookings"), {
       listingId,
       checkIn,
       checkOut,
       guests,
       totalPrice,
-      userId: userId || "guest", // can be replaced with auth user ID
+      userId: userId ?? "guest",
       razorpay_order_id,
       razorpay_payment_id,
       status: "confirmed",
@@ -59,10 +60,10 @@ export async function POST(req: Request) {
     });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error verifying payment:", error);
     return NextResponse.json(
-      { success: false, message: "Internal Server Error" },
+      { success: false, error: error.message || "Internal Server Error" },
       { status: 500 }
     );
   }

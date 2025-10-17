@@ -40,7 +40,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 
   const [localFiles, setLocalFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const handleFileChange = (e) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
     const filesArray = Array.from(e.target.files).slice(
       0,

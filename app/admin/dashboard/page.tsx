@@ -30,7 +30,13 @@ import {
 /* -------------------------------------------
    Image Upload Component
 -------------------------------------------- */
-const ImageUpload = ({ images, onChange, maxFiles = 5 }) => {
+interface ImageUploadProps {
+  images: string[];
+  onChange: (urls: string[]) => void;
+  maxFiles?: number;
+}
+
+const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 5 }) => {
   const [localFiles, setLocalFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 

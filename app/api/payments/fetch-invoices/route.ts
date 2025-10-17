@@ -1,19 +1,21 @@
 import { NextResponse } from "next/server";
-import { razorpay } from "@/lib/payments-razorpay";
+import { razorpay } from "@/lib/payments-razorpay"; // ✅ unified import
 
-export async function GET(req: Request) {
+export async function GET() {
   try {
     if (!razorpay) {
       throw new Error("Razorpay client not initialized.");
     }
 
-    const invoices = await razorpay.invoices.all();
+    // ✅ Fetch all invoices (limit optional)
+    const invoices = await razorpay.invoices.all({ count: 50 });
 
     return NextResponse.json({
       success: true,
+      message: "Invoices fetched successfully.",
       invoices,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ Fetch Invoices API error:", err);
 
     const message =
@@ -22,7 +24,7 @@ export async function GET(req: Request) {
     return NextResponse.json(
       {
         success: false,
-        message,
+        error: message,
       },
       { status: 500 }
     );

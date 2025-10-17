@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, storage } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
 import {
   collection,
@@ -11,7 +11,17 @@ import {
   doc,
   getDoc,
   orderBy,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
 } from "firebase/firestore";
+import {
+  ref,
+  uploadBytes,
+  getDownloadURL,
+  deleteObject,
+} from "firebase/storage";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import {
   LineChart,
@@ -22,6 +32,20 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
+import { Button } from "@/components/ui/Button";
+
+// ================= TYPES =================
+interface Listing {
+  id?: string;
+  name: string;
+  description: string;
+  location: string;
+  price: number;
+  images: string[];
+  createdBy: string;
+  status: "pending" | "approved" | "rejected";
+  createdAt?: any;
+}
 
 interface Booking {
   id: string;
@@ -31,21 +55,40 @@ interface Booking {
   amount?: number;
 }
 
+// ================= MAIN COMPONENT =================
 export default function PartnerDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState({ listings: 0, bookings: 0, earnings: 0 });
-  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
-  const [chartData, setChartData] = useState<{ date: string; count: number }[]>([]);
   const [profile, setProfile] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // Dashboard Stats
+  const [stats, setStats] = useState({ listings: 0, bookings: 0, earnings: 0 });
+  const [chartData, setChartData] = useState<{ date: string; count: number }[]>(
+    []
+  );
+  const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
+
+  // Listings Management
+  const [listings, setListings] = useState<Listing[]>([]);
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    location: "",
+    price: "",
+    images: [] as File[],
+  });
+  const [editId, setEditId] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+
   useEffect(() => {
+    let unsubListings: any = null;
+    let unsubBookings: any = null;
+
     const init = async () => {
       const user = auth.currentUser;
       if (!user) return router.push("/auth/login");
 
-      const userRef = doc(db, "users", user.uid);
-      const userSnap = await getDoc(userRef);
+      const userSnap = await getDoc(doc(db, "users", user.uid));
       if (!userSnap.exists() || userSnap.data().role !== "partner") {
         alert("❌ Not authorized");
         return router.push("/");
@@ -54,22 +97,28 @@ export default function PartnerDashboard() {
       setProfile(userSnap.data());
       const uid = user.uid;
 
-      // --- Real-time listings count
+      // --- Real-time LISTINGS ---
       const listingsQuery = query(
         collection(db, "listings"),
-        where("createdBy", "==", uid)
+        where("createdBy", "==", uid),
+        orderBy("createdAt", "desc")
       );
-      const unsubListings = onSnapshot(listingsQuery, (snap) => {
-        setStats((prev) => ({ ...prev, listings: snap.size }));
+      unsubListings = onSnapshot(listingsQuery, (snap) => {
+        const data = snap.docs.map((d) => ({
+          id: d.id,
+          ...(d.data() as Listing),
+        }));
+        setListings(data);
+        setStats((prev) => ({ ...prev, listings: data.length }));
       });
 
-      // --- Real-time bookings + earnings
+      // --- Real-time BOOKINGS ---
       const bookingsQuery = query(
         collection(db, "bookings"),
         where("partnerId", "==", uid),
         orderBy("createdAt", "desc")
       );
-      const unsubBookings = onSnapshot(bookingsQuery, (snap) => {
+      unsubBookings = onSnapshot(bookingsQuery, (snap) => {
         let total = 0;
         const bookings: Booking[] = snap.docs.map((d) => {
           const data = d.data() as any;
@@ -78,7 +127,11 @@ export default function PartnerDashboard() {
             id: d.id,
             userName: data.userName,
             customerName: data.customerName,
-            date: data.date || data.createdAt?.toDate()?.toISOString() || "",
+            date:
+              data.date ||
+              (data.createdAt?.toDate
+                ? data.createdAt.toDate().toISOString()
+                : new Date().toISOString()),
             amount: data.amount,
           };
         });
@@ -89,15 +142,6 @@ export default function PartnerDashboard() {
           earnings: total,
         }));
 
-        // Sort + trim for recent display
-        const sorted = bookings
-          .filter((b) => b.date)
-          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-          .slice(0, 10);
-
-        setRecentBookings(sorted);
-
-        // Build last 7 days chart data
         const today = new Date();
         const last7Days = Array.from({ length: 7 }).map((_, i) => {
           const d = new Date();
@@ -106,26 +150,95 @@ export default function PartnerDashboard() {
         }).reverse();
 
         bookings.forEach((b) => {
-          const date = b.date?.split("T")[0];
+          const date = b.date.split("T")[0];
           const day = last7Days.find((d) => d.date === date);
           if (day) day.count += 1;
         });
 
+        setRecentBookings(bookings.slice(0, 10));
         setChartData(last7Days);
+        setLoading(false);
       });
-
-      setLoading(false);
-
-      return () => {
-        unsubListings();
-        unsubBookings();
-      };
     };
 
     init();
+    return () => {
+      if (unsubListings) unsubListings();
+      if (unsubBookings) unsubBookings();
+    };
   }, [router]);
 
-  if (loading) return <p className="text-center py-12">Loading dashboard...</p>;
+  // ================= IMAGE UPLOAD =================
+  const uploadImages = async (files: File[]) => {
+    const urls: string[] = [];
+    for (const file of files) {
+      const storageRef = ref(storage, `listings/${Date.now()}-${file.name}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      urls.push(url);
+    }
+    return urls;
+  };
+
+  // ================= LISTINGS CRUD =================
+  const handleSubmit = async () => {
+    const user = auth.currentUser;
+    if (!user) return alert("Please login");
+    setUploading(true);
+
+    try {
+      const imageUrls = formData.images.length
+        ? await uploadImages(formData.images)
+        : [];
+
+      const data = {
+        name: formData.name,
+        description: formData.description,
+        location: formData.location,
+        price: Number(formData.price),
+        images: imageUrls,
+        createdBy: user.uid,
+        status: "pending",
+        createdAt: serverTimestamp(),
+      };
+
+      if (editId) {
+        await updateDoc(doc(db, "listings", editId), data);
+        alert("✅ Listing updated!");
+        setEditId(null);
+      } else {
+        await addDoc(collection(db, "listings"), data);
+        alert("✅ Listing added successfully!");
+      }
+
+      setFormData({ name: "", description: "", location: "", price: "", images: [] });
+    } catch (err) {
+      console.error(err);
+      alert("❌ Error saving listing");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Are you sure you want to delete this listing?")) return;
+    await deleteDoc(doc(db, "listings", id));
+    alert("🗑️ Listing deleted");
+  };
+
+  const handleEdit = (l: Listing) => {
+    setEditId(l.id!);
+    setFormData({
+      name: l.name,
+      description: l.description,
+      location: l.location,
+      price: l.price.toString(),
+      images: [],
+    });
+  };
+
+  if (loading)
+    return <p className="text-center py-12 text-gray-600">Loading dashboard...</p>;
 
   return (
     <DashboardLayout
@@ -136,7 +249,7 @@ export default function PartnerDashboard() {
         profilePic: profile?.profilePic,
       }}
     >
-      {/* --- STATS --- */}
+      {/* ==================== STATS ==================== */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
           <div
@@ -149,7 +262,7 @@ export default function PartnerDashboard() {
         ))}
       </div>
 
-      {/* --- BOOKINGS CHART --- */}
+      {/* ==================== BOOKINGS CHART ==================== */}
       <div className="bg-white shadow rounded-2xl p-6 mb-12">
         <h3 className="text-lg font-semibold mb-4">Bookings (Last 7 Days)</h3>
         <ResponsiveContainer width="100%" height={200}>
@@ -158,34 +271,112 @@ export default function PartnerDashboard() {
             <XAxis dataKey="date" />
             <YAxis />
             <Tooltip />
-            <Line
-              type="monotone"
-              dataKey="count"
-              stroke="#10b981"
-              strokeWidth={2}
-            />
+            <Line type="monotone" dataKey="count" stroke="#10b981" strokeWidth={2} />
           </LineChart>
         </ResponsiveContainer>
       </div>
 
-      {/* --- RECENT BOOKINGS --- */}
-      <div className="bg-white shadow rounded-2xl p-6">
-        <h3 className="text-lg font-semibold mb-4">Recent Bookings</h3>
-        {recentBookings.length === 0 && <p>No bookings yet.</p>}
-        <ul className="space-y-2 max-h-64 overflow-y-auto">
-          {recentBookings.map((b, idx) => (
-            <li
-              key={idx}
-              className="border rounded-lg p-2 flex justify-between"
-            >
-              <span>{b.userName || b.customerName || "Customer"}</span>
-              <span className="text-gray-400 text-sm">
-                {new Date(b.date).toLocaleString()}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </div>
+      {/* ==================== MANAGE LISTINGS ==================== */}
+      <section className="bg-white shadow rounded-2xl p-6 mb-12">
+        <h3 className="text-xl font-semibold mb-6">Manage Your Listings</h3>
+
+        {/* Form */}
+        <div className="grid md:grid-cols-2 gap-4 mb-6">
+          <input
+            placeholder="Name"
+            className="border p-2 rounded"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          />
+          <input
+            placeholder="Location"
+            className="border p-2 rounded"
+            value={formData.location}
+            onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+          />
+          <input
+            placeholder="Price"
+            type="number"
+            className="border p-2 rounded"
+            value={formData.price}
+            onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+          />
+          <textarea
+            placeholder="Description"
+            className="border p-2 rounded col-span-full"
+            value={formData.description}
+            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          />
+          <input
+            type="file"
+            multiple
+            accept="image/*"
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                images: Array.from(e.target.files || []),
+              })
+            }
+          />
+        </div>
+
+        <Button
+          onClick={handleSubmit}
+          disabled={uploading}
+          className="bg-blue-600 text-white px-6 py-3 rounded-lg"
+        >
+          {uploading ? "Processing..." : editId ? "Update Listing" : "Add Listing"}
+        </Button>
+
+        {/* Listings Table */}
+        <div className="mt-8">
+          {listings.length === 0 ? (
+            <p className="text-gray-500">No listings found.</p>
+          ) : (
+            <div className="space-y-4">
+              {listings.map((l) => (
+                <div
+                  key={l.id}
+                  className="flex justify-between items-center border-b pb-3"
+                >
+                  <div>
+                    <h3 className="font-semibold">{l.name}</h3>
+                    <p className="text-sm text-gray-600">{l.location}</p>
+                    <p className="text-sm text-gray-600">
+                      ₹{l.price} •{" "}
+                      <span
+                        className={`font-semibold ${
+                          l.status === "approved"
+                            ? "text-green-600"
+                            : l.status === "pending"
+                            ? "text-yellow-600"
+                            : "text-red-600"
+                        }`}
+                      >
+                        {l.status}
+                      </span>
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => handleEdit(l)}
+                      className="bg-yellow-500 hover:bg-yellow-600"
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      onClick={() => handleDelete(l.id!)}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
     </DashboardLayout>
   );
 }

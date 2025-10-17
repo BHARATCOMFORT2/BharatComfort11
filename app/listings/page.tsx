@@ -5,21 +5,18 @@ import { collection, onSnapshot, query, where, orderBy } from "firebase/firestor
 import { db } from "@/lib/firebase";
 import ListingGrid from "@/components/listings/ListingGrid";
 import { Listing } from "@/components/listings/ListingCard";
-import nextDynamic from "next/dynamic"; // ✅ dynamic import for map
+import nextDynamic from "next/dynamic";
 
-// ✅ Dynamically import Leaflet-based map so it only renders client-side
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
   ssr: false,
 });
 
-// ✅ Disable SSR on Netlify build
 export const dynamic = "force-dynamic";
 
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Real-time Firestore listener for approved listings
   useEffect(() => {
     try {
       const q = query(
@@ -31,10 +28,13 @@ export default function ListingsPage() {
       const unsubscribe = onSnapshot(
         q,
         (snapshot) => {
-          const data = snapshot.docs.map((doc) => ({
-            id: doc.id,
-            ...(doc.data() as Listing),
-          }));
+          const data: Listing[] = snapshot.docs.map((doc) => {
+            const raw = doc.data() as Listing;
+            // ✅ Prevent duplicate id field
+            const { id: existingId, ...rest } = raw;
+            return { id: doc.id, ...rest };
+          });
+
           setListings(data);
           setLoading(false);
         },

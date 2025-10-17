@@ -1,29 +1,67 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import { useEffect } from "react";
-import { db } from "@/lib/firebase"; // your firebase config
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { db } from "@/lib/firebase";
+import { doc, onSnapshot } from "firebase/firestore";
 
 export default function PaymentSuccessPage() {
+  const searchParams = useSearchParams();
+  const bookingId = searchParams.get("bookingId"); // Passed from checkout redirect
+  const [paymentData, setPaymentData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const savePayment = async () => {
-      // Example booking/payment data
-      const paymentId = crypto.randomUUID(); // or Razorpay’s payment ID
-      await setDoc(doc(db, "payments", paymentId), {
-        status: "success",
-        amount: 150, // Replace with actual amount
-        userId: "USER_ID_HERE", // Replace with current user id
-        createdAt: serverTimestamp(),
-      });
-    };
+    if (!bookingId) return;
 
-    savePayment();
-  }, []);
+    // ✅ Real-time Firestore listener for payment/booking document
+    const ref = doc(db, "bookings", bookingId);
+    const unsubscribe = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          setPaymentData(snap.data());
+        } else {
+          setPaymentData(null);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.error("Error listening to booking:", err);
+        setLoading(false);
+      }
+    );
 
+    return () => unsubscribe();
+  }, [bookingId]);
+
+  // 🔄 Loading state
+  if (loading)
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" />
+        <p className="text-gray-600 mt-3">Verifying your payment...</p>
+      </div>
+    );
+
+  // ❌ Not found
+  if (!paymentData)
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
+        <p className="text-red-600 font-medium">
+          ❌ Booking not found or not verified.
+        </p>
+        <Link href="/listings">
+          <Button className="mt-4">Back to Listings</Button>
+        </Link>
+      </div>
+    );
+
+  // ✅ Payment confirmed
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-50 px-4">
       <motion.div
@@ -45,9 +83,28 @@ export default function PaymentSuccessPage() {
           Payment Successful 🎉
         </h1>
         <p className="text-gray-600 mb-6">
-          Thank you for your payment. Your booking has been confirmed and a
-          receipt has been sent to your email.
+          Your booking has been confirmed for{" "}
+          <span className="font-semibold">{paymentData.listingId}</span>.
         </p>
+
+        <div className="bg-gray-50 p-4 rounded-xl text-left mb-6 space-y-1">
+          <p>
+            <strong>Status:</strong>{" "}
+            <span className="text-green-600">{paymentData.status}</span>
+          </p>
+          <p>
+            <strong>Amount:</strong> ₹{paymentData.totalPrice}
+          </p>
+          <p>
+            <strong>Check-in:</strong> {paymentData.checkIn}
+          </p>
+          <p>
+            <strong>Check-out:</strong> {paymentData.checkOut}
+          </p>
+          <p>
+            <strong>Guests:</strong> {paymentData.guests}
+          </p>
+        </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
           <Link href="/partner/listings">

@@ -13,14 +13,14 @@ export default function UpgradeSubscriptionPage() {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>("idle");
 
-  // Get query params safely on client-side
+  // ✅ Extract query params safely
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     setSubscriptionId(params.get("subscriptionId"));
     setPlan(params.get("plan") || "premium");
   }, []);
 
-  // ✅ Real-time listener for subscription document (optional enhancement)
+  // ✅ Real-time Firestore listener for subscription status
   useEffect(() => {
     if (!user || !subscriptionId) return;
     const ref = doc(db, "subscriptions", subscriptionId);
@@ -32,6 +32,7 @@ export default function UpgradeSubscriptionPage() {
     return () => unsub();
   }, [user, subscriptionId]);
 
+  // ✅ Handle upgrade via Razorpay
   const handleUpgrade = async () => {
     if (!user) {
       alert("Please log in to upgrade.");
@@ -45,24 +46,28 @@ export default function UpgradeSubscriptionPage() {
     try {
       setLoading(true);
 
-      // ✅ Step 1: Create Razorpay subscription via backend
+      // Step 1: Create Razorpay subscription order
       const res = await fetch("/api/payments/upgrade-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ subscriptionId, plan, userId: user.uid }),
+        body: JSON.stringify({
+          subscriptionId,
+          plan,
+          userId: user.uid ?? "guest", // ✅ null-safe
+        }),
       });
 
       const data = await res.json();
       if (!data.success) throw new Error(data.error || "Failed to create subscription");
 
-      // ✅ Step 2: Open Razorpay Checkout
+      // Step 2: Open Razorpay checkout
       openRazorpayCheckout({
         amount: data.amount,
         orderId: data.razorpaySubscriptionId,
         name: "BharatComfort",
-        email: user.email,
+        email: user.email ?? "", // ✅ null-safe
         onSuccess: async (response: any) => {
-          // ✅ Step 3: Verify payment
+          // Step 3: Verify payment
           const verify = await fetch("/api/payments/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -70,7 +75,7 @@ export default function UpgradeSubscriptionPage() {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
-              userId: user.uid,
+              userId: user.uid ?? "guest",
               plan,
               subscriptionId,
             }),

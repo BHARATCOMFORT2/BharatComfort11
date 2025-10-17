@@ -133,10 +133,10 @@ export default function PartnerDashboard() {
         unsubBookings = onSnapshot(
           bookingsQuery,
           (snap) => {
-            const bookings = snap.docs.map((d) => ({
-              id: d.id,
-              ...(d.data() as Booking),
-            }));
+            const bookings = snap.docs.map((d) => {
+  const data = d.data() as Booking;
+  return { ...data, id: d.id };
+});
 
             let total = 0;
             bookings.forEach((b) => (total += b.amount || 0));

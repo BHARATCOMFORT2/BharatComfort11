@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { db } from "@/lib/firebase";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, onSnapshot } from "firebase/firestore"; // ✅ real-time listener
 import { differenceInDays, format } from "date-fns";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
+import { openRazorpayCheckout } from "@/lib/payments-razorpay"; // ✅ unified Razorpay helper
 
 export default function BookingPage() {
   const { listingId } = useParams();
@@ -18,101 +19,103 @@ export default function BookingPage() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
+  // ✅ Real-time Firestore subscription
   useEffect(() => {
-    const fetchListing = async () => {
-      if (!listingId) return;
-      const ref = doc(db, "listings", listingId as string);
-      const snap = await getDoc(ref);
-      if (snap.exists()) setListing(snap.data());
-      setLoading(false);
-    };
-    fetchListing();
+    if (!listingId) return;
+
+    const ref = doc(db, "listings", listingId as string);
+    const unsubscribe = onSnapshot(
+      ref,
+      (snap) => {
+        if (snap.exists()) {
+          setListing(snap.data());
+        } else {
+          setListing(null);
+        }
+        setLoading(false);
+      },
+      (error) => {
+        console.error("Error fetching listing:", error);
+        setLoading(false);
+      }
+    );
+
+    return () => unsubscribe(); // cleanup listener
   }, [listingId]);
 
+  // ✅ Auto-update total price whenever inputs or listing change
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
       if (nights > 0) {
         setTotalPrice(nights * listing.price * guests);
-      } else setTotalPrice(0);
+      } else {
+        setTotalPrice(0);
+      }
     }
   }, [checkIn, checkOut, guests, listing]);
 
-  const loadRazorpayScript = () => {
-    return new Promise((resolve) => {
-      const script = document.createElement("script");
-      script.src = "https://checkout.razorpay.com/v1/checkout.js";
-      script.onload = () => resolve(true);
-      script.onerror = () => resolve(false);
-      document.body.appendChild(script);
-    });
-  };
-
+  // ✅ Payment flow using unified helper
   const handlePayment = async () => {
     if (!checkIn || !checkOut || totalPrice <= 0) return;
-
     setIsPaying(true);
-    const res = await loadRazorpayScript();
-    if (!res) {
-      alert("Razorpay SDK failed to load.");
+
+    try {
+      // Step 1 — Create Razorpay order via backend
+      const orderResponse = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: totalPrice,
+          listingId,
+          checkIn,
+          checkOut,
+          guests,
+        }),
+      });
+
+      const data = await orderResponse.json();
+      if (!data.success) throw new Error(data.error || "Failed to create order");
+
+      // Step 2 — Open Razorpay checkout
+      openRazorpayCheckout({
+        amount: data.amount,
+        orderId: data.id,
+        name: "BHARATCOMFORT",
+        email: "demo@bharatcomfort.com", // replace with logged-in user
+        phone: "9999999999",
+        onSuccess: async (response: any) => {
+          // Step 3 — Verify payment
+          const verifyRes = await fetch("/api/payments/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              listingId,
+              checkIn,
+              checkOut,
+              guests,
+              totalPrice,
+            }),
+          });
+
+          const result = await verifyRes.json();
+          if (result.success) alert("✅ Booking confirmed!");
+          else alert("❌ Payment verification failed");
+        },
+        onFailure: () => alert("❌ Payment cancelled or failed."),
+      });
+    } catch (err: any) {
+      console.error("Payment error:", err);
+      alert("Error: " + err.message);
+    } finally {
       setIsPaying(false);
-      return;
     }
-
-    // Create Razorpay order via backend
-    const orderResponse = await fetch("/api/payments/create-order", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        amount: totalPrice * 100, // convert to paisa
-        listingId,
-        checkIn,
-        checkOut,
-        guests,
-      }),
-    });
-
-    const orderData = await orderResponse.json();
-
-    const options = {
-      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-      amount: orderData.amount,
-      currency: "INR",
-      name: "BHARATCOMFORT",
-      description: `Booking for ${listing.name}`,
-      order_id: orderData.id,
-      handler: async function (response: any) {
-        // Verify payment
-        const verifyRes = await fetch("/api/payments/verify", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            razorpay_order_id: response.razorpay_order_id,
-            razorpay_payment_id: response.razorpay_payment_id,
-            razorpay_signature: response.razorpay_signature,
-            listingId,
-            checkIn,
-            checkOut,
-            guests,
-            totalPrice,
-          }),
-        });
-
-        const result = await verifyRes.json();
-        if (result.success) {
-          alert("Booking confirmed ✅");
-        } else {
-          alert("Payment verification failed ❌");
-        }
-      },
-      theme: { color: "#2563eb" },
-    };
-
-    const paymentObject = new (window as any).Razorpay(options);
-    paymentObject.open();
-    setIsPaying(false);
   };
 
+  // ✅ UI
   if (loading) return <div className="p-8 text-center">Loading...</div>;
   if (!listing) return <div className="p-8 text-center">Listing not found</div>;
 

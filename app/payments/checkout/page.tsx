@@ -1,66 +1,57 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { openRazorpayCheckout } from "@/lib/payments-razorpay"; // ✅ unified Razorpay helper
 
 export default function CheckoutPage() {
   const [loading, setLoading] = useState(false);
-  const [razorpayLoaded, setRazorpayLoaded] = useState(false);
-
-  // Dynamically load Razorpay script
-  useEffect(() => {
-    if (document.getElementById("razorpay-script")) {
-      setRazorpayLoaded(true);
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.id = "razorpay-script";
-    script.src = "https://checkout.razorpay.com/v1/checkout.js";
-    script.onload = () => setRazorpayLoaded(true);
-    document.body.appendChild(script);
-  }, []);
 
   const startPayment = async () => {
-    if (!razorpayLoaded) {
-      alert("Razorpay script not loaded yet");
-      return;
-    }
-
     setLoading(true);
 
     try {
-      // 1. Create order from backend
-      const res = await fetch("/api/payments/route", {
+      // ✅ Step 1: Create Razorpay order via backend
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: 500 }), // Example: ₹500
       });
+
       const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Failed to create order");
 
-      if (!data.order) throw new Error("Failed to create order");
-
-      // 2. Setup Razorpay payment options
-      const options = {
-        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
-        amount: data.order.amount,
-        currency: data.order.currency,
+      // ✅ Step 2: Open Razorpay Checkout using helper
+      openRazorpayCheckout({
+        amount: data.amount,
+        orderId: data.id,
         name: "BHARATCOMFORT11",
-        description: "Booking Payment",
-        order_id: data.order.id,
-        handler: function (response: any) {
-          alert(`✅ Payment successful: ${response.razorpay_payment_id}`);
-        },
-        prefill: {
-          email: "",
-          contact: "",
-        },
-        theme: { color: "#1D4ED8" }, // Tailwind blue-700
-      };
+        email: "demo@bharatcomfort.com", // Replace with real user
+        phone: "9999999999",
+        onSuccess: async (response: any) => {
+          // ✅ Step 3: Verify payment after success
+          const verify = await fetch("/api/payments/verify", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+              amount: 500,
+            }),
+          });
 
-      const rzp = new (window as any).Razorpay(options);
-      rzp.open();
+          const result = await verify.json();
+          if (result.success) {
+            alert("✅ Payment successful and verified!");
+          } else {
+            alert("❌ Payment verification failed");
+          }
+        },
+        onFailure: () => alert("❌ Payment cancelled or failed"),
+      });
     } catch (err: any) {
-      alert("❌ Payment failed: " + err.message);
+      console.error(err);
+      alert("❌ Payment error: " + err.message);
     } finally {
       setLoading(false);
     }

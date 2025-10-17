@@ -15,11 +15,7 @@ import {
   orderBy,
   getDoc,
 } from "firebase/firestore";
-import {
-  ref,
-  uploadBytes,
-  getDownloadURL,
-} from "firebase/storage";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 
@@ -53,24 +49,23 @@ export default function ManageListingsPage() {
   // ✅ Fetch user role from Firestore
   useEffect(() => {
     const fetchUserRole = async () => {
-      if (user?.uid) {
-        const ref = doc(db, "users", user.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          setUserRole(snap.data().role || "partner");
-        } else {
-          setUserRole("partner");
-        }
+      if (!user?.uid) return;
+      const refUser = doc(db, "users", user.uid);
+      const snap = await getDoc(refUser);
+      if (snap.exists()) {
+        setUserRole(snap.data().role || "partner");
+      } else {
+        setUserRole("partner");
       }
     };
     fetchUserRole();
   }, [user]);
 
-  // ✅ Real-time listener for listings
+  // ✅ Real-time listings fetch
   useEffect(() => {
     if (!user || !userRole) return;
 
-    const q =
+    const listingsQuery =
       userRole === "admin"
         ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
         : query(
@@ -79,11 +74,11 @@ export default function ManageListingsPage() {
             orderBy("createdAt", "desc")
           );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...(doc.data() as Listing),
-      }));
+    const unsubscribe = onSnapshot(listingsQuery, (snapshot) => {
+      const data = snapshot.docs.map((d) => {
+        const listingData = d.data() as Listing;
+        return { ...listingData, id: d.id }; // ✅ id last to avoid overwriting
+      });
       setListings(data);
     });
 
@@ -102,9 +97,9 @@ export default function ManageListingsPage() {
     return urls;
   };
 
-  // ✅ Add or Edit Listing
+  // ✅ Add or Edit listing
   const handleSubmit = async () => {
-    if (!user) return alert("Please login");
+    if (!user) return alert("Please login first.");
 
     setLoading(true);
     try {
@@ -112,24 +107,24 @@ export default function ManageListingsPage() {
         ? await uploadImages(formData.images)
         : [];
 
-      const data = {
-        name: formData.name,
-        description: formData.description,
-        location: formData.location,
+      const listingData = {
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        location: formData.location.trim(),
         price: Number(formData.price),
         images: imageUrls,
         createdBy: user.uid,
         status: userRole === "admin" ? "approved" : "pending",
-        featured: false, // default
+        featured: false,
         createdAt: serverTimestamp(),
       };
 
       if (editId) {
-        await updateDoc(doc(db, "listings", editId), data);
-        alert("✅ Listing updated!");
+        await updateDoc(doc(db, "listings", editId), listingData);
+        alert("✅ Listing updated successfully!");
         setEditId(null);
       } else {
-        await addDoc(collection(db, "listings"), data);
+        await addDoc(collection(db, "listings"), listingData);
         alert("✅ Listing added successfully!");
       }
 
@@ -140,9 +135,9 @@ export default function ManageListingsPage() {
         price: "",
         images: [],
       });
-    } catch (err) {
-      console.error(err);
-      alert("❌ Error saving listing");
+    } catch (error) {
+      console.error("Error saving listing:", error);
+      alert("❌ Failed to save listing");
     } finally {
       setLoading(false);
     }
@@ -151,11 +146,16 @@ export default function ManageListingsPage() {
   // ✅ Delete listing
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure you want to delete this listing?")) return;
-    await deleteDoc(doc(db, "listings", id));
-    alert("🗑️ Listing deleted");
+    try {
+      await deleteDoc(doc(db, "listings", id));
+      alert("🗑️ Listing deleted successfully");
+    } catch (err) {
+      console.error(err);
+      alert("❌ Error deleting listing");
+    }
   };
 
-  // ✅ Approve / Reject (Admin only)
+  // ✅ Approve / Reject listing
   const handleStatusChange = async (
     id: string,
     newStatus: "approved" | "rejected"
@@ -169,79 +169,93 @@ export default function ManageListingsPage() {
     }
   };
 
-  // ✅ Toggle Featured (Admin only)
+  // ✅ Toggle featured (Admin only)
   const handleToggleFeatured = async (id: string, current: boolean) => {
     try {
       await updateDoc(doc(db, "listings", id), { featured: !current });
-      alert(`⭐ Listing ${!current ? "marked as featured" : "unmarked"}`);
+      alert(
+        `⭐ Listing has been ${!current ? "marked as featured" : "unmarked"}`
+      );
     } catch (err) {
       console.error(err);
-      alert("❌ Failed to update featured status");
+      alert("❌ Failed to toggle featured");
     }
   };
 
   // ✅ Load listing for editing
-  const handleEdit = (listing: Listing) => {
-    setEditId(listing.id!);
+  const handleEdit = (l: Listing) => {
+    setEditId(l.id!);
     setFormData({
-      name: listing.name,
-      description: listing.description,
-      location: listing.location,
-      price: listing.price.toString(),
+      name: l.name,
+      description: l.description,
+      location: l.location,
+      price: l.price.toString(),
       images: [],
     });
   };
 
   if (!user)
     return (
-      <p className="p-6 text-gray-500">Please log in to manage your listings.</p>
+      <div className="p-8 text-center text-gray-600">
+        Please log in to manage your listings.
+      </div>
     );
 
   if (!userRole)
-    return <p className="p-6 text-gray-500">Loading user role...</p>;
+    return (
+      <div className="p-8 text-center text-gray-500 animate-pulse">
+        Loading user data...
+      </div>
+    );
 
+  // ✅ Render UI
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-10">
       <h1 className="text-3xl font-bold text-gray-800">
         {userRole === "admin" ? "Admin" : "Partner"} Listings Management
       </h1>
 
-      {/* Listing Form */}
+      {/* ---------- Listing Form ---------- */}
       <div className="bg-white p-6 rounded-xl shadow space-y-4 border">
         <h2 className="text-xl font-semibold">
           {editId ? "Edit Listing" : "Add New Listing"}
         </h2>
 
-        <input
-          type="text"
-          placeholder="Name"
-          className="border p-2 w-full rounded"
-          value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-        />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <input
+            type="text"
+            placeholder="Name"
+            className="border p-2 rounded"
+            value={formData.name}
+            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          />
+          <input
+            type="text"
+            placeholder="Location"
+            className="border p-2 rounded"
+            value={formData.location}
+            onChange={(e) =>
+              setFormData({ ...formData, location: e.target.value })
+            }
+          />
+          <input
+            type="number"
+            placeholder="Price (per night)"
+            className="border p-2 rounded"
+            value={formData.price}
+            onChange={(e) =>
+              setFormData({ ...formData, price: e.target.value })
+            }
+          />
+        </div>
+
         <textarea
           placeholder="Description"
-          className="border p-2 w-full rounded"
+          className="border p-2 w-full rounded min-h-[100px]"
           value={formData.description}
           onChange={(e) =>
             setFormData({ ...formData, description: e.target.value })
           }
-        />
-        <input
-          type="text"
-          placeholder="Location"
-          className="border p-2 w-full rounded"
-          value={formData.location}
-          onChange={(e) =>
-            setFormData({ ...formData, location: e.target.value })
-          }
-        />
-        <input
-          type="number"
-          placeholder="Price (per night)"
-          className="border p-2 w-full rounded"
-          value={formData.price}
-          onChange={(e) => setFormData({ ...formData, price: e.target.value })}
         />
 
         <input
@@ -259,7 +273,7 @@ export default function ManageListingsPage() {
         <Button
           onClick={handleSubmit}
           disabled={loading}
-          className="bg-blue-600 text-white w-full py-3 rounded-lg"
+          className="bg-blue-600 text-white w-full py-3 rounded-lg mt-2"
         >
           {loading
             ? "Processing..."
@@ -269,7 +283,7 @@ export default function ManageListingsPage() {
         </Button>
       </div>
 
-      {/* Listings Table */}
+      {/* ---------- Listings Table ---------- */}
       <div className="bg-white p-6 rounded-xl shadow border">
         <h2 className="text-xl font-semibold mb-4">Listings</h2>
 
@@ -280,10 +294,10 @@ export default function ManageListingsPage() {
             {listings.map((l) => (
               <div
                 key={l.id}
-                className="flex justify-between items-center border-b pb-3"
+                className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-3"
               >
                 <div>
-                  <h3 className="font-semibold">{l.name}</h3>
+                  <h3 className="font-semibold text-lg">{l.name}</h3>
                   <p className="text-sm text-gray-600">{l.location}</p>
                   <p className="text-sm text-gray-600">
                     ₹{l.price} •{" "}
@@ -306,14 +320,13 @@ export default function ManageListingsPage() {
                   </p>
                 </div>
 
-                <div className="flex gap-2 flex-wrap justify-end">
+                <div className="flex gap-2 flex-wrap mt-3 md:mt-0">
                   <Button
                     onClick={() => handleEdit(l)}
                     className="bg-yellow-500 hover:bg-yellow-600"
                   >
                     Edit
                   </Button>
-
                   <Button
                     onClick={() => handleDelete(l.id!)}
                     className="bg-red-600 hover:bg-red-700"
@@ -344,7 +357,6 @@ export default function ManageListingsPage() {
                           </Button>
                         </>
                       )}
-
                       <Button
                         onClick={() =>
                           handleToggleFeatured(l.id!, l.featured ?? false)

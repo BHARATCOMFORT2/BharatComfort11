@@ -8,6 +8,8 @@ import {
   where,
   onSnapshot,
   orderBy,
+  getDoc,
+  doc,
 } from "firebase/firestore";
 import { useAuth } from "@/hooks/useAuth";
 import { Card } from "@/components/ui/Card";
@@ -50,6 +52,7 @@ interface Payment {
 
 export default function DashboardPage() {
   const { firebaseUser: user } = useAuth();
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [stats, setStats] = useState({
     listings: 0,
     approved: 0,
@@ -65,13 +68,29 @@ export default function DashboardPage() {
   const [chartData, setChartData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ✅ Fetch data in real-time
+  // ✅ Fetch Firestore role once
   useEffect(() => {
-    if (!user) return;
+    const fetchRole = async () => {
+      if (user?.uid) {
+        const ref = doc(db, "users", user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          setUserRole(snap.data().role || "partner");
+        } else {
+          setUserRole("partner");
+        }
+      }
+    };
+    fetchRole();
+  }, [user]);
+
+  // ✅ Fetch dashboard data in real-time
+  useEffect(() => {
+    if (!user || !userRole) return;
 
     // 🔹 LISTINGS
     const listingsQuery =
-      user.role === "admin"
+      userRole === "admin"
         ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
         : query(
             collection(db, "listings"),
@@ -94,7 +113,7 @@ export default function DashboardPage() {
 
     // 🔹 BOOKINGS
     const bookingsQuery =
-      user.role === "admin"
+      userRole === "admin"
         ? query(collection(db, "bookings"), orderBy("createdAt", "desc"))
         : query(
             collection(db, "bookings"),
@@ -113,7 +132,7 @@ export default function DashboardPage() {
 
     // 🔹 PAYMENTS
     const paymentsQuery =
-      user.role === "admin"
+      userRole === "admin"
         ? query(collection(db, "payments"), orderBy("createdAt", "desc"))
         : query(
             collection(db, "payments"),
@@ -127,7 +146,7 @@ export default function DashboardPage() {
         .filter((p) => p.status === "success")
         .reduce((acc, p) => acc + (p.amount || 0), 0);
 
-      // group by month for chart
+      // Group by month for chart
       const grouped = all.reduce((acc: any, p) => {
         const month = new Date(p.createdAt?.seconds * 1000 || Date.now())
           .toLocaleString("default", { month: "short" });
@@ -154,12 +173,19 @@ export default function DashboardPage() {
       unsubBookings();
       unsubPayments();
     };
-  }, [user]);
+  }, [user, userRole]);
 
   if (!user)
     return (
       <div className="p-10 text-center text-gray-600">
         Please log in to access your dashboard.
+      </div>
+    );
+
+  if (!userRole)
+    return (
+      <div className="p-10 text-center text-gray-500">
+        Loading permissions...
       </div>
     );
 
@@ -175,12 +201,12 @@ export default function DashboardPage() {
       {/* Header */}
       <header className="flex items-center justify-between">
         <h1 className="text-3xl font-bold text-gray-800">
-          {user.role === "admin" ? "Admin Dashboard" : "Partner Dashboard"}
+          {userRole === "admin" ? "Admin Dashboard" : "Partner Dashboard"}
         </h1>
         <p className="text-gray-500">Welcome back, {user.email}</p>
       </header>
 
-      {/* Stats Cards */}
+      {/* Stats */}
       <section className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-6">
         <Card className="p-6 text-center shadow">
           <h2 className="text-lg font-semibold">Total Listings</h2>
@@ -195,7 +221,7 @@ export default function DashboardPage() {
           <p className="text-3xl font-bold text-yellow-500">{stats.pending}</p>
         </Card>
         <Card className="p-6 text-center shadow">
-          <h2 className="text-lg font-semibold">Total Bookings</h2>
+          <h2 className="text-lg font-semibold">Bookings</h2>
           <p className="text-3xl font-bold text-indigo-600">{stats.bookings}</p>
         </Card>
         <Card className="p-6 text-center shadow">
@@ -210,7 +236,7 @@ export default function DashboardPage() {
         </Card>
       </section>
 
-      {/* Revenue Chart */}
+      {/* Chart */}
       <section className="bg-white rounded-xl shadow p-6">
         <h2 className="text-xl font-semibold mb-4 text-gray-800">
           Monthly Revenue Trend
@@ -287,7 +313,9 @@ export default function DashboardPage() {
             <ul className="divide-y divide-gray-200">
               {recentPayments.map((p) => (
                 <li key={p.id} className="py-2 flex justify-between text-sm">
-                  <span>{p.status === "success" ? "✅ Success" : "❌ Failed"}</span>
+                  <span>
+                    {p.status === "success" ? "✅ Success" : "❌ Failed"}
+                  </span>
                   <span>₹{p.amount}</span>
                 </li>
               ))}
@@ -298,7 +326,7 @@ export default function DashboardPage() {
 
       {/* Quick Actions */}
       <section className="text-center pt-8">
-        {user.role === "admin" ? (
+        {userRole === "admin" ? (
           <Link href="/dashboard/listings">
             <Button className="bg-blue-600 text-white">Manage Listings</Button>
           </Link>

@@ -36,12 +36,17 @@ export async function POST(req: Request) {
     });
 
     // ✅ Step 3: Return subscription details
+    // ⚙️ TypeScript doesn’t know about `.plan`, but Razorpay API does return it.
+    // Safely access it with type casting.
+    const planAmount =
+      ((subscription as any)?.plan?.item?.amount ?? 0) / 100 || null;
+
     return NextResponse.json({
       success: true,
       message: "Subscription created successfully.",
       razorpaySubscriptionId: subscription.id,
       status: subscription.status,
-      amount: subscription.plan?.item?.amount / 100 || null, // optional
+      amount: planAmount,
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
     });
   } catch (error: any) {

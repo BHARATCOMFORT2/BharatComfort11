@@ -3,13 +3,13 @@
 import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore"; // ✅ real-time Firestore listener
+import { doc, onSnapshot } from "firebase/firestore";
 import ImageGallery from "@/components/ui/ImageGallery";
 import BookingForm from "@/components/forms/BookingForm";
 import ReviewCard from "@/components/reviews/ReviewCard";
 
 interface Listing {
-  id: string;
+  id?: string;
   name: string;
   category: string;
   location: string;
@@ -40,7 +40,9 @@ export default function ListingDetailsPage() {
       ref,
       (snap) => {
         if (snap.exists()) {
-          setListing({ id: snap.id, ...(snap.data() as Listing) });
+          const data = snap.data() as Listing;
+          // 🔧 Avoid duplicate "id" property overwrite
+          setListing({ ...data, id: snap.id });
         } else {
           setListing(null);
         }
@@ -112,7 +114,7 @@ export default function ListingDetailsPage() {
         {/* Right: Booking Form */}
         <aside className="border rounded-lg shadow p-6 bg-white">
           <h3 className="text-lg font-semibold mb-4">Book Now</h3>
-          <BookingForm listingId={listing.id} />
+          <BookingForm listingId={listing.id!} />
         </aside>
       </div>
 

@@ -20,7 +20,6 @@ import {
   ref,
   uploadBytes,
   getDownloadURL,
-  deleteObject,
 } from "firebase/storage";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import {
@@ -44,6 +43,7 @@ interface Listing {
   images: string[];
   createdBy: string;
   status: "pending" | "approved" | "rejected";
+  featuredStatus?: "none" | "pending" | "approved" | "rejected";
   createdAt?: any;
 }
 
@@ -63,9 +63,7 @@ export default function PartnerDashboard() {
 
   // Dashboard Stats
   const [stats, setStats] = useState({ listings: 0, bookings: 0, earnings: 0 });
-  const [chartData, setChartData] = useState<{ date: string; count: number }[]>(
-    []
-  );
+  const [chartData, setChartData] = useState<{ date: string; count: number }[]>([]);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
 
   // Listings Management
@@ -80,85 +78,105 @@ export default function PartnerDashboard() {
   const [editId, setEditId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
 
+  // ================= INIT =================
   useEffect(() => {
     let unsubListings: any = null;
     let unsubBookings: any = null;
 
     const init = async () => {
-      const user = auth.currentUser;
-      if (!user) return router.push("/auth/login");
+      try {
+        const user = auth.currentUser;
+        if (!user) {
+          router.push("/auth/login");
+          return;
+        }
 
-      const userSnap = await getDoc(doc(db, "users", user.uid));
-      if (!userSnap.exists() || userSnap.data().role !== "partner") {
-        alert("❌ Not authorized");
-        return router.push("/");
-      }
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        if (!userSnap.exists() || userSnap.data().role !== "partner") {
+          alert("❌ Not authorized");
+          router.push("/");
+          return;
+        }
 
-      setProfile(userSnap.data());
-      const uid = user.uid;
+        setProfile(userSnap.data());
+        const uid = user.uid;
+        console.log("✅ Partner logged in:", uid);
 
-      // --- Real-time LISTINGS ---
-      const listingsQuery = query(
-        collection(db, "listings"),
-        where("createdBy", "==", uid),
-        orderBy("createdAt", "desc")
-      );
-      unsubListings = onSnapshot(listingsQuery, (snap) => {
-        const data = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Listing),
-        }));
-        setListings(data);
-        setStats((prev) => ({ ...prev, listings: data.length }));
-      });
+        // --- Real-time LISTINGS ---
+        const listingsQuery = query(
+          collection(db, "listings"),
+          where("createdBy", "==", uid),
+          orderBy("createdAt", "desc")
+        );
+        unsubListings = onSnapshot(
+          listingsQuery,
+          (snap) => {
+            const data = snap.docs.map((d) => ({
+              id: d.id,
+              ...(d.data() as Listing),
+            }));
+            console.log("📦 Listings fetched:", data.length);
+            setListings(data);
+            setStats((prev) => ({ ...prev, listings: data.length }));
+          },
+          (error) => {
+            console.error("🔥 Listings snapshot error:", error);
+          }
+        );
 
-      // --- Real-time BOOKINGS ---
-      const bookingsQuery = query(
-        collection(db, "bookings"),
-        where("partnerId", "==", uid),
-        orderBy("createdAt", "desc")
-      );
-      unsubBookings = onSnapshot(bookingsQuery, (snap) => {
-        let total = 0;
-        const bookings: Booking[] = snap.docs.map((d) => {
-          const data = d.data() as any;
-          total += data.amount || 0;
-          return {
-            id: d.id,
-            userName: data.userName,
-            customerName: data.customerName,
-            date:
-              data.date ||
-              (data.createdAt?.toDate
-                ? data.createdAt.toDate().toISOString()
-                : new Date().toISOString()),
-            amount: data.amount,
-          };
-        });
+        // --- Real-time BOOKINGS ---
+        const bookingsQuery = query(
+          collection(db, "bookings"),
+          where("partnerId", "==", uid),
+          orderBy("createdAt", "desc")
+        );
+        unsubBookings = onSnapshot(
+          bookingsQuery,
+          (snap) => {
+            const bookings = snap.docs.map((d) => ({
+              id: d.id,
+              ...(d.data() as Booking),
+            }));
 
-        setStats((prev) => ({
-          ...prev,
-          bookings: bookings.length,
-          earnings: total,
-        }));
+            let total = 0;
+            bookings.forEach((b) => (total += b.amount || 0));
 
-        const today = new Date();
-        const last7Days = Array.from({ length: 7 }).map((_, i) => {
-          const d = new Date();
-          d.setDate(today.getDate() - i);
-          return { date: d.toISOString().split("T")[0], count: 0 };
-        }).reverse();
+            setStats((prev) => ({
+              ...prev,
+              bookings: bookings.length,
+              earnings: total,
+            }));
 
-        bookings.forEach((b) => {
-          const date = b.date.split("T")[0];
-          const day = last7Days.find((d) => d.date === date);
-          if (day) day.count += 1;
-        });
+            // Chart data (last 7 days)
+            const today = new Date();
+            const last7Days = Array.from({ length: 7 }).map((_, i) => {
+              const d = new Date();
+              d.setDate(today.getDate() - i);
+              return { date: d.toISOString().split("T")[0], count: 0 };
+            }).reverse();
 
-        setRecentBookings(bookings.slice(0, 10));
-        setChartData(last7Days);
+            bookings.forEach((b) => {
+              const date = b.date?.split?.("T")?.[0];
+              const match = last7Days.find((x) => x.date === date);
+              if (match) match.count += 1;
+            });
+
+            setRecentBookings(bookings.slice(0, 10));
+            setChartData(last7Days);
+            setLoading(false);
+          },
+          (error) => {
+            console.error("🔥 Bookings snapshot error:", error);
+            setLoading(false);
+          }
+        );
+
+        // Fallback timeout — prevents infinite loading
+        setTimeout(() => setLoading(false), 8000);
+      } catch (err) {
+        console.error("🔥 PartnerDashboard init error:", err);
         setLoading(false);
-      });
+      }
     };
 
     init();
@@ -199,6 +217,7 @@ export default function PartnerDashboard() {
         images: imageUrls,
         createdBy: user.uid,
         status: "pending",
+        featuredStatus: "none",
         createdAt: serverTimestamp(),
       };
 
@@ -237,6 +256,13 @@ export default function PartnerDashboard() {
     });
   };
 
+  // Partner requests for Featured listing
+  const handleRequestFeatured = async (id: string) => {
+    await updateDoc(doc(db, "listings", id), { featuredStatus: "pending" });
+    alert("🌟 Featured listing request sent!");
+  };
+
+  // ================= RENDER =================
   if (loading)
     return <p className="text-center py-12 text-gray-600">Loading dashboard...</p>;
 
@@ -252,10 +278,7 @@ export default function PartnerDashboard() {
       {/* ==================== STATS ==================== */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
-          <div
-            key={key}
-            className="p-6 bg-white shadow rounded-2xl text-center"
-          >
+          <div key={key} className="p-6 bg-white shadow rounded-2xl text-center">
             <h2 className="text-2xl font-bold">{value}</h2>
             <p className="text-gray-600 capitalize">{key}</p>
           </div>
@@ -356,6 +379,11 @@ export default function PartnerDashboard() {
                         {l.status}
                       </span>
                     </p>
+                    {l.featuredStatus && (
+                      <p className="text-xs text-gray-500">
+                        Featured: {l.featuredStatus}
+                      </p>
+                    )}
                   </div>
                   <div className="flex gap-2">
                     <Button
@@ -369,6 +397,15 @@ export default function PartnerDashboard() {
                       className="bg-red-600 hover:bg-red-700"
                     >
                       Delete
+                    </Button>
+                    <Button
+                      onClick={() => handleRequestFeatured(l.id!)}
+                      disabled={l.featuredStatus === "pending"}
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                    >
+                      {l.featuredStatus === "pending"
+                        ? "Requested"
+                        : "Request Featured"}
                     </Button>
                   </div>
                 </div>

@@ -29,8 +29,9 @@ interface Booking {
   id: string;
   userName?: string;
   customerName?: string;
-  date: string;
+  date?: string;
   amount?: number;
+  createdAt?: any;
 }
 
 // ================= MAIN COMPONENT =================
@@ -72,45 +73,63 @@ export default function PartnerDashboard() {
         });
 
         // --- Real-time BOOKINGS ---
-        const bookingsQuery = query(
-          collection(db, "bookings"),
-          where("partnerId", "==", uid),
-          orderBy("createdAt", "desc")
-        );
-        unsubBookings = onSnapshot(bookingsQuery, (snap) => {
-          const bookings = snap.docs.map((d) => ({
-  ...(d.data() as Booking),
-  id: d.id, // add after spread
-}));
+        try {
+          const bookingsQuery = query(
+            collection(db, "bookings"),
+            where("partnerId", "==", uid),
+            orderBy("createdAt", "desc")
+          );
 
+          unsubBookings = onSnapshot(bookingsQuery, (snap) => {
+            const bookings = snap.docs.map((d) => ({
+              ...(d.data() as Booking),
+              id: d.id,
+            }));
 
-          const total = bookings.reduce((sum, b) => sum + (b.amount || 0), 0);
-          setStats((prev) => ({
-            ...prev,
-            bookings: bookings.length,
-            earnings: total,
-          }));
+            const total = bookings.reduce((sum, b) => sum + (b.amount || 0), 0);
+            setStats((prev) => ({
+              ...prev,
+              bookings: bookings.length,
+              earnings: total,
+            }));
 
-          // Chart data (last 7 days)
-          const today = new Date();
-          const last7Days = Array.from({ length: 7 }).map((_, i) => {
-            const d = new Date();
-            d.setDate(today.getDate() - i);
-            return { date: d.toISOString().split("T")[0], count: 0 };
-          }).reverse();
+            // Chart data (last 7 days)
+            const today = new Date();
+            const last7Days = Array.from({ length: 7 }).map((_, i) => {
+              const d = new Date();
+              d.setDate(today.getDate() - i);
+              return { date: d.toISOString().split("T")[0], count: 0 };
+            }).reverse();
 
-          bookings.forEach((b) => {
-            const date = b.date?.split?.("T")?.[0];
-            const match = last7Days.find((x) => x.date === date);
-            if (match) match.count += 1;
+            bookings.forEach((b) => {
+              const date = b.date?.split?.("T")?.[0];
+              const match = last7Days.find((x) => x.date === date);
+              if (match) match.count += 1;
+            });
+
+            setRecentBookings(bookings.slice(0, 10));
+            setChartData(last7Days);
+            setLoading(false);
           });
-
-          setRecentBookings(bookings.slice(0, 10));
-          setChartData(last7Days);
-          setLoading(false);
-        });
-
-        setTimeout(() => setLoading(false), 8000); // fallback
+        } catch (err) {
+          console.warn("No createdAt field for orderBy, fallback used:", err);
+          const fallbackQuery = query(
+            collection(db, "bookings"),
+            where("partnerId", "==", uid)
+          );
+          unsubBookings = onSnapshot(fallbackQuery, (snap) => {
+            const bookings = snap.docs.map((d) => ({
+              ...(d.data() as Booking),
+              id: d.id,
+            }));
+            setStats((prev) => ({
+              ...prev,
+              bookings: bookings.length,
+              earnings: bookings.reduce((sum, b) => sum + (b.amount || 0), 0),
+            }));
+            setLoading(false);
+          });
+        }
       } catch (err) {
         console.error("🔥 PartnerDashboard init error:", err);
         setLoading(false);
@@ -163,7 +182,7 @@ export default function PartnerDashboard() {
       {/* ==================== MANAGE LISTINGS ==================== */}
       <section className="bg-white shadow rounded-2xl p-6 mb-12">
         <h3 className="text-xl font-semibold mb-6">Manage Your Listings</h3>
-        <PartnerListingsManager /> {/* ✅ Embedded unified manager */}
+        <PartnerListingsManager /> {/* ✅ Unified reusable manager */}
       </section>
     </DashboardLayout>
   );

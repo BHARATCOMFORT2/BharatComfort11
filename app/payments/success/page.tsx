@@ -1,37 +1,39 @@
 "use client";
 
+import { Suspense, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import Link from "next/link";
-import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 
-export default function PaymentSuccessPage() {
+// ✅ Content component using useSearchParams()
+function PaymentSuccessContent() {
   const searchParams = useSearchParams();
-  const bookingId = searchParams.get("bookingId"); // Passed from checkout redirect
-  const [paymentData, setPaymentData] = useState<any>(null);
+  const bookingId = searchParams.get("bookingId");
+
+  const [booking, setBooking] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
+  // ✅ Real-time Firestore listener for booking confirmation
   useEffect(() => {
     if (!bookingId) return;
 
-    // ✅ Real-time Firestore listener for payment/booking document
     const ref = doc(db, "bookings", bookingId);
     const unsubscribe = onSnapshot(
       ref,
       (snap) => {
         if (snap.exists()) {
-          setPaymentData(snap.data());
+          setBooking(snap.data());
         } else {
-          setPaymentData(null);
+          setBooking(null);
         }
         setLoading(false);
       },
-      (err) => {
-        console.error("Error listening to booking:", err);
+      (error) => {
+        console.error("Error listening to booking:", error);
         setLoading(false);
       }
     );
@@ -49,7 +51,7 @@ export default function PaymentSuccessPage() {
     );
 
   // ❌ Not found
-  if (!paymentData)
+  if (!booking)
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50">
         <p className="text-red-600 font-medium">
@@ -83,26 +85,29 @@ export default function PaymentSuccessPage() {
           Payment Successful 🎉
         </h1>
         <p className="text-gray-600 mb-6">
-          Your booking has been confirmed for{" "}
-          <span className="font-semibold">{paymentData.listingId}</span>.
+          Your booking for{" "}
+          <span className="font-semibold">{booking.listingId}</span> has been
+          confirmed.
         </p>
 
         <div className="bg-gray-50 p-4 rounded-xl text-left mb-6 space-y-1">
           <p>
             <strong>Status:</strong>{" "}
-            <span className="text-green-600">{paymentData.status}</span>
+            <span className="text-green-600 font-semibold">
+              {booking.status || "confirmed"}
+            </span>
           </p>
           <p>
-            <strong>Amount:</strong> ₹{paymentData.totalPrice}
+            <strong>Amount:</strong> ₹{booking.totalPrice}
           </p>
           <p>
-            <strong>Check-in:</strong> {paymentData.checkIn}
+            <strong>Check-in:</strong> {booking.checkIn}
           </p>
           <p>
-            <strong>Check-out:</strong> {paymentData.checkOut}
+            <strong>Check-out:</strong> {booking.checkOut}
           </p>
           <p>
-            <strong>Guests:</strong> {paymentData.guests}
+            <strong>Guests:</strong> {booking.guests}
           </p>
         </div>
 
@@ -118,5 +123,14 @@ export default function PaymentSuccessPage() {
         </div>
       </motion.div>
     </div>
+  );
+}
+
+// ✅ Wrap the content in Suspense (Next.js 14 requirement)
+export default function PaymentSuccessPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center">Loading...</div>}>
+      <PaymentSuccessContent />
+    </Suspense>
   );
 }

@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import Modal from "@/components/home/Modal";
+import ListingsManager from "@/components/dashboard/ListingsManager";
 import {
   collection,
   doc,
@@ -26,20 +27,14 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// ---------------- Image Upload Component ----------------
-const ImageUpload = ({
-  images,
-  onChange,
-  maxFiles = 5,
-}: {
-  images: string[];
-  onChange: (urls: string[]) => void;
-  maxFiles?: number;
-}) => {
+/* -------------------------------------------
+   Image Upload Component
+-------------------------------------------- */
+const ImageUpload = ({ images, onChange, maxFiles = 5 }) => {
   const [localFiles, setLocalFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e) => {
     if (!e.target.files) return;
     const filesArray = Array.from(e.target.files).slice(
       0,
@@ -100,7 +95,9 @@ const ImageUpload = ({
   );
 };
 
-// ---------------- Section Editor ----------------
+/* -------------------------------------------
+   Homepage Section Editor
+-------------------------------------------- */
 const SectionEditor = ({ sectionId }: { sectionId: string }) => {
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
@@ -109,15 +106,15 @@ const SectionEditor = ({ sectionId }: { sectionId: string }) => {
 
   useEffect(() => {
     const fetchData = async () => {
-      const ref = doc(db, "homepage", sectionId);
-      const snap = await getDoc(ref);
+      const refDoc = doc(db, "homepage", sectionId.toLowerCase());
+      const snap = await getDoc(refDoc);
       if (snap.exists()) {
         const data = snap.data();
         setTitle(data.title || "");
         setSubtitle(data.subtitle || "");
         setImages(data.images || []);
       } else {
-        await setDoc(ref, {
+        await setDoc(refDoc, {
           title: "",
           subtitle: "",
           images: [],
@@ -130,7 +127,7 @@ const SectionEditor = ({ sectionId }: { sectionId: string }) => {
   }, [sectionId]);
 
   const handleSave = async () => {
-    await updateDoc(doc(db, "homepage", sectionId), {
+    await updateDoc(doc(db, "homepage", sectionId.toLowerCase()), {
       title,
       subtitle,
       images,
@@ -175,7 +172,9 @@ const SectionEditor = ({ sectionId }: { sectionId: string }) => {
   );
 };
 
-// ---------------- Admin Dashboard ----------------
+/* -------------------------------------------
+   Main Admin Dashboard
+-------------------------------------------- */
 export default function AdminDashboardPage() {
   const { firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
@@ -197,33 +196,22 @@ export default function AdminDashboardPage() {
     }
   }, [firebaseUser, profile, loading, router]);
 
-  // Load stats + chart
   useEffect(() => {
     if (!firebaseUser || profile?.role !== "admin") return;
 
-    const unsubscribers: (() => void)[] = [];
-
-    unsubscribers.push(
+    const unsubscribers = [
       onSnapshot(collection(db, "users"), (snap) =>
         setStats((s) => ({ ...s, users: snap.size }))
-      )
-    );
-    unsubscribers.push(
+      ),
       onSnapshot(collection(db, "partners"), (snap) =>
         setStats((s) => ({ ...s, partners: snap.size }))
-      )
-    );
-    unsubscribers.push(
+      ),
       onSnapshot(collection(db, "listings"), (snap) =>
         setStats((s) => ({ ...s, listings: snap.size }))
-      )
-    );
-    unsubscribers.push(
+      ),
       onSnapshot(collection(db, "staffs"), (snap) =>
         setStats((s) => ({ ...s, staffs: snap.size }))
-      )
-    );
-    unsubscribers.push(
+      ),
       onSnapshot(collection(db, "bookings"), (snap) => {
         const last7Days = Array.from({ length: 7 }).map((_, i) => {
           const d = new Date();
@@ -236,8 +224,8 @@ export default function AdminDashboardPage() {
           if (found) found.count += 1;
         });
         setChartData(last7Days.reverse());
-      })
-    );
+      }),
+    ];
 
     return () => unsubscribers.forEach((u) => u());
   }, [firebaseUser, profile]);
@@ -246,17 +234,18 @@ export default function AdminDashboardPage() {
     return <p className="text-center py-12">Loading dashboard...</p>;
 
   const homepageSections = [
-    "Hero",
-    "QuickActions",
-    "FeaturedListings",
-    "TrendingDestinations",
-    "Promotions",
-    "RecentStories",
-    "Testimonials",
+    "hero",
+    "quickActions",
+    "featuredListings",
+    "trendingDestinations",
+    "promotions",
+    "recentStories",
+    "testimonials",
   ];
 
   return (
     <DashboardLayout title="Admin Dashboard" profile={profile}>
+      {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
         {Object.entries(stats).map(([k, v]) => (
           <div
@@ -304,7 +293,13 @@ export default function AdminDashboardPage() {
         </ResponsiveContainer>
       </section>
 
-      {/* Modal Editor */}
+      {/* Listings Manager Integration */}
+      <section className="mt-12">
+        <h3 className="text-lg font-semibold mb-4">Manage All Listings</h3>
+        <ListingsManager />
+      </section>
+
+      {/* Modal for Section Editor */}
       <Modal isOpen={!!activeSection} onClose={() => setActiveSection(null)}>
         {activeSection && <SectionEditor sectionId={activeSection} />}
       </Modal>

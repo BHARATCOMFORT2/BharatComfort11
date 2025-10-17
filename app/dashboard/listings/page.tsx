@@ -13,12 +13,12 @@ import {
   query,
   where,
   orderBy,
+  getDoc,
 } from "firebase/firestore";
 import {
   ref,
   uploadBytes,
   getDownloadURL,
-  deleteObject,
 } from "firebase/storage";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
@@ -32,11 +32,13 @@ interface Listing {
   images: string[];
   createdBy: string;
   status: "pending" | "approved" | "rejected";
+  featured?: boolean;
   createdAt?: any;
 }
 
 export default function ManageListingsPage() {
   const { firebaseUser: user } = useAuth();
+  const [userRole, setUserRole] = useState<string | null>(null);
   const [listings, setListings] = useState<Listing[]>([]);
   const [formData, setFormData] = useState({
     name: "",
@@ -48,12 +50,28 @@ export default function ManageListingsPage() {
   const [loading, setLoading] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
 
+  // ✅ Fetch user role from Firestore
+  useEffect(() => {
+    const fetchUserRole = async () => {
+      if (user?.uid) {
+        const ref = doc(db, "users", user.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          setUserRole(snap.data().role || "partner");
+        } else {
+          setUserRole("partner");
+        }
+      }
+    };
+    fetchUserRole();
+  }, [user]);
+
   // ✅ Real-time listener for listings
   useEffect(() => {
-    if (!user) return;
+    if (!user || !userRole) return;
 
     const q =
-      user.role === "admin"
+      userRole === "admin"
         ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
         : query(
             collection(db, "listings"),
@@ -70,7 +88,7 @@ export default function ManageListingsPage() {
     });
 
     return () => unsubscribe();
-  }, [user]);
+  }, [user, userRole]);
 
   // ✅ Upload multiple images
   const uploadImages = async (files: File[]) => {
@@ -101,7 +119,8 @@ export default function ManageListingsPage() {
         price: Number(formData.price),
         images: imageUrls,
         createdBy: user.uid,
-        status: user.role === "admin" ? "approved" : "pending",
+        status: userRole === "admin" ? "approved" : "pending",
+        featured: false, // default
         createdAt: serverTimestamp(),
       };
 
@@ -137,13 +156,27 @@ export default function ManageListingsPage() {
   };
 
   // ✅ Approve / Reject (Admin only)
-  const handleStatusChange = async (id: string, newStatus: "approved" | "rejected") => {
+  const handleStatusChange = async (
+    id: string,
+    newStatus: "approved" | "rejected"
+  ) => {
     try {
       await updateDoc(doc(db, "listings", id), { status: newStatus });
       alert(`✅ Listing ${newStatus}`);
     } catch (err) {
       console.error(err);
       alert("❌ Failed to update status");
+    }
+  };
+
+  // ✅ Toggle Featured (Admin only)
+  const handleToggleFeatured = async (id: string, current: boolean) => {
+    try {
+      await updateDoc(doc(db, "listings", id), { featured: !current });
+      alert(`⭐ Listing ${!current ? "marked as featured" : "unmarked"}`);
+    } catch (err) {
+      console.error(err);
+      alert("❌ Failed to update featured status");
     }
   };
 
@@ -164,10 +197,13 @@ export default function ManageListingsPage() {
       <p className="p-6 text-gray-500">Please log in to manage your listings.</p>
     );
 
+  if (!userRole)
+    return <p className="p-6 text-gray-500">Loading user role...</p>;
+
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-10">
       <h1 className="text-3xl font-bold text-gray-800">
-        {user.role === "admin" ? "Admin" : "Partner"} Listings Management
+        {userRole === "admin" ? "Admin" : "Partner"} Listings Management
       </h1>
 
       {/* Listing Form */}
@@ -196,7 +232,9 @@ export default function ManageListingsPage() {
           placeholder="Location"
           className="border p-2 w-full rounded"
           value={formData.location}
-          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+          onChange={(e) =>
+            setFormData({ ...formData, location: e.target.value })
+          }
         />
         <input
           type="number"
@@ -259,11 +297,16 @@ export default function ManageListingsPage() {
                       }`}
                     >
                       {l.status}
-                    </span>
+                    </span>{" "}
+                    {l.featured && (
+                      <span className="ml-2 text-blue-600 font-semibold">
+                        ⭐ Featured
+                      </span>
+                    )}
                   </p>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 flex-wrap justify-end">
                   <Button
                     onClick={() => handleEdit(l)}
                     className="bg-yellow-500 hover:bg-yellow-600"
@@ -278,20 +321,41 @@ export default function ManageListingsPage() {
                     Delete
                   </Button>
 
-                  {/* Admin approval buttons */}
-                  {user.role === "admin" && l.status !== "approved" && (
+                  {/* Admin-only controls */}
+                  {userRole === "admin" && (
                     <>
+                      {l.status !== "approved" && (
+                        <>
+                          <Button
+                            onClick={() =>
+                              handleStatusChange(l.id!, "approved")
+                            }
+                            className="bg-green-600 hover:bg-green-700"
+                          >
+                            Approve
+                          </Button>
+                          <Button
+                            onClick={() =>
+                              handleStatusChange(l.id!, "rejected")
+                            }
+                            className="bg-gray-600 hover:bg-gray-700"
+                          >
+                            Reject
+                          </Button>
+                        </>
+                      )}
+
                       <Button
-                        onClick={() => handleStatusChange(l.id!, "approved")}
-                        className="bg-green-600 hover:bg-green-700"
+                        onClick={() =>
+                          handleToggleFeatured(l.id!, l.featured ?? false)
+                        }
+                        className={`${
+                          l.featured
+                            ? "bg-blue-500 hover:bg-blue-600"
+                            : "bg-slate-700 hover:bg-slate-800"
+                        }`}
                       >
-                        Approve
-                      </Button>
-                      <Button
-                        onClick={() => handleStatusChange(l.id!, "rejected")}
-                        className="bg-gray-600 hover:bg-gray-700"
-                      >
-                        Reject
+                        {l.featured ? "Unmark Featured" : "Mark Featured"}
                       </Button>
                     </>
                   )}

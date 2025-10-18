@@ -26,6 +26,7 @@ import {
   CartesianGrid,
   ResponsiveContainer,
 } from "recharts";
+import DataList from "@/components/dashboard/DataList"; // ✅ Enhanced version with persistent search/filter
 
 /* -------------------------------------------
    Image Upload Component
@@ -36,7 +37,11 @@ interface ImageUploadProps {
   maxFiles?: number;
 }
 
-const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 5 }) => {
+const ImageUpload: React.FC<ImageUploadProps> = ({
+  images,
+  onChange,
+  maxFiles = 5,
+}) => {
   const [localFiles, setLocalFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
 
@@ -184,16 +189,20 @@ const SectionEditor = ({ sectionId }: { sectionId: string }) => {
 export default function AdminDashboardPage() {
   const { firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
+
   const [stats, setStats] = useState({
     users: 0,
     partners: 0,
     listings: 0,
     staffs: 0,
   });
+
   const [chartData, setChartData] = useState<{ date: string; count: number }[]>(
     []
   );
+
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  const [selectedStat, setSelectedStat] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && (!firebaseUser || profile?.role !== "admin")) {
@@ -202,6 +211,7 @@ export default function AdminDashboardPage() {
     }
   }, [firebaseUser, profile, loading, router]);
 
+  // 🔹 Load stats and chart
   useEffect(() => {
     if (!firebaseUser || profile?.role !== "admin") return;
 
@@ -249,22 +259,25 @@ export default function AdminDashboardPage() {
     "testimonials",
   ];
 
+  const collections = ["users", "partners", "listings", "staffs"];
+
   return (
     <DashboardLayout title="Admin Dashboard" profile={profile}>
-      {/* Stats */}
+      {/* =================== Stats =================== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-        {Object.entries(stats).map(([k, v]) => (
+        {Object.entries(stats).map(([key, value]) => (
           <div
-            key={k}
-            className="p-6 bg-white shadow rounded-lg text-center hover:shadow-lg transition"
+            key={key}
+            onClick={() => setSelectedStat(key)}
+            className="p-6 bg-white shadow rounded-lg text-center hover:shadow-lg transition cursor-pointer"
           >
-            <h2 className="text-2xl font-bold">{v}</h2>
-            <p className="text-gray-600 capitalize">{k}</p>
+            <h2 className="text-2xl font-bold">{value}</h2>
+            <p className="text-gray-600 capitalize">{key}</p>
           </div>
         ))}
       </div>
 
-      {/* Homepage Editor Section */}
+      {/* =================== Homepage Editor =================== */}
       <section className="mb-12">
         <h3 className="font-semibold mb-4">Homepage Sections</h3>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -280,7 +293,7 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
-      {/* Bookings Chart */}
+      {/* =================== Bookings Chart =================== */}
       <section className="bg-white shadow rounded-lg p-6 mb-12">
         <h3 className="font-semibold mb-4">Bookings (Last 7 Days)</h3>
         <ResponsiveContainer width="100%" height={250}>
@@ -299,15 +312,19 @@ export default function AdminDashboardPage() {
         </ResponsiveContainer>
       </section>
 
-      {/* Listings Manager Integration */}
+      {/* =================== Listings Manager =================== */}
       <section className="mt-12">
         <h3 className="text-lg font-semibold mb-4">Manage All Listings</h3>
         <ListingsManager />
       </section>
 
-      {/* Modal for Section Editor */}
+      {/* =================== Modals =================== */}
       <Modal isOpen={!!activeSection} onClose={() => setActiveSection(null)}>
         {activeSection && <SectionEditor sectionId={activeSection} />}
+      </Modal>
+
+      <Modal isOpen={!!selectedStat} onClose={() => setSelectedStat(null)}>
+        {selectedStat && <DataList collectionName={selectedStat} />}
       </Modal>
     </DashboardLayout>
   );

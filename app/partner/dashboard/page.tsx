@@ -124,10 +124,10 @@ export default function PartnerDashboard() {
             where("partnerId", "==", uid)
           );
           unsubBookings = onSnapshot(fallbackQuery, (snap) => {
-            const bookings = snap.docs.map((d) => ({
-              id: d.id,
-              ...(d.data() as Booking),
-            }));
+           const bookings = snap.docs.map((d) => {
+  const data = d.data() as Booking;
+  return { ...data, id: data.id || d.id };
+});
             const total = bookings.reduce((sum, b) => sum + (b.amount || 0), 0);
             setStats((prev) => ({
               ...prev,

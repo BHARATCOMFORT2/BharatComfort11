@@ -9,7 +9,7 @@ import {
   deleteDoc,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-import { Button } from "@/components/ui/button";
+import { Button } from "@/components/ui/Button";
 
 /* -------------------------------------------
    DataList Component (Persistent Filters + Search)

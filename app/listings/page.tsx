@@ -49,10 +49,11 @@ export default function ListingsPage() {
                 where("status", "==", "approved")
               );
               onSnapshot(q2, (snap) => {
-                const fallback = snap.docs.map((d) => ({
-                  id: d.id,
-                  ...(d.data() as Listing),
-                }));
+                const fallback = snap.docs.map((d) => {
+  const raw = d.data() as Listing;
+  const { id: _existingId, ...rest } = raw; // avoid duplicate id
+  return { id: d.id, ...rest };
+});
                 setListings(fallback);
                 setLoading(false);
               });

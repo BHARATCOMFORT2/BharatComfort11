@@ -18,43 +18,61 @@ export default function ListingsPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const q = query(
-        collection(db, "listings"),
-        where("status", "==", "approved"),
-        orderBy("createdAt", "desc")
-      );
+    let unsubscribe: (() => void) | undefined;
 
-      const unsubscribe = onSnapshot(
-        q,
-        (snapshot) => {
-          const data: Listing[] = snapshot.docs.map((doc) => {
-            const raw = doc.data() as Listing;
-            // ✅ Prevent duplicate id field
-            const { id: existingId, ...rest } = raw;
-            return { id: doc.id, ...rest };
-          });
+    const fetchListings = async () => {
+      try {
+        const q = query(
+          collection(db, "listings"),
+          where("status", "==", "approved"),
+          orderBy("createdAt", "desc")
+        );
 
-          setListings(data);
-          setLoading(false);
-        },
-        (error) => {
-          console.error("❌ Firestore listener error:", error);
-          setLoading(false);
-        }
-      );
+        unsubscribe = onSnapshot(
+          q,
+          (snapshot) => {
+            const data: Listing[] = snapshot.docs.map((doc) => {
+              const raw = doc.data() as Listing;
+              const { id: existingId, ...rest } = raw;
+              return { id: doc.id, ...rest };
+            });
+            setListings(data);
+            setLoading(false);
+          },
+          (error) => {
+            console.error("❌ Firestore listener error:", error);
 
-      return () => unsubscribe();
-    } catch (err) {
-      console.error("Error setting up listener:", err);
-      setLoading(false);
-    }
+            // ✅ Fallback: fetch without orderBy if index missing
+            if (error.code === "failed-precondition") {
+              const q2 = query(
+                collection(db, "listings"),
+                where("status", "==", "approved")
+              );
+              onSnapshot(q2, (snap) => {
+                const fallback = snap.docs.map((d) => ({
+                  id: d.id,
+                  ...(d.data() as Listing),
+                }));
+                setListings(fallback);
+                setLoading(false);
+              });
+            } else {
+              setLoading(false);
+            }
+          }
+        );
+      } catch (err) {
+        console.error("🔥 Error setting up Firestore listener:", err);
+        setLoading(false);
+      }
+    };
+
+    fetchListings();
+    return () => unsubscribe && unsubscribe();
   }, []);
 
   if (loading)
-    return (
-      <p className="p-6 text-gray-500 animate-pulse">Loading listings...</p>
-    );
+    return <p className="p-6 text-gray-500 animate-pulse">Loading listings...</p>;
 
   if (listings.length === 0)
     return (

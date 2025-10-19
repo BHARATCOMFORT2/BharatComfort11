@@ -15,10 +15,13 @@ import {
   orderBy,
   getDoc,
 } from "firebase/firestore";
-import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 
+/* ----------------------------------------------------
+   Listing Interface
+---------------------------------------------------- */
 interface Listing {
   id?: string;
   name: string;
@@ -32,6 +35,9 @@ interface Listing {
   createdAt?: any;
 }
 
+/* ----------------------------------------------------
+   Main Component
+---------------------------------------------------- */
 export default function ListingsManager() {
   const { firebaseUser: user } = useAuth();
   const [userRole, setUserRole] = useState<string | null>(null);
@@ -44,21 +50,26 @@ export default function ListingsManager() {
     images: [] as File[],
   });
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [editId, setEditId] = useState<string | null>(null);
 
-  // Fetch role
+  /* ----------------------------------------------------
+     Fetch Role of Logged-In User
+  ---------------------------------------------------- */
   useEffect(() => {
     const fetchRole = async () => {
       if (!user?.uid) return;
-      const ref = doc(db, "users", user.uid);
-      const snap = await getDoc(ref);
+      const refDoc = doc(db, "users", user.uid);
+      const snap = await getDoc(refDoc);
       if (snap.exists()) setUserRole(snap.data().role || "partner");
       else setUserRole("partner");
     };
     fetchRole();
   }, [user]);
 
-  // Fetch listings realtime
+  /* ----------------------------------------------------
+     Fetch Listings in Real-time
+  ---------------------------------------------------- */
   useEffect(() => {
     if (!user || !userRole) return;
 
@@ -82,29 +93,79 @@ export default function ListingsManager() {
     return () => unsub();
   }, [user, userRole]);
 
-  const uploadImages = async (files: File[]) => {
+  /* ----------------------------------------------------
+     Upload Images with Progress Tracking
+  ---------------------------------------------------- */
+  const uploadImages = async (
+    files: File[],
+    onProgress: (progress: number) => void
+  ) => {
     const urls: string[] = [];
+    let totalBytes = 0;
+    let uploadedBytes = 0;
+
+    // Total size for percentage tracking
+    files.forEach((f) => (totalBytes += f.size));
+
     for (const file of files) {
-      const storageRef = ref(storage, `listings/${Date.now()}-${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      urls.push(url);
+      try {
+        const storageRef = ref(storage, `listings/${Date.now()}-${file.name}`);
+        const uploadTask = uploadBytesResumable(storageRef, file);
+
+        await new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              const progress =
+                ((uploadedBytes + snapshot.bytesTransferred) / totalBytes) * 100;
+              onProgress(Math.min(progress, 100));
+            },
+            (error) => reject(error),
+            async () => {
+              uploadedBytes += uploadTask.snapshot.totalBytes;
+              const url = await getDownloadURL(uploadTask.snapshot.ref);
+              urls.push(url);
+              resolve();
+            }
+          );
+        });
+      } catch (err) {
+        console.error("❌ Image upload failed:", err);
+        alert(`Image upload failed: ${(err as Error).message}`);
+      }
     }
+
+    onProgress(100);
     return urls;
   };
 
+  /* ----------------------------------------------------
+     Add / Edit Listing
+  ---------------------------------------------------- */
   const handleSubmit = async () => {
-    if (!user) return alert("Please login first");
+    if (!user) {
+      alert("Please login first");
+      return;
+    }
+
+    if (!formData.name || !formData.location || !formData.price) {
+      alert("Please fill in all required fields");
+      return;
+    }
+
     setLoading(true);
+    setUploadProgress(0);
+
     try {
-      const imageUrls = formData.images.length
-        ? await uploadImages(formData.images)
-        : [];
+      const imageUrls =
+        formData.images && formData.images.length > 0
+          ? await uploadImages(formData.images, setUploadProgress)
+          : [];
 
       const data = {
-        name: formData.name,
-        description: formData.description,
-        location: formData.location,
+        name: formData.name.trim(),
+        description: formData.description.trim(),
+        location: formData.location.trim(),
         price: Number(formData.price),
         images: imageUrls,
         createdBy: user.uid,
@@ -118,9 +179,10 @@ export default function ListingsManager() {
         setEditId(null);
       } else {
         await addDoc(collection(db, "listings"), data);
-        alert("✅ Listing added!");
+        alert("✅ Listing added successfully!");
       }
 
+      // Reset form
       setFormData({
         name: "",
         description: "",
@@ -128,19 +190,26 @@ export default function ListingsManager() {
         price: "",
         images: [],
       });
+      setUploadProgress(0);
     } catch (err) {
-      console.error(err);
-      alert("❌ Error saving listing");
+      console.error("🔥 Error saving listing:", err);
+      alert(`❌ Failed to save listing: ${(err as Error).message}`);
     } finally {
       setLoading(false);
     }
   };
 
+  /* ----------------------------------------------------
+     Delete Listing
+  ---------------------------------------------------- */
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this listing?")) return;
     await deleteDoc(doc(db, "listings", id));
   };
 
+  /* ----------------------------------------------------
+     Edit Listing
+  ---------------------------------------------------- */
   const handleEdit = (listing: Listing) => {
     setEditId(listing.id!);
     setFormData({
@@ -152,6 +221,9 @@ export default function ListingsManager() {
     });
   };
 
+  /* ----------------------------------------------------
+     Approve / Reject (Admin Only)
+  ---------------------------------------------------- */
   const handleApprove = async (id: string) => {
     if (userRole !== "admin") return;
     await updateDoc(doc(db, "listings", id), { status: "approved" });
@@ -162,15 +234,18 @@ export default function ListingsManager() {
     await updateDoc(doc(db, "listings", id), { status: "rejected" });
   };
 
+  /* ----------------------------------------------------
+     UI Rendering
+  ---------------------------------------------------- */
   if (!user)
-    return <p className="text-gray-500">Please log in to manage your listings.</p>;
+    return <p className="text-gray-500">Please log in to manage listings.</p>;
 
   if (!userRole)
     return <p className="text-gray-500">Loading your role...</p>;
 
   return (
     <div className="mt-10">
-      {/* Listing form */}
+      {/* ====== Listing Form ====== */}
       <div className="grid md:grid-cols-2 gap-4 mb-6 bg-white shadow p-6 rounded-lg">
         <h2 className="text-xl font-semibold mb-3 col-span-full">
           {editId ? "Edit Listing" : "Add New Listing"}
@@ -203,6 +278,7 @@ export default function ListingsManager() {
             setFormData({ ...formData, description: e.target.value })
           }
         />
+
         <input
           type="file"
           multiple
@@ -214,20 +290,35 @@ export default function ListingsManager() {
             })
           }
         />
-        <Button
-          onClick={handleSubmit}
-          disabled={loading}
-          className="bg-blue-600 text-white w-full py-3 rounded-lg mt-3"
-        >
-          {loading
-            ? "Processing..."
-            : editId
-            ? "Update Listing"
-            : "Add Listing"}
-        </Button>
+
+        <div className="col-span-full">
+          <Button
+            onClick={handleSubmit}
+            disabled={loading}
+            className="bg-blue-600 text-white w-full py-3 rounded-lg mt-3 transition hover:bg-blue-700"
+          >
+            {loading
+              ? uploadProgress < 100
+                ? `Uploading ${Math.floor(uploadProgress)}%...`
+                : "Processing..."
+              : editId
+              ? "Update Listing"
+              : "Add Listing"}
+          </Button>
+
+          {/* 🩵 Progress Bar */}
+          {loading && uploadProgress > 0 && (
+            <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
+              <div
+                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${uploadProgress}%` }}
+              ></div>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Listing cards */}
+      {/* ====== Listing Cards ====== */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-xl font-semibold mb-4">Your Listings</h2>
         {listings.length === 0 ? (

@@ -3,42 +3,66 @@ import * as admin from "firebase-admin";
 
 let app: admin.app.App;
 
-// 🧩 Function to normalize private key format
-function formatPrivateKey(key?: string): string | undefined {
-  if (!key) return undefined;
+/* --------------------------------------------------
+   🔐 Helper: Format or Decode Private Key
+-------------------------------------------------- */
+function resolvePrivateKey(): string | undefined {
+  const base64Key = process.env.FIREBASE_PRIVATE_KEY_BASE64;
+  const rawKey = process.env.FIREBASE_PRIVATE_KEY;
 
-  // Case 1: key already multiline — looks correct
-  if (key.includes("-----BEGIN PRIVATE KEY-----") && key.includes("\n")) {
-    return key;
+  // 🧩 1️⃣ If Base64 version exists, decode it
+  if (base64Key) {
+    try {
+      const decoded = Buffer.from(base64Key, "base64").toString("utf8");
+      if (decoded.includes("-----BEGIN PRIVATE KEY-----")) {
+        console.log("✅ Using Base64-decoded FIREBASE_PRIVATE_KEY_BASE64");
+        return decoded;
+      } else {
+        console.warn("⚠️ Base64 decoded key does not look like a valid PEM file.");
+        return decoded;
+      }
+    } catch (err) {
+      console.error("❌ Failed to decode FIREBASE_PRIVATE_KEY_BASE64:", err);
+    }
   }
 
-  // Case 2: key stored as a single line with \n escapes — fix it
-  return key.replace(/\\n/g, "\n");
+  // 🧩 2️⃣ Otherwise, use the normal PEM or escaped version
+  if (rawKey) {
+    if (rawKey.includes("\\n")) {
+      console.log("✅ Using FIREBASE_PRIVATE_KEY with escaped \\n newlines");
+      return rawKey.replace(/\\n/g, "\n");
+    }
+    if (rawKey.includes("-----BEGIN PRIVATE KEY-----")) {
+      console.log("✅ Using FIREBASE_PRIVATE_KEY with proper PEM format");
+      return rawKey;
+    }
+  }
+
+  console.error("❌ No valid FIREBASE_PRIVATE_KEY or FIREBASE_PRIVATE_KEY_BASE64 found!");
+  return undefined;
 }
 
-// 🧠 Extract environment variables
+/* --------------------------------------------------
+   🧠 Extract and Validate Environment Variables
+-------------------------------------------------- */
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = formatPrivateKey(process.env.FIREBASE_PRIVATE_KEY);
+const privateKey = resolvePrivateKey();
 
-// 🧾 Validation and logging (helps debug on Netlify)
 if (!projectId || !clientEmail || !privateKey) {
-  console.error("❌ Firebase Admin missing environment vars:", {
+  console.error("❌ Missing Firebase Admin credentials:", {
     hasProjectId: !!projectId,
     hasClientEmail: !!clientEmail,
     hasPrivateKey: !!privateKey,
   });
-  throw new Error("Missing Firebase Admin environment variables");
-}
-
-// 🔍 Show early warning if the private key looks broken
-if (!privateKey.includes("-----BEGIN PRIVATE KEY-----")) {
-  console.warn("⚠️ FIREBASE_PRIVATE_KEY is malformed (missing PEM header).");
+  throw new Error("Firebase Admin environment variables are missing or invalid");
 }
 
 console.log("✅ Firebase Admin initialization starting...");
 
-// ✅ Initialize app safely
+/* --------------------------------------------------
+   🚀 Initialize Firebase Admin App
+-------------------------------------------------- */
 if (!admin.apps.length) {
   app = admin.initializeApp({
     credential: admin.credential.cert({
@@ -47,11 +71,15 @@ if (!admin.apps.length) {
       privateKey,
     }),
   });
+  console.log("✅ Firebase Admin initialized successfully");
 } else {
   app = admin.app();
+  console.log("ℹ️ Firebase Admin already initialized");
 }
 
-// Export Firestore + Auth clients
+/* --------------------------------------------------
+   🧩 Export Utilities
+-------------------------------------------------- */
 export const adminDb = admin.firestore();
 export const adminAuth = admin.auth();
 
@@ -59,4 +87,14 @@ export function getFirebaseAdmin() {
   return { admin, app, adminDb, adminAuth };
 }
 
-console.log("✅ Firebase Admin loaded successfully");
+/* --------------------------------------------------
+   ✅ Optional: Verify connection at startup
+-------------------------------------------------- */
+(async () => {
+  try {
+    await adminDb.listCollections();
+    console.log("✅ Firebase Admin Firestore connection verified");
+  } catch (err) {
+    console.error("🔥 Firebase Admin Firestore connection failed:", err);
+  }
+})();

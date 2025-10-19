@@ -4,61 +4,35 @@ import * as admin from "firebase-admin";
 let app: admin.app.App;
 
 /* --------------------------------------------------
-   🔐 Helper: Format or Decode Private Key
+   🔐 Resolve Private Key (Plain Text, with \n Escapes)
 -------------------------------------------------- */
-function resolvePrivateKey(): string | undefined {
-  const base64Key = process.env.FIREBASE_PRIVATE_KEY_BASE64;
+function resolvePrivateKey(): string {
   const rawKey = process.env.FIREBASE_PRIVATE_KEY;
 
-  // 🧩 1️⃣ If Base64 version exists, decode it
-  if (base64Key) {
-    try {
-      const decoded = Buffer.from(base64Key, "base64").toString("utf8");
-      if (decoded.includes("-----BEGIN PRIVATE KEY-----")) {
-        console.log("✅ Using Base64-decoded FIREBASE_PRIVATE_KEY_BASE64");
-        return decoded;
-      } else {
-        console.warn("⚠️ Base64 decoded key does not look like a valid PEM file.");
-        return decoded;
-      }
-    } catch (err) {
-      console.error("❌ Failed to decode FIREBASE_PRIVATE_KEY_BASE64:", err);
-    }
+  if (!rawKey) {
+    throw new Error("❌ FIREBASE_PRIVATE_KEY is missing from environment variables");
   }
 
-  // 🧩 2️⃣ Otherwise, use the normal PEM or escaped version
-  if (rawKey) {
-    if (rawKey.includes("\\n")) {
-      console.log("✅ Using FIREBASE_PRIVATE_KEY with escaped \\n newlines");
-      return rawKey.replace(/\\n/g, "\n");
-    }
-    if (rawKey.includes("-----BEGIN PRIVATE KEY-----")) {
-      console.log("✅ Using FIREBASE_PRIVATE_KEY with proper PEM format");
-      return rawKey;
-    }
+  // Replace literal \n with real newlines (needed for Netlify)
+  const formattedKey = rawKey.replace(/\\n/g, "\n");
+
+  if (!formattedKey.startsWith("-----BEGIN PRIVATE KEY-----")) {
+    throw new Error("❌ FIREBASE_PRIVATE_KEY format invalid — ensure \\n are used, not real newlines.");
   }
 
-  console.error("❌ No valid FIREBASE_PRIVATE_KEY or FIREBASE_PRIVATE_KEY_BASE64 found!");
-  return undefined;
+  return formattedKey;
 }
 
 /* --------------------------------------------------
-   🧠 Extract and Validate Environment Variables
+   🧠 Validate Required Variables
 -------------------------------------------------- */
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const privateKey = resolvePrivateKey();
 
-if (!projectId || !clientEmail || !privateKey) {
-  console.error("❌ Missing Firebase Admin credentials:", {
-    hasProjectId: !!projectId,
-    hasClientEmail: !!clientEmail,
-    hasPrivateKey: !!privateKey,
-  });
-  throw new Error("Firebase Admin environment variables are missing or invalid");
+if (!projectId || !clientEmail) {
+  throw new Error("❌ Firebase Admin environment variables missing (projectId/clientEmail)");
 }
-
-console.log("✅ Firebase Admin initialization starting...");
 
 /* --------------------------------------------------
    🚀 Initialize Firebase Admin App
@@ -74,11 +48,10 @@ if (!admin.apps.length) {
   console.log("✅ Firebase Admin initialized successfully");
 } else {
   app = admin.app();
-  console.log("ℹ️ Firebase Admin already initialized");
 }
 
 /* --------------------------------------------------
-   🧩 Export Utilities
+   🧩 Exports
 -------------------------------------------------- */
 export const adminDb = admin.firestore();
 export const adminAuth = admin.auth();
@@ -88,7 +61,8 @@ export function getFirebaseAdmin() {
 }
 
 /* --------------------------------------------------
-   ✅ Optional: Verify connection at startup
+   ✅ Verify Firestore Connection (Optional)
+   - You can comment this out for production
 -------------------------------------------------- */
 (async () => {
   try {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getRazorpayServerInstance } from "@/lib/payments-razorpay"; // ✅ runtime instance
+import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 import { db } from "@/lib/firebase";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   try {
     const { amount, listingId, userId } = await req.json();
 
-    // ✅ Validate input
+    // ✅ 1️⃣ Validate input
     if (!amount || amount <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid amount" },
@@ -15,17 +15,22 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Step 1: Create Razorpay instance at runtime
+    // ✅ 2️⃣ Initialize Razorpay
     const razorpay = getRazorpayServerInstance();
+    if (!razorpay) {
+      throw new Error(
+        "⚠️ Razorpay not initialized. Check RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET env vars."
+      );
+    }
 
-    // ✅ Step 2: Create order with Razorpay
+    // ✅ 3️⃣ Create order with Razorpay
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // convert to paise
+      amount: Math.round(amount * 100), // INR → paise
       currency: "INR",
       receipt: `rcpt_${Date.now()}`,
     });
 
-    // ✅ Step 3: Store pending payment record in Firestore
+    // ✅ 4️⃣ Store pending payment in Firestore
     const orderRef = doc(db, "payments", order.id);
     await setDoc(orderRef, {
       userId: userId ?? "guest",
@@ -37,7 +42,7 @@ export async function POST(req: Request) {
       createdAt: serverTimestamp(),
     });
 
-    // ✅ Step 4: Return order to frontend
+    // ✅ 5️⃣ Return order details
     return NextResponse.json({
       success: true,
       id: order.id,

@@ -4,7 +4,7 @@ import * as admin from "firebase-admin";
 let app: admin.app.App;
 
 /* --------------------------------------------------
-   🔐 Resolve Private Key (Plain Text, with \n Escapes)
+   🔐 Resolve Private Key (works for both formats)
 -------------------------------------------------- */
 function resolvePrivateKey(): string {
   const rawKey = process.env.FIREBASE_PRIVATE_KEY;
@@ -13,11 +13,13 @@ function resolvePrivateKey(): string {
     throw new Error("❌ FIREBASE_PRIVATE_KEY is missing from environment variables");
   }
 
-  // Replace literal \n with real newlines (needed for Netlify)
-  const formattedKey = rawKey.replace(/\\n/g, "\n");
+  // Handle both escaped (\n) and raw multiline keys
+  const formattedKey = rawKey.includes("\\n")
+    ? rawKey.replace(/\\n/g, "\n")
+    : rawKey;
 
-  if (!formattedKey.startsWith("-----BEGIN PRIVATE KEY-----")) {
-    throw new Error("❌ FIREBASE_PRIVATE_KEY format invalid — ensure \\n are used, not real newlines.");
+  if (!formattedKey.includes("BEGIN PRIVATE KEY")) {
+    throw new Error("❌ FIREBASE_PRIVATE_KEY format invalid — must contain BEGIN PRIVATE KEY header");
   }
 
   return formattedKey;
@@ -61,8 +63,7 @@ export function getFirebaseAdmin() {
 }
 
 /* --------------------------------------------------
-   ✅ Verify Firestore Connection (Optional)
-   - You can comment this out for production
+   ✅ Optional Firestore Connectivity Test
 -------------------------------------------------- */
 (async () => {
   try {

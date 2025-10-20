@@ -2,20 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { motion, useScroll, useTransform } from "framer-motion";
+import dynamic from "next/dynamic";
+
 import { auth, db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 
-import Hero from "@/components/home/Hero";
-import QuickActionStrip from "@/components/home/QuickActionStrip";
-import FeaturedListings from "@/components/home/FeaturedListings";
-import PromotionsStrip from "@/components/home/PromotionsStrip";
-import RecentStories from "@/components/home/RecentStories";
-import TrendingDestinations from "@/components/home/TrendingDestinations";
-import Testimonials from "@/components/home/Testimonials";
-import NewsletterSignup from "@/components/home/NewsletterSignup";
-import Footer from "@/components/home/Footer";
-import AIRecommendations from "@/components/home/AIRecommendations";
-import { getHomepageData, HomepageSection } from "@/lib/getHomepageData";
+// 🧱 Lazy imports for heavy components (boosts performance)
+const Hero = dynamic(() => import("@/components/home/Hero"));
+const QuickActionStrip = dynamic(() => import("@/components/home/QuickActionStrip"));
+const FeaturedListings = dynamic(() => import("@/components/home/FeaturedListings"));
+const PromotionsStrip = dynamic(() => import("@/components/home/PromotionsStrip"));
+const RecentStories = dynamic(() => import("@/components/home/RecentStories"));
+const TrendingDestinations = dynamic(() => import("@/components/home/TrendingDestinations"));
+const Testimonials = dynamic(() => import("@/components/home/Testimonials"));
+const NewsletterSignup = dynamic(() => import("@/components/home/NewsletterSignup"));
+const Footer = dynamic(() => import("@/components/home/Footer"));
+const AIRecommendations = dynamic(() => import("@/components/home/AIRecommendations"));
 
 export default function HomePage() {
   const { scrollY } = useScroll();
@@ -24,25 +26,38 @@ export default function HomePage() {
 
   const [profile, setProfile] = useState<any>(null);
 
-  // -------------------- Fetch logged-in user profile --------------------
+  // ✅ Safe listener: Only fetch Firestore data when user is authenticated
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        const docRef = doc(db, "users", user.uid);
-        const unsubProfile = onSnapshot(docRef, (snap) => {
+    const unsubscribeAuth = auth.onAuthStateChanged((user) => {
+      if (!user) {
+        setProfile(null);
+        return;
+      }
+
+      const ref = doc(db, "users", user.uid);
+      const unsubscribeProfile = onSnapshot(
+        ref,
+        (snap) => {
           if (snap.exists()) setProfile(snap.data());
           else setProfile({ name: "Traveler", role: "user" });
-        });
-        return () => unsubProfile();
-      }
+        },
+        (err) => {
+          console.warn("⚠️ Firestore listener error:", err.message);
+        }
+      );
+
+      return () => unsubscribeProfile();
     });
-    return () => unsub();
+
+    return () => unsubscribeAuth();
   }, []);
 
   return (
     <main className="relative bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-gray-900 min-h-screen font-sans overflow-x-hidden">
-      
-      <Hero />
+      {/* Hero Section */}
+      <motion.div style={{ y: yHero }}>
+        <Hero />
+      </motion.div>
 
       {/* Quick Actions */}
       <motion.section
@@ -70,7 +85,7 @@ export default function HomePage() {
         <FeaturedListings />
       </motion.section>
 
-      {/* AI Recommendations */}
+      {/* AI Recommendations (visible only when logged in) */}
       {profile && (
         <motion.section
           className="py-16 container mx-auto px-4"
@@ -133,7 +148,7 @@ export default function HomePage() {
         <Testimonials />
       </motion.section>
 
-      {/* Newsletter */}
+      {/* Newsletter Signup */}
       <motion.section
         className="py-16 container mx-auto px-4 text-center"
         initial={{ opacity: 0, y: 40 }}
@@ -144,6 +159,7 @@ export default function HomePage() {
         <NewsletterSignup />
       </motion.section>
 
+      {/* Footer */}
       <Footer />
     </main>
   );

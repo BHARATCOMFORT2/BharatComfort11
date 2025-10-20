@@ -1,10 +1,18 @@
 import { NextResponse } from "next/server";
 import { verifyPayment } from "@/lib/payments-razorpay";
-import { db } from "@/lib/firebase"; // Works fine if you already configured Firebase client SDK
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { adminDb } from "@/lib/firebaseadmin"; // ✅ Server-safe
+import { serverTimestamp } from "firebase/firestore";
+
+function resolveSecret() {
+  const raw = process.env.RAZORPAY_KEY_SECRET?.trim();
+  const encoded = process.env.RAZORPAY_KEY_SECRET_BASE64?.trim();
+  if (raw) return raw;
+  if (encoded) return Buffer.from(encoded, "base64").toString("utf8");
+  return null;
+}
 
 /**
- * ✅ Verify Razorpay payment and store confirmed booking in Firestore
+ * ✅ Verify Razorpay payment and create confirmed booking
  */
 export async function POST(req: Request) {
   try {
@@ -37,16 +45,22 @@ export async function POST(req: Request) {
     }
 
     // ------------------------------------------------
-    // 2️⃣ Ensure Razorpay secret key is available
+    // 2️⃣ Ensure secret exists
     // ------------------------------------------------
-    const secret = process.env.RAZORPAY_KEY_SECRET;
+    const secret = resolveSecret();
     if (!secret) {
-      console.error("❌ Missing RAZORPAY_KEY_SECRET in environment.");
+      console.error("❌ Razorpay secret missing in environment.");
       return NextResponse.json(
-        { success: false, error: "Payment verification keys not set on server." },
+        { success: false, error: "Server missing Razorpay credentials." },
         { status: 500 }
       );
     }
+
+    console.log("🔍 Verifying Razorpay payment:", {
+      order: razorpay_order_id,
+      payment: razorpay_payment_id,
+      hasSecret: !!secret,
+    });
 
     // ------------------------------------------------
     // 3️⃣ Verify Razorpay signature
@@ -58,7 +72,7 @@ export async function POST(req: Request) {
     });
 
     if (!isValid) {
-      console.error("❌ Razorpay payment signature mismatch.");
+      console.error("❌ Razorpay signature mismatch.");
       return NextResponse.json(
         { success: false, error: "Invalid Razorpay signature" },
         { status: 400 }
@@ -66,7 +80,7 @@ export async function POST(req: Request) {
     }
 
     // ------------------------------------------------
-    // 4️⃣ Create confirmed booking record
+    // 4️⃣ Create confirmed booking
     // ------------------------------------------------
     const booking = {
       listingId,
@@ -81,17 +95,17 @@ export async function POST(req: Request) {
       createdAt: serverTimestamp(),
     };
 
-    await addDoc(collection(db, "bookings"), booking);
+    await adminDb.collection("bookings").add(booking);
 
     // ------------------------------------------------
-    // 5️⃣ Return success response
+    // 5️⃣ Success response
     // ------------------------------------------------
     return NextResponse.json({
       success: true,
-      message: "✅ Payment verified successfully & booking confirmed.",
+      message: "✅ Payment verified & booking confirmed.",
     });
   } catch (err: any) {
-    console.error("🔥 Error in Razorpay verification route:", err);
+    console.error("🔥 Error verifying Razorpay payment:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Internal Server Error" },
       { status: 500 }

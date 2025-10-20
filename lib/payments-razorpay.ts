@@ -2,40 +2,54 @@ import Razorpay from "razorpay";
 import crypto from "crypto";
 
 /* ==============================================================
- 🧩 SERVER-SIDE INITIALIZATION
+ 🧩  SERVER-SIDE INITIALIZATION (SAFE FOR NETLIFY)
  ============================================================== */
 
 let razorpayInstance: Razorpay | null = null;
 
 /**
- * Returns or creates a singleton Razorpay instance (server-side)
+ * ✅ Get Razorpay credentials safely (supports both server + build envs)
+ */
+function getKeys() {
+  const keyId =
+    process.env.RAZORPAY_KEY_ID ||
+    process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
+    "";
+  const keySecret = process.env.RAZORPAY_KEY_SECRET || "";
+
+  return { keyId: keyId.trim(), keySecret: keySecret.trim() };
+}
+
+/**
+ * ✅ Create and reuse a Razorpay instance (server-side only)
  */
 export function getRazorpayServerInstance(): Razorpay | null {
+  const { keyId, keySecret } = getKeys();
+
+  if (!keyId || !keySecret) {
+    console.warn("⚠️ Missing Razorpay environment keys:", {
+      keyId: !!keyId,
+      keySecret: !!keySecret,
+    });
+    return null;
+  }
+
   if (!razorpayInstance) {
-    const keyId = process.env.RAZORPAY_KEY_ID;
-    const keySecret = process.env.RAZORPAY_KEY_SECRET;
-
-    if (!keyId || !keySecret) {
-      console.warn(
-        "⚠️ Missing RAZORPAY_KEY_ID or RAZORPAY_KEY_SECRET in environment."
-      );
-      return null;
-    }
-
     razorpayInstance = new Razorpay({
       key_id: keyId,
       key_secret: keySecret,
     });
+    console.log("✅ Razorpay instance initialized successfully");
   }
 
   return razorpayInstance;
 }
 
-/** ✅ Exported Razorpay client for API routes */
+/** Exported instance for API routes */
 export const razorpay = getRazorpayServerInstance();
 
 /* ==============================================================
- 💳 CREATE ORDER (SERVER)
+ 💳  CREATE ORDER (SERVER)
  ============================================================== */
 
 interface CreateOrderInput {
@@ -45,7 +59,7 @@ interface CreateOrderInput {
 }
 
 /**
- * Creates a Razorpay order (server-side only)
+ * ✅ Create a Razorpay order securely (server-side)
  */
 export async function createOrder({
   amount,
@@ -55,12 +69,13 @@ export async function createOrder({
   if (!amount || amount <= 0)
     throw new Error("Amount must be greater than 0");
 
-  if (!razorpay)
+  const instance = getRazorpayServerInstance();
+  if (!instance)
     throw new Error(
-      "⚠️ Razorpay client not initialized. Check your .env keys."
+      "⚠️ Razorpay instance not initialized. Check environment keys."
     );
 
-  const order = await razorpay.orders.create({
+  const order = await instance.orders.create({
     amount: Math.round(amount * 100), // convert INR → paise
     currency,
     receipt: receipt || `rcpt_${Date.now()}`,
@@ -70,12 +85,9 @@ export async function createOrder({
 }
 
 /* ==============================================================
- 🔐 VERIFY PAYMENT (SERVER)
+ 🔐  VERIFY PAYMENT SIGNATURE (SERVER)
  ============================================================== */
 
-/**
- * Verify payment signature sent from Razorpay
- */
 export function verifyPayment({
   razorpay_order_id,
   razorpay_payment_id,
@@ -86,12 +98,15 @@ export function verifyPayment({
   razorpay_signature: string;
 }): boolean {
   try {
-    const secret = process.env.RAZORPAY_KEY_SECRET!;
+    const secret = process.env.RAZORPAY_KEY_SECRET;
+    if (!secret) throw new Error("Razorpay secret key missing");
+
     const sign = `${razorpay_order_id}|${razorpay_payment_id}`;
     const expected = crypto
       .createHmac("sha256", secret)
       .update(sign)
       .digest("hex");
+
     return expected === razorpay_signature;
   } catch (err) {
     console.error("❌ Error verifying Razorpay signature:", err);
@@ -100,7 +115,7 @@ export function verifyPayment({
 }
 
 /* ==============================================================
- 💻 CLIENT-SIDE CHECKOUT
+ 💻  CLIENT-SIDE CHECKOUT (BROWSER)
  ============================================================== */
 
 interface OpenCheckoutInput {
@@ -114,7 +129,7 @@ interface OpenCheckoutInput {
 }
 
 /**
- * Opens Razorpay Checkout modal (client-side only)
+ * ✅ Open Razorpay Checkout modal (client-side)
  */
 export function openRazorpayCheckout({
   amount,
@@ -127,9 +142,9 @@ export function openRazorpayCheckout({
 }: OpenCheckoutInput) {
   if (typeof window === "undefined") return;
 
-  const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID; // ✅ unified public key
+  const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   if (!key) {
-    console.warn("⚠️ NEXT_PUBLIC_RAZORPAY_KEY_ID missing in .env.local");
+    console.warn("⚠️ NEXT_PUBLIC_RAZORPAY_KEY_ID missing in environment");
     if (onFailure) onFailure({ error: "Razorpay key not configured" });
     return;
   }
@@ -143,7 +158,7 @@ export function openRazorpayCheckout({
     prefill: { email, contact: phone },
     theme: { color: "#2563eb" },
     handler: (response: any) => {
-      console.log("✅ Payment Success:", response);
+      console.log("✅ Payment successful:", response);
       if (onSuccess) onSuccess(response);
     },
     modal: {
@@ -158,7 +173,7 @@ export function openRazorpayCheckout({
     const rzp = new (window as any).Razorpay(options);
     rzp.open();
   } catch (err) {
-    console.error("❌ Razorpay Checkout error:", err);
+    console.error("❌ Razorpay Checkout Error:", err);
     if (onFailure) onFailure({ error: err });
   }
 }

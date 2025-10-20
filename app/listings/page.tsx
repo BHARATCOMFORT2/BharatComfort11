@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { collection, onSnapshot, query, where, orderBy } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  orderBy,
+  QuerySnapshot,
+  DocumentData,
+} from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import ListingGrid from "@/components/listings/ListingGrid";
 import { Listing } from "@/components/listings/ListingCard";
@@ -20,8 +28,9 @@ export default function ListingsPage() {
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
 
-    const fetchListings = async () => {
+    const setupListener = async () => {
       try {
+        // ✅ Query approved listings sorted by creation
         const q = query(
           collection(db, "listings"),
           where("status", "==", "approved"),
@@ -30,30 +39,34 @@ export default function ListingsPage() {
 
         unsubscribe = onSnapshot(
           q,
-          (snapshot) => {
-            const data: Listing[] = snapshot.docs.map((doc) => {
-              const raw = doc.data() as Listing;
-              const { id: existingId, ...rest } = raw;
-              return { id: doc.id, ...rest };
+          (snapshot: QuerySnapshot<DocumentData>) => {
+            const parsed: Listing[] = snapshot.docs.map((doc) => {
+              const data = doc.data() as Listing;
+              // Ensure valid coordinates for the map
+              if (typeof data.lat !== "number" || typeof data.lng !== "number") {
+                data.lat = 20.5937; // default India center
+                data.lng = 78.9629;
+              }
+              return { id: doc.id, ...data };
             });
-            setListings(data);
+            setListings(parsed);
             setLoading(false);
           },
           (error) => {
             console.error("❌ Firestore listener error:", error);
 
-            // ✅ Fallback: fetch without orderBy if index missing
+            // 🔁 Fallback: re-run query without orderBy (missing index scenario)
             if (error.code === "failed-precondition") {
-              const q2 = query(
-                collection(db, "listings"),
-                where("status", "==", "approved")
-              );
+              const q2 = query(collection(db, "listings"), where("status", "==", "approved"));
               onSnapshot(q2, (snap) => {
-                const fallback = snap.docs.map((d) => {
-  const raw = d.data() as Listing;
-  const { id: _existingId, ...rest } = raw; // avoid duplicate id
-  return { id: d.id, ...rest };
-});
+                const fallback = snap.docs.map((doc) => {
+                  const data = doc.data() as Listing;
+                  if (typeof data.lat !== "number" || typeof data.lng !== "number") {
+                    data.lat = 20.5937;
+                    data.lng = 78.9629;
+                  }
+                  return { id: doc.id, ...data };
+                });
                 setListings(fallback);
                 setLoading(false);
               });
@@ -68,19 +81,21 @@ export default function ListingsPage() {
       }
     };
 
-    fetchListings();
+    setupListener();
     return () => unsubscribe && unsubscribe();
   }, []);
 
-  if (loading)
+  if (loading) {
     return <p className="p-6 text-gray-500 animate-pulse">Loading listings...</p>;
+  }
 
-  if (listings.length === 0)
+  if (listings.length === 0) {
     return (
       <p className="p-6 text-gray-600">
         No approved listings available yet. Please check back later.
       </p>
     );
+  }
 
   return (
     <div className="p-6 space-y-8">

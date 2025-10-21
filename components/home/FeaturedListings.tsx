@@ -1,24 +1,23 @@
-"use client";
-
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot } from "firebase/firestore";
+import { collection, onSnapshot, query, where, orderBy, limit } from "firebase/firestore";
 import { motion } from "framer-motion";
 
 export default function FeaturedListings() {
-  const [listings, setListings] = useState<
-    { id: string; title: string; location: string; price: number; imageUrl: string }[]
-  >([]);
+  const [listings, setListings] = useState<any[]>([]);
 
   useEffect(() => {
-    const unsub = onSnapshot(
-      collection(db, "homepage", "featured", "items"),
-      (snap) => {
-        setListings(
-          snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-        );
-      }
+    const q = query(
+      collection(db, "listings"),
+      where("status", "==", "approved"),
+      orderBy("createdAt", "desc"),
+      limit(6)
     );
+
+    const unsub = onSnapshot(q, (snap) => {
+      setListings(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
+    });
+
     return () => unsub();
   }, []);
 
@@ -34,7 +33,8 @@ export default function FeaturedListings() {
       {listings.map((item, i) => (
         <motion.div
           key={item.id}
-          className="rounded-2xl overflow-hidden shadow-md bg-white/50"
+          onClick={() => (window.location.href = `/listing/${item.id}`)} // ✅ Navigate to details
+          className="rounded-2xl overflow-hidden shadow-md bg-white/50 cursor-pointer"
           initial={{ opacity: 0, y: 30 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: i * 0.1 }}
@@ -47,7 +47,7 @@ export default function FeaturedListings() {
             }}
           ></div>
           <div className="p-4">
-            <h3 className="text-lg font-bold">{item.title}</h3>
+            <h3 className="text-lg font-bold">{item.name || item.title}</h3>
             <p className="text-sm text-gray-600">{item.location}</p>
             <p className="font-semibold mt-1">₹{item.price}/night</p>
           </div>

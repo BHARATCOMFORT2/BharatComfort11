@@ -1,7 +1,7 @@
 [build]
   command = "npm run build"
   publish = ".next"
-  functions = "netlify/functions/"
+  functions = ".netlify/functions"
 
 [functions]
   node_bundler = "esbuild"
@@ -12,3 +12,5 @@
 
 [build.environment]
   NEXT_DISABLE_ENV_INJECTION = "true"
+  NETLIFY_NEXT_PLUGIN_FORCE_RUN = "true"
+  NODE_VERSION = "18"

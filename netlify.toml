@@ -5,10 +5,10 @@
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["razorpay", "@netlify/next"]
+  external_node_modules = ["razorpay"]
 
 [[plugins]]
-  package = "@netlify/next"
+  package = "@netlify/plugin-nextjs"
 
 [build.environment]
   NEXT_DISABLE_ENV_INJECTION = "true"

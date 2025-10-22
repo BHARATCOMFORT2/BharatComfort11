@@ -16,6 +16,7 @@ import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 import { Button } from "@/components/ui/Button";
+import { motion, AnimatePresence } from "framer-motion";
 
 // ✅ Avoid SSR issues with Leaflet map
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
@@ -60,7 +61,7 @@ export default function ListingsPage() {
     rating: 0,
   });
 
-  // 🧠 Local debounce logic (no dependency)
+  // 🧠 Local debounce logic
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedFilters(filters), 400);
@@ -110,15 +111,15 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
+
         const newListings = snap.docs.map((doc) => {
-          const newListings = snap.docs.map((doc) => {
-  const { id: _ignoredId, ...data } = doc.data() as Listing;
-  const images =
-    Array.isArray(data.images) && data.images.length > 0
-      ? data.images
-      : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
-  return { id: doc.id, ...data, images };
-});
+          const { id: _ignoredId, ...data } = doc.data() as Listing;
+          const images =
+            Array.isArray(data.images) && data.images.length > 0
+              ? data.images
+              : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
+          return { id: doc.id, ...data, images };
+        });
 
         setListings((prev) => (reset ? newListings : [...prev, ...newListings]));
         setLastDoc(snap.docs[snap.docs.length - 1]);
@@ -198,7 +199,7 @@ export default function ListingsPage() {
   };
 
   /* ---------------------------------------------------
-     🧱 Listing Card with Scrolling Images
+     🧱 Listing Card with Lazy Carousel + Fade Transition
   --------------------------------------------------- */
   const ListingCard = ({ listing }: { listing: Listing }) => {
     const [current, setCurrent] = useState(0);
@@ -212,14 +213,22 @@ export default function ListingsPage() {
     }, [listing.images]);
 
     return (
-      <div className="border rounded-xl shadow hover:shadow-lg bg-white overflow-hidden transition">
+      <div className="border rounded-xl shadow hover:shadow-xl bg-white overflow-hidden transition-all duration-300">
         {/* 🖼️ Carousel */}
-        <div className="relative w-full h-48">
-          <img
-            src={listing.images?.[current]}
-            alt={listing.name}
-            className="w-full h-full object-cover transition-all duration-700"
-          />
+        <div className="relative w-full h-52 overflow-hidden">
+          <AnimatePresence mode="wait">
+            <motion.img
+              key={listing.images?.[current]}
+              src={listing.images?.[current]}
+              alt={listing.name}
+              loading="lazy"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.8 }}
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+          </AnimatePresence>
           <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1">
             {listing.images?.map((_, i) => (
               <span
@@ -234,8 +243,10 @@ export default function ListingsPage() {
 
         {/* 📋 Info */}
         <div className="p-4 space-y-2">
-          <h3 className="text-lg font-semibold text-gray-800">{listing.name}</h3>
-          <p className="text-gray-600 text-sm">{listing.location}</p>
+          <h3 className="text-lg font-semibold text-gray-800 truncate">
+            {listing.name}
+          </h3>
+          <p className="text-gray-600 text-sm truncate">{listing.location}</p>
           <div className="flex justify-between items-center">
             <span className="text-blue-600 font-bold">₹{listing.price}</span>
             <span className="text-yellow-600 text-sm">

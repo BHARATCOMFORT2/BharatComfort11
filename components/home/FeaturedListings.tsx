@@ -167,7 +167,7 @@ useEffect(() => {
 
   const el = scrollRef.current;
   let animationFrame: number;
-  let scrollSpeed = 0.6; // Adjust this value to control speed
+  const scrollSpeed = 0.6; // Adjust this value to control speed
 
   const autoScroll = () => {
     if (!isHovered) {

@@ -8,6 +8,7 @@ import { differenceInDays, format } from "date-fns";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { startPayment } from "@/lib/payments/client";
+import { requireAuthUser } from "@/lib/auth-client"; // ✅ added helper for strict auth
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -22,27 +23,30 @@ export default function BookingPage() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
-  // 🔐 Auth Check
+  // 🔐 Auth Check — Real-time listener
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((currentUser) => {
+    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser || null);
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, []);
 
-  // 🏠 Listing Data
+  // 🏠 Realtime Listing Data
   useEffect(() => {
     if (!id) return;
     const ref = doc(db, "listings", id as string);
-    const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) setListing({ id: snap.id, ...snap.data() });
-      else setListing(null);
+    const unsubscribe = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        setListing({ id: snap.id, ...snap.data() });
+      } else {
+        setListing(null);
+      }
       setLoading(false);
     });
-    return () => unsub();
+    return () => unsubscribe();
   }, [id]);
 
-  // 💰 Price Calc
+  // 💰 Auto Price Calculation
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
@@ -50,32 +54,34 @@ export default function BookingPage() {
     }
   }, [checkIn, checkOut, guests, listing]);
 
-  // 💳 Handle Payment
+  // 💳 Handle Secure Payment
   const handlePayment = async () => {
-    if (user === undefined) {
-      alert("Checking your login status...");
-      return;
-    }
-    if (!user) {
-      alert("You must be logged in to continue booking.");
-      router.push(`/login?redirect=/listing/${id}/book`);
-      return;
-    }
-    if (!checkIn || !checkOut || totalPrice <= 0) {
-      alert("Please select valid dates before booking.");
-      return;
-    }
-
-    setIsPaying(true);
     try {
+      // 🔒 Enforce authentication (double check)
+      const currentUser = await requireAuthUser().catch(() => null);
+      if (!currentUser) {
+        alert("Please log in to continue booking.");
+        router.push(`/login?redirect=/listing/${id}/book`);
+        return;
+      }
+
+      // 🧩 Validate form
+      if (!checkIn || !checkOut || totalPrice <= 0) {
+        alert("Please select valid dates before booking.");
+        return;
+      }
+
+      setIsPaying(true);
+
+      // 💰 Trigger payment flow
       await startPayment({
         amount: totalPrice,
         context: "booking",
         listingId: id as string,
-        userId: user.uid,
+        userId: currentUser.uid,
         name: listing?.name || "BHARATCOMFORT Stay",
-        email: user.email || "unknown@bharatcomfort.com",
-        phone: user.phoneNumber || "9999999999",
+        email: currentUser.email || "unknown@bharatcomfort.com",
+        phone: currentUser.phoneNumber || "9999999999",
         onSuccess: (msg) => {
           alert("✅ " + msg);
           router.push("/bookings");
@@ -86,7 +92,7 @@ export default function BookingPage() {
       });
     } catch (err) {
       console.error("❌ Payment failed:", err);
-      alert("Payment could not be processed");
+      alert("Payment could not be processed. Please try again.");
     } finally {
       setIsPaying(false);
     }
@@ -110,12 +116,14 @@ export default function BookingPage() {
       </div>
     );
 
-  // 🕒 UI
+  // 🕒 Loading or missing listing
   if (loading) return <div className="text-center py-10 text-gray-500">Loading...</div>;
   if (!listing) return <div className="text-center py-10 text-gray-500">Listing not found</div>;
 
+  // 🎨 UI Layout
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
+      {/* LEFT SIDE — Booking Form */}
       <div className="md:col-span-2 bg-white rounded-2xl shadow-lg p-6 space-y-6 border">
         <h2 className="text-2xl font-semibold">{listing.name}</h2>
         <p className="text-gray-600">{listing.location}</p>
@@ -154,6 +162,7 @@ export default function BookingPage() {
         </div>
       </div>
 
+      {/* RIGHT SIDE — Booking Summary */}
       <Card className="p-6 space-y-3 shadow-xl rounded-2xl border bg-white sticky top-20">
         <h3 className="text-xl font-semibold">Booking Summary</h3>
         <p className="text-gray-600">{listing.name}</p>

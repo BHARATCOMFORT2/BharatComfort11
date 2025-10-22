@@ -4,7 +4,6 @@
 
 [functions]
   node_bundler = "esbuild"
-  included_files = ["next.config.js", "package.json"]
   external_node_modules = ["razorpay"]
 
 [[plugins]]
@@ -12,5 +11,11 @@
 
 [build.environment]
   NODE_VERSION = "18"
+  NEXT_DISABLE_ENV_INJECTION = "true"
   NETLIFY_NEXT_PLUGIN_FORCE_RUN = "true"
-  NEXT_FORCE_EDGE_IMAGES = "true"
+
+# ✅ Force Next.js to handle all dynamic routes
+[[redirects]]
+  from = "/*"
+  to = "/.netlify/functions/__render"
+  status = 200

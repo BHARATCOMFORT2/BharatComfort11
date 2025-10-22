@@ -1,10 +1,11 @@
 import { auth } from "@/lib/firebase";
+import type { User } from "firebase/auth";
 
 /**
  * Waits for Firebase Auth to resolve and returns current user.
- * If no user, throws error.
+ * Throws an error if not logged in.
  */
-export async function requireAuthUser() {
+export async function requireAuthUser(): Promise<User> {
   return new Promise((resolve, reject) => {
     const unsub = auth.onAuthStateChanged((user) => {
       unsub();

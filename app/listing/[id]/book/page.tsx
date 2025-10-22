@@ -1,62 +1,69 @@
 "use client";
 
-import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
+import { useRouter, useParams } from "next/navigation";
+import { auth, db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 import { differenceInDays, format } from "date-fns";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
-import { startPayment } from "@/lib/payments/client"; // ✅ Universal Razorpay flow
+import { startPayment } from "@/lib/payments/client";
 
 export default function BookingPage() {
   const { id } = useParams();
+  const router = useRouter();
+
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<any>(null);
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
-  // ✅ Fetch listing data in real-time
+  /* 🔐 1️⃣ Auth Check — allow only logged-in users */
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
+      if (!currentUser) {
+        alert("Please log in to continue booking.");
+        router.push("/login"); // redirect if not logged in
+      } else {
+        setUser(currentUser);
+      }
+    });
+    return () => unsubscribe();
+  }, [router]);
+
+  /* 🏠 2️⃣ Fetch listing details */
   useEffect(() => {
     if (!id) return;
     const ref = doc(db, "listings", id as string);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (snap.exists()) {
-          setListing({ id: snap.id, ...snap.data() });
-        } else {
-          setListing(null);
-        }
-        setLoading(false);
-      },
-      (err) => {
-        console.error("❌ Firestore error:", err);
-        setLoading(false);
-      }
-    );
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) setListing({ id: snap.id, ...snap.data() });
+      else setListing(null);
+      setLoading(false);
+    });
     return () => unsub();
   }, [id]);
 
-  // ✅ Calculate total price automatically
+  /* 💰 3️⃣ Auto-calc total */
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
-      if (nights > 0) {
-        setTotalPrice(nights * listing.price * guests);
-      } else {
-        setTotalPrice(0);
-      }
+      if (nights > 0) setTotalPrice(nights * listing.price * guests);
+      else setTotalPrice(0);
     }
   }, [checkIn, checkOut, guests, listing]);
 
-  // ✅ Trigger payment flow
+  /* 💳 4️⃣ Handle payment */
   const handlePayment = async () => {
     if (!checkIn || !checkOut || totalPrice <= 0) {
-      alert("Please select valid dates.");
+      alert("Please select valid dates before booking.");
+      return;
+    }
+    if (!user) {
+      alert("You must be logged in to make a booking.");
       return;
     }
 
@@ -66,12 +73,13 @@ export default function BookingPage() {
         amount: totalPrice,
         context: "booking",
         listingId: id as string,
-        userId: "guest-user", // ✅ replace with logged-in user UID later
+        userId: user.uid,
         name: listing?.name || "BHARATCOMFORT Stay",
-        email: "guest@bharatcomfort.com",
+        email: user.email || "unknown@bharatcomfort.com",
         phone: "9999999999",
         onSuccess: (msg) => {
           alert("✅ " + msg);
+          router.push("/bookings"); // redirect to bookings page later
         },
         onFailure: (msg) => {
           alert("❌ " + msg);
@@ -85,15 +93,13 @@ export default function BookingPage() {
     }
   };
 
-  // ✅ UI States
-  if (loading)
-    return <div className="text-center py-10 text-gray-500">Loading listing...</div>;
-  if (!listing)
-    return <div className="text-center py-10 text-gray-500">Listing not found</div>;
+  /* 🕒 UI */
+  if (loading) return <div className="text-center py-10 text-gray-500">Loading...</div>;
+  if (!listing) return <div className="text-center py-10 text-gray-500">Listing not found</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-      {/* Left: Booking Inputs */}
+      {/* LEFT FORM */}
       <div className="md:col-span-2 bg-white rounded-2xl shadow-lg p-6 space-y-6 border">
         <h2 className="text-2xl font-semibold">{listing.name}</h2>
         <p className="text-gray-600">{listing.location}</p>
@@ -132,7 +138,7 @@ export default function BookingPage() {
         </div>
       </div>
 
-      {/* Right: Booking Summary */}
+      {/* RIGHT SUMMARY */}
       <Card className="p-6 space-y-3 shadow-xl rounded-2xl border bg-white sticky top-20">
         <h3 className="text-xl font-semibold">Booking Summary</h3>
         <p className="text-gray-600">{listing.name}</p>
@@ -143,11 +149,6 @@ export default function BookingPage() {
             {format(new Date(checkOut), "MMM dd")}
           </p>
         )}
-
-        <div className="flex justify-between mt-2">
-          <span className="text-gray-700 font-medium">Guests:</span>
-          <span>{guests}</span>
-        </div>
 
         {totalPrice > 0 && (
           <div className="flex justify-between text-lg font-semibold mt-3">

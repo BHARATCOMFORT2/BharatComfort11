@@ -12,9 +12,20 @@ import {
 } from "firebase/firestore";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useDebounce } from "use-debounce";
 import { Button } from "@/components/ui/Button";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
+
+/* ------------------------------------------
+   🪶 Inline Debounce Hook (No dependency)
+------------------------------------------- */
+function useDebounce<T>(value: T, delay: number): [T] {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return [debounced];
+}
 
 /* ------------------------------------------
    🧩 Listing Type
@@ -156,14 +167,11 @@ export default function FeaturedListings() {
       if (scrollRef.current) {
         const el = scrollRef.current;
         el.scrollBy({ left: 1, behavior: "smooth" });
-
-        // Loop back when reaching end
         if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
           el.scrollTo({ left: 0, behavior: "smooth" });
         }
       }
-    }, 20); // speed control (lower = faster)
-
+    }, 20);
     return () => clearInterval(interval);
   }, [isHovered]);
 

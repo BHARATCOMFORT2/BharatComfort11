@@ -49,6 +49,7 @@ export default function ListingsManager() {
     price: "",
     images: [] as File[],
   });
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [editId, setEditId] = useState<string | null>(null);
@@ -61,8 +62,7 @@ export default function ListingsManager() {
       if (!user?.uid) return;
       const refDoc = doc(db, "users", user.uid);
       const snap = await getDoc(refDoc);
-      if (snap.exists()) setUserRole(snap.data().role || "partner");
-      else setUserRole("partner");
+      setUserRole(snap.exists() ? snap.data().role || "partner" : "partner");
     };
     fetchRole();
   }, [user]);
@@ -94,7 +94,7 @@ export default function ListingsManager() {
   }, [user, userRole]);
 
   /* ----------------------------------------------------
-     Upload Images with Progress Tracking
+     Upload Images to Firebase Storage
   ---------------------------------------------------- */
   const uploadImages = async (
     files: File[],
@@ -104,7 +104,6 @@ export default function ListingsManager() {
     let totalBytes = 0;
     let uploadedBytes = 0;
 
-    // Total size for percentage tracking
     files.forEach((f) => (totalBytes += f.size));
 
     for (const file of files) {
@@ -140,34 +139,31 @@ export default function ListingsManager() {
   };
 
   /* ----------------------------------------------------
-     Add / Edit Listing
+     Add or Edit Listing
   ---------------------------------------------------- */
   const handleSubmit = async () => {
-    if (!user) {
-      alert("Please login first");
-      return;
-    }
+    if (!user) return alert("Please login first");
 
-    if (!formData.name || !formData.location || !formData.price) {
-      alert("Please fill in all required fields");
-      return;
-    }
+    if (!formData.name || !formData.location || !formData.price)
+      return alert("Please fill in all required fields");
 
     setLoading(true);
     setUploadProgress(0);
 
     try {
-      const imageUrls =
-        formData.images && formData.images.length > 0
+      const newUrls =
+        formData.images.length > 0
           ? await uploadImages(formData.images, setUploadProgress)
           : [];
+
+      const mergedImages = [...previewUrls, ...newUrls]; // ✅ Keep old + new
 
       const data = {
         name: formData.name.trim(),
         description: formData.description.trim(),
         location: formData.location.trim(),
         price: Number(formData.price),
-        images: imageUrls,
+        images: mergedImages,
         createdBy: user.uid,
         status: userRole === "admin" ? "approved" : "pending",
         createdAt: serverTimestamp(),
@@ -176,7 +172,6 @@ export default function ListingsManager() {
       if (editId) {
         await updateDoc(doc(db, "listings", editId), data);
         alert("✅ Listing updated!");
-        setEditId(null);
       } else {
         await addDoc(collection(db, "listings"), data);
         alert("✅ Listing added successfully!");
@@ -190,7 +185,9 @@ export default function ListingsManager() {
         price: "",
         images: [],
       });
+      setPreviewUrls([]);
       setUploadProgress(0);
+      setEditId(null);
     } catch (err) {
       console.error("🔥 Error saving listing:", err);
       alert(`❌ Failed to save listing: ${(err as Error).message}`);
@@ -219,6 +216,7 @@ export default function ListingsManager() {
       price: listing.price.toString(),
       images: [],
     });
+    setPreviewUrls(listing.images || []);
   };
 
   /* ----------------------------------------------------
@@ -261,14 +259,18 @@ export default function ListingsManager() {
           placeholder="Location"
           className="border p-2 rounded"
           value={formData.location}
-          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
+          onChange={(e) =>
+            setFormData({ ...formData, location: e.target.value })
+          }
         />
         <input
           placeholder="Price"
           type="number"
           className="border p-2 rounded"
           value={formData.price}
-          onChange={(e) => setFormData({ ...formData, price: e.target.value })}
+          onChange={(e) =>
+            setFormData({ ...formData, price: e.target.value })
+          }
         />
         <textarea
           placeholder="Description"
@@ -279,6 +281,7 @@ export default function ListingsManager() {
           }
         />
 
+        {/* File Upload */}
         <input
           type="file"
           multiple
@@ -290,6 +293,21 @@ export default function ListingsManager() {
             })
           }
         />
+
+        {/* Show Preview */}
+        {previewUrls.length > 0 && (
+          <div className="col-span-full flex flex-wrap gap-3 mt-2">
+            {previewUrls.map((url, idx) => (
+              <div key={idx} className="relative w-24 h-24">
+                <img
+                  src={url}
+                  alt="preview"
+                  className="object-cover w-full h-full rounded-md"
+                />
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="col-span-full">
           <Button

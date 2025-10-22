@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "@/styles/globals.css";
+import "@/lib/payments/register"; // ✅ Ensures Razorpay provider is globally registered
 import Navbar from "@/components/ui/Navbar";
 
 export const metadata: Metadata = {

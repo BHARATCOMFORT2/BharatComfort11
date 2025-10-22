@@ -12,10 +12,9 @@
 [build.environment]
   NODE_VERSION = "18"
   NEXT_DISABLE_ENV_INJECTION = "true"
-  NETLIFY_NEXT_PLUGIN_FORCE_RUN = "true"
 
-# ✅ Force Next.js to handle all dynamic routes
+# ✅ Send all unmatched routes to index.html (client-side routing)
 [[redirects]]
   from = "/*"
-  to = "/.netlify/functions/__render"
+  to = "/index.html"
   status = 200

@@ -1,91 +1,121 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { db } from "@/lib/firebase";
+import { useState, useEffect, useRef } from "react";
+import { db, auth } from "@/lib/firebase";
 import {
   collection,
+  onSnapshot,
   query,
   where,
   orderBy,
-  onSnapshot,
-  QuerySnapshot,
-  DocumentData,
+  limit,
 } from "firebase/firestore";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
-import { openRazorpayCheckout } from "@/lib/payments-razorpay";
-import LoginModal from "@/components/auth/LoginModal";
+import { useDebounce } from "use-debounce";
 import { Button } from "@/components/ui/Button";
+import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 
+/* ------------------------------------------
+   🧩 Listing Type
+------------------------------------------- */
+interface Listing {
+  id: string;
+  name: string;
+  location?: string;
+  price?: number;
+  rating?: number;
+  images: string[];
+  category?: string;
+}
+
+/* ------------------------------------------
+   🌟 Featured Listings Component
+------------------------------------------- */
 export default function FeaturedListings() {
-  const router = useRouter();
-  const [listings, setListings] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [listings, setListings] = useState<Listing[]>([]);
   const [search, setSearch] = useState("");
-  const [debouncedSearch, setDebouncedSearch] = useState(search);
+  const [debouncedSearch] = useDebounce(search, 300);
+  const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
-  const [showLogin, setShowLogin] = useState(false);
+  const [isHovered, setIsHovered] = useState(false);
 
-  // 🧠 Debounce search input
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedSearch(search), 400);
-    return () => clearTimeout(timer);
-  }, [search]);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const router = useRouter();
 
-  // 👤 Auth listener
+  /* ------------------------------------------
+     👤 Auth Listener
+  ------------------------------------------- */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setUser(u));
     return () => unsub();
   }, []);
 
-  // 🔥 Real-time Firestore listener
+  /* ------------------------------------------
+     🔥 Fetch Featured Listings
+  ------------------------------------------- */
   useEffect(() => {
     const q = query(
       collection(db, "listings"),
       where("status", "==", "approved"),
-      orderBy("createdAt", "desc")
+      orderBy("createdAt", "desc"),
+      limit(10)
     );
 
-    const unsub = onSnapshot(q, (snapshot: QuerySnapshot<DocumentData>) => {
-      const data = snapshot.docs.map((doc) => {
+    const unsub = onSnapshot(q, (snap) => {
+      const list: Listing[] = snap.docs.map((doc) => {
         const raw = doc.data();
         const images =
           Array.isArray(raw.images) && raw.images.length > 0
             ? raw.images
             : [raw.image || "https://via.placeholder.com/400x300?text=No+Image"];
-        return { id: doc.id, ...raw, images };
+        return {
+          id: doc.id,
+          name: raw.name || "Unnamed Listing",
+          location: raw.location || "Unknown",
+          price: raw.price || 0,
+          rating: raw.rating || 4.2,
+          images,
+          category: raw.category || "General",
+        };
       });
-
-      // Filter
-      const filtered = debouncedSearch
-        ? data.filter(
-            (l) =>
-              l.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-              l.location?.toLowerCase().includes(debouncedSearch.toLowerCase())
-          )
-        : data;
-
-      setListings(filtered);
+      setListings(list);
       setLoading(false);
     });
 
     return () => unsub();
-  }, [debouncedSearch]);
+  }, []);
 
-  // 💳 Booking
-  const handleBook = async (listing: any) => {
+  /* ------------------------------------------
+     🔍 Filter by search
+  ------------------------------------------- */
+  const filtered = debouncedSearch
+    ? listings.filter(
+        (l) =>
+          (l.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+            l.location?.toLowerCase().includes(debouncedSearch.toLowerCase())) ??
+          false
+      )
+    : listings;
+
+  /* ------------------------------------------
+     💳 Handle Book Now
+  ------------------------------------------- */
+  const handleBookNow = async (listing: Listing) => {
     if (!user) {
-      setShowLogin(true);
+      alert("Please login to continue booking.");
+      router.push("/login");
       return;
     }
+
     try {
       const res = await fetch("/api/payments/create-order", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          amount: Number(listing.price) || 500,
+          amount: listing.price,
           listingId: listing.id,
+          userId: user.uid,
         }),
       });
 
@@ -93,120 +123,161 @@ export default function FeaturedListings() {
       if (!data.success) throw new Error(data.error || "Failed to create order");
 
       openRazorpayCheckout({
-        amount: Number(listing.price),
+        amount: listing.price!,
         orderId: data.id,
         name: listing.name,
         email: user.email,
         phone: user.phoneNumber || "9999999999",
-        onSuccess: () => alert("✅ Payment Successful"),
+        onSuccess: () => alert("✅ Payment Successful!"),
         onFailure: () => alert("❌ Payment Failed"),
       });
     } catch (err) {
       console.error("Booking error:", err);
+      alert("Failed to start payment.");
     }
   };
 
-  if (loading) return <p className="p-6 text-gray-500">Loading featured listings...</p>;
+  /* ------------------------------------------
+     🎡 Manual Scroll Buttons
+  ------------------------------------------- */
+  const scrollLeft = () => {
+    scrollRef.current?.scrollBy({ left: -350, behavior: "smooth" });
+  };
+  const scrollRight = () => {
+    scrollRef.current?.scrollBy({ left: 350, behavior: "smooth" });
+  };
 
+  /* ------------------------------------------
+     🚗 Auto Scroll (pause on hover/touch)
+  ------------------------------------------- */
+  useEffect(() => {
+    if (isHovered) return;
+    const interval = setInterval(() => {
+      if (scrollRef.current) {
+        const el = scrollRef.current;
+        el.scrollBy({ left: 1, behavior: "smooth" });
+
+        // Loop back when reaching end
+        if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
+          el.scrollTo({ left: 0, behavior: "smooth" });
+        }
+      }
+    }, 20); // speed control (lower = faster)
+
+    return () => clearInterval(interval);
+  }, [isHovered]);
+
+  /* ------------------------------------------
+     🧠 UI Loading State
+  ------------------------------------------- */
+  if (loading) {
+    return (
+      <section className="py-10 px-4 text-center text-gray-500 animate-pulse">
+        Loading featured listings...
+      </section>
+    );
+  }
+
+  /* ------------------------------------------
+     🎨 Render UI
+  ------------------------------------------- */
   return (
-    <>
-      <LoginModal
-        isOpen={showLogin}
-        onClose={() => setShowLogin(false)}
-        onSuccess={() => setShowLogin(false)}
-        bookingCallback={() => {}}
-      />
-
-      <section className="max-w-7xl mx-auto p-6 space-y-8">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-3">
+    <section className="py-12 px-6 bg-gray-50 relative">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-2xl font-bold text-gray-800">🌟 Featured Listings</h2>
+
           <input
             type="text"
-            placeholder="Search featured stays..."
+            placeholder="Search by name or location..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-600 w-full sm:w-64"
+            className="border border-gray-300 rounded-lg px-3 py-2 w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-yellow-500"
           />
         </div>
 
-        {listings.length === 0 ? (
-          <p className="text-gray-600">No featured listings found.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {listings.map((listing) => (
-              <ListingCard key={listing.id} listing={listing} onBook={handleBook} />
+        {/* Carousel */}
+        <div
+          className="relative"
+          onMouseEnter={() => setIsHovered(true)}
+          onMouseLeave={() => setIsHovered(false)}
+          onTouchStart={() => setIsHovered(true)}
+          onTouchEnd={() => setIsHovered(false)}
+        >
+          {/* Scroll buttons */}
+          <button
+            onClick={scrollLeft}
+            className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white shadow-md rounded-full w-10 h-10 flex items-center justify-center hover:bg-yellow-100 z-10"
+          >
+            ◀
+          </button>
+          <button
+            onClick={scrollRight}
+            className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white shadow-md rounded-full w-10 h-10 flex items-center justify-center hover:bg-yellow-100 z-10"
+          >
+            ▶
+          </button>
+
+          {/* Scrollable Row */}
+          <div
+            ref={scrollRef}
+            className="flex gap-6 overflow-x-auto scrollbar-hide py-4 px-2 scroll-smooth"
+          >
+            {filtered.map((listing) => (
+              <div
+                key={listing.id}
+                className="flex-shrink-0 w-80 bg-white shadow-md rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300"
+              >
+                {/* 🖼️ Image */}
+                <div
+                  className="relative w-full h-48 cursor-pointer"
+                  onClick={() => router.push(`/listing/${listing.id}`)}
+                >
+                  <Image
+                    src={listing.images[0]}
+                    alt={listing.name}
+                    fill
+                    className="object-cover"
+                  />
+                </div>
+
+                {/* 📋 Info */}
+                <div className="p-4 space-y-2">
+                  <h3 className="text-lg font-semibold text-gray-800 truncate">
+                    {listing.name}
+                  </h3>
+                  <p className="text-gray-600 text-sm">{listing.location}</p>
+                  <div className="flex justify-between items-center">
+                    <span className="text-blue-600 font-bold">
+                      ₹{listing.price}
+                    </span>
+                    <span className="text-yellow-600 text-sm">
+                      ⭐ {listing.rating}
+                    </span>
+                  </div>
+
+                  {/* Buttons */}
+                  <div className="flex gap-2 mt-4">
+                    <Button
+                      onClick={() => router.push(`/listing/${listing.id}`)}
+                      className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800"
+                    >
+                      Visit
+                    </Button>
+                    <Button
+                      onClick={() => handleBookNow(listing)}
+                      className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
+                    >
+                      Book Now
+                    </Button>
+                  </div>
+                </div>
+              </div>
             ))}
           </div>
-        )}
-      </section>
-    </>
-  );
-}
-
-/* -----------------------------------------------
-   🖼️ ListingCard Component (with scrolling images)
------------------------------------------------ */
-function ListingCard({ listing, onBook }: any) {
-  const router = useRouter();
-  const [current, setCurrent] = useState(0);
-
-  // 🔁 Auto-scroll carousel
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrent((prev) => (prev + 1) % listing.images.length);
-    }, 2500);
-    return () => clearInterval(timer);
-  }, [listing.images]);
-
-  return (
-    <div className="border rounded-xl shadow-md hover:shadow-lg bg-white overflow-hidden transition">
-      {/* 🖼️ Carousel */}
-      <div className="relative w-full h-48">
-        <Image
-          src={listing.images[current]}
-          alt={listing.name}
-          fill
-          className="object-cover transition-all duration-700"
-        />
-        <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1">
-          {listing.images.map((_: string, i: number) => (
-            <span
-              key={i}
-              className={`w-2 h-2 rounded-full ${
-                i === current ? "bg-yellow-500" : "bg-gray-300"
-              }`}
-            />
-          ))}
         </div>
       </div>
-
-      {/* 📋 Info */}
-      <div className="p-4 space-y-1">
-        <h3 className="text-lg font-semibold text-gray-800">{listing.name}</h3>
-        <p className="text-gray-600 text-sm">{listing.location}</p>
-        <p className="text-sm text-gray-500 capitalize">{listing.category}</p>
-
-        <div className="flex justify-between items-center mt-3">
-          <span className="text-blue-600 font-bold">₹{listing.price}</span>
-          <span className="text-yellow-600 text-sm">⭐ {listing.rating || 4.2}</span>
-        </div>
-
-        {/* 🎯 Buttons */}
-        <div className="flex gap-2 mt-4">
-          <Button
-            onClick={() => router.push(`/listing/${listing.id}`)}
-            className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800"
-          >
-            Visit
-          </Button>
-          <Button
-            onClick={() => onBook(listing)}
-            className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
-          >
-            Book Now
-          </Button>
-        </div>
-      </div>
-    </div>
+    </section>
   );
 }

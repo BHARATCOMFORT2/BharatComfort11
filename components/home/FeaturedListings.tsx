@@ -161,19 +161,30 @@ export default function FeaturedListings() {
   /* ------------------------------------------
      🚗 Auto Scroll (pause on hover/touch)
   ------------------------------------------- */
-  useEffect(() => {
-    if (isHovered) return;
-    const interval = setInterval(() => {
-      if (scrollRef.current) {
-        const el = scrollRef.current;
-        el.scrollBy({ left: 1, behavior: "smooth" });
-        if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
-          el.scrollTo({ left: 0, behavior: "smooth" });
-        }
+  // 🚀 Improved smooth auto-scroll
+useEffect(() => {
+  if (!scrollRef.current) return;
+
+  const el = scrollRef.current;
+  let animationFrame: number;
+  let scrollSpeed = 0.6; // Adjust this value to control speed
+
+  const autoScroll = () => {
+    if (!isHovered) {
+      // keep scrolling until end, then reset
+      if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
+        el.scrollTo({ left: 0 });
+      } else {
+        el.scrollLeft += scrollSpeed;
       }
-    }, 20);
-    return () => clearInterval(interval);
-  }, [isHovered]);
+    }
+    animationFrame = requestAnimationFrame(autoScroll);
+  };
+
+  animationFrame = requestAnimationFrame(autoScroll);
+  return () => cancelAnimationFrame(animationFrame);
+}, [isHovered]);
+
 
   /* ------------------------------------------
      🧠 UI Loading State

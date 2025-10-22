@@ -1,12 +1,12 @@
 "use client";
 
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 import ImageGallery from "@/components/ui/ImageGallery";
-import BookingForm from "@/components/forms/BookingForm";
 import ReviewCard from "@/components/reviews/ReviewCard";
+import { Button } from "@/components/ui/Button";
 
 interface Listing {
   id?: string;
@@ -28,24 +28,21 @@ interface Review {
 
 export default function ListingDetailsPage() {
   const { id } = useParams();
+  const router = useRouter();
+
   const [listing, setListing] = useState<Listing | null>(null);
   const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<Review[]>([]);
 
-  // ✅ Real-time listener for listing details
+  // ✅ Fetch listing details in real-time
   useEffect(() => {
     if (!id) return;
     const ref = doc(db, "listings", id as string);
     const unsub = onSnapshot(
       ref,
       (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as Listing;
-          // 🔧 Avoid duplicate "id" property overwrite
-          setListing({ ...data, id: snap.id });
-        } else {
-          setListing(null);
-        }
+        if (snap.exists()) setListing({ id: snap.id, ...(snap.data() as Listing) });
+        else setListing(null);
         setLoading(false);
       },
       (err) => {
@@ -56,23 +53,25 @@ export default function ListingDetailsPage() {
     return () => unsub();
   }, [id]);
 
-  // ✅ (Optional) Real-time reviews
+  // ✅ (Optional) Fetch reviews in real-time
   useEffect(() => {
     if (!id) return;
     const ref = doc(db, "reviews", id as string);
     const unsub = onSnapshot(ref, (snap) => {
-      if (snap.exists()) {
-        setReviews(snap.data().reviews || []);
-      } else {
-        setReviews([]);
-      }
+      if (snap.exists()) setReviews(snap.data().reviews || []);
+      else setReviews([]);
     });
     return () => unsub();
   }, [id]);
 
-  if (loading)
-    return <div className="text-center py-12 text-gray-600">Loading listing...</div>;
+  // ✅ Navigate to booking page
+  const handleBookNow = () => {
+    if (!listing?.id) return;
+    router.push(`/listing/${listing.id}/book`);
+  };
 
+  // ✅ Loading / Not found
+  if (loading) return <div className="text-center py-12 text-gray-600">Loading listing...</div>;
   if (!listing)
     return (
       <div className="text-center py-12 text-gray-600">
@@ -80,9 +79,10 @@ export default function ListingDetailsPage() {
       </div>
     );
 
+  // ✅ Render
   return (
     <div className="container mx-auto px-4 py-12">
-      {/* Title + Rating */}
+      {/* Title + Info */}
       <header className="mb-8">
         <h1 className="text-3xl font-bold">{listing.name}</h1>
         <p className="text-gray-600">
@@ -111,10 +111,15 @@ export default function ListingDetailsPage() {
           <p className="text-gray-700 leading-relaxed">{listing.description}</p>
         </article>
 
-        {/* Right: Booking Form */}
+        {/* Right: Booking CTA */}
         <aside className="border rounded-lg shadow p-6 bg-white">
-          <h3 className="text-lg font-semibold mb-4">Book Now</h3>
-          <BookingForm listingId={listing.id!} />
+          <h3 className="text-lg font-semibold mb-4">Ready to book?</h3>
+          <Button
+            onClick={handleBookNow}
+            className="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-3 rounded-lg font-medium"
+          >
+            Book Now
+          </Button>
         </aside>
       </div>
 

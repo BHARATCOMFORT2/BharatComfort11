@@ -15,28 +15,22 @@ export default function BookingPage() {
 
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<any>(undefined); // undefined = loading, null = not logged in
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
-  /* 🔐 1️⃣ Auth Check — Block page until verified */
+  // 🔐 Auth Check
   useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged((currentUser) => {
-      if (!currentUser) {
-        setUser(null);
-      } else {
-        setUser(currentUser);
-      }
-      setAuthLoading(false);
+    const unsub = auth.onAuthStateChanged((currentUser) => {
+      setUser(currentUser || null);
     });
-    return () => unsubscribe();
+    return () => unsub();
   }, []);
 
-  /* 🏠 2️⃣ Fetch listing details */
+  // 🏠 Listing Data
   useEffect(() => {
     if (!id) return;
     const ref = doc(db, "listings", id as string);
@@ -48,7 +42,7 @@ export default function BookingPage() {
     return () => unsub();
   }, [id]);
 
-  /* 💰 3️⃣ Auto-calc total */
+  // 💰 Price Calc
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
@@ -56,10 +50,14 @@ export default function BookingPage() {
     }
   }, [checkIn, checkOut, guests, listing]);
 
-  /* 💳 4️⃣ Handle payment */
+  // 💳 Handle Payment
   const handlePayment = async () => {
+    if (user === undefined) {
+      alert("Checking your login status...");
+      return;
+    }
     if (!user) {
-      alert("Please log in to continue booking.");
+      alert("You must be logged in to continue booking.");
       router.push(`/login?redirect=/listing/${id}/book`);
       return;
     }
@@ -77,7 +75,7 @@ export default function BookingPage() {
         userId: user.uid,
         name: listing?.name || "BHARATCOMFORT Stay",
         email: user.email || "unknown@bharatcomfort.com",
-        phone: "9999999999",
+        phone: user.phoneNumber || "9999999999",
         onSuccess: (msg) => {
           alert("✅ " + msg);
           router.push("/bookings");
@@ -94,12 +92,11 @@ export default function BookingPage() {
     }
   };
 
-  /* 🧭 5️⃣ Auth gate */
-  if (authLoading) {
-    return <div className="text-center py-12 text-gray-600">Checking authentication...</div>;
-  }
+  // 🔒 Auth gate before rendering UI
+  if (user === undefined)
+    return <div className="text-center py-10 text-gray-500">Checking login status...</div>;
 
-  if (!user) {
+  if (!user)
     return (
       <div className="text-center py-12 text-gray-600">
         Please{" "}
@@ -112,15 +109,13 @@ export default function BookingPage() {
         to book this stay.
       </div>
     );
-  }
 
-  /* 🕒 UI */
+  // 🕒 UI
   if (loading) return <div className="text-center py-10 text-gray-500">Loading...</div>;
   if (!listing) return <div className="text-center py-10 text-gray-500">Listing not found</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-      {/* LEFT FORM */}
       <div className="md:col-span-2 bg-white rounded-2xl shadow-lg p-6 space-y-6 border">
         <h2 className="text-2xl font-semibold">{listing.name}</h2>
         <p className="text-gray-600">{listing.location}</p>
@@ -159,7 +154,6 @@ export default function BookingPage() {
         </div>
       </div>
 
-      {/* RIGHT SUMMARY */}
       <Card className="p-6 space-y-3 shadow-xl rounded-2xl border bg-white sticky top-20">
         <h3 className="text-xl font-semibold">Booking Summary</h3>
         <p className="text-gray-600">{listing.name}</p>
@@ -181,7 +175,14 @@ export default function BookingPage() {
         <Button
           onClick={handlePayment}
           className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3"
-          disabled={!checkIn || !checkOut || totalPrice === 0 || isPaying}
+          disabled={
+            !user ||
+            !checkIn ||
+            !checkOut ||
+            totalPrice === 0 ||
+            isPaying ||
+            user === undefined
+          }
         >
           {isPaying ? "Processing..." : "Proceed to Payment"}
         </Button>

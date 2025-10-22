@@ -60,7 +60,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
       setUploading(true);
       const uploadedUrls: string[] = [];
       for (const file of localFiles) {
-        const storageRef = ref(storage, `homepage/${file.name}-${Date.now()}`);
+      const storageRef = ref(storage, `listings/${Date.now()}-${file.name}`);
         const snapshot = await uploadBytesResumable(storageRef, file);
         const url = await getDownloadURL(snapshot.ref);
         uploadedUrls.push(url);

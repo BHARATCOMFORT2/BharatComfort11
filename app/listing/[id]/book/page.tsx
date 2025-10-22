@@ -15,6 +15,7 @@ export default function BookingPage() {
 
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
@@ -22,18 +23,18 @@ export default function BookingPage() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
-  /* 🔐 1️⃣ Auth Check — allow only logged-in users */
+  /* 🔐 1️⃣ Auth Check — Block page until verified */
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       if (!currentUser) {
-        alert("Please log in to continue booking.");
-        router.push("/login"); // redirect if not logged in
+        setUser(null);
       } else {
         setUser(currentUser);
       }
+      setAuthLoading(false);
     });
     return () => unsubscribe();
-  }, [router]);
+  }, []);
 
   /* 🏠 2️⃣ Fetch listing details */
   useEffect(() => {
@@ -51,19 +52,19 @@ export default function BookingPage() {
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
-      if (nights > 0) setTotalPrice(nights * listing.price * guests);
-      else setTotalPrice(0);
+      setTotalPrice(nights > 0 ? nights * listing.price * guests : 0);
     }
   }, [checkIn, checkOut, guests, listing]);
 
   /* 💳 4️⃣ Handle payment */
   const handlePayment = async () => {
-    if (!checkIn || !checkOut || totalPrice <= 0) {
-      alert("Please select valid dates before booking.");
+    if (!user) {
+      alert("Please log in to continue booking.");
+      router.push(`/login?redirect=/listing/${id}/book`);
       return;
     }
-    if (!user) {
-      alert("You must be logged in to make a booking.");
+    if (!checkIn || !checkOut || totalPrice <= 0) {
+      alert("Please select valid dates before booking.");
       return;
     }
 
@@ -79,7 +80,7 @@ export default function BookingPage() {
         phone: "9999999999",
         onSuccess: (msg) => {
           alert("✅ " + msg);
-          router.push("/bookings"); // redirect to bookings page later
+          router.push("/bookings");
         },
         onFailure: (msg) => {
           alert("❌ " + msg);
@@ -92,6 +93,26 @@ export default function BookingPage() {
       setIsPaying(false);
     }
   };
+
+  /* 🧭 5️⃣ Auth gate */
+  if (authLoading) {
+    return <div className="text-center py-12 text-gray-600">Checking authentication...</div>;
+  }
+
+  if (!user) {
+    return (
+      <div className="text-center py-12 text-gray-600">
+        Please{" "}
+        <button
+          onClick={() => router.push(`/login?redirect=/listing/${id}/book`)}
+          className="text-blue-600 underline"
+        >
+          log in
+        </button>{" "}
+        to book this stay.
+      </div>
+    );
+  }
 
   /* 🕒 UI */
   if (loading) return <div className="text-center py-10 text-gray-500">Loading...</div>;

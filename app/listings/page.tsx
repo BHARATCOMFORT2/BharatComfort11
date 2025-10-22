@@ -284,8 +284,12 @@ export default function ListingsPage() {
         </span>
       </header>
 
-      {/* 🎛️ Filters Section */}
-      <ListingFilters filters={filters} setFilters={setFilters} />
+     {/* 🎛️ Filters Section */}
+<ListingFilters
+  filters={filters}
+  setFilters={setFilters}
+  onSearch={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+/>
 
       {/* 🧱 Listings Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">

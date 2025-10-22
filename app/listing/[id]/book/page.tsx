@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore"; // ✅ real-time listener
+import { doc, onSnapshot } from "firebase/firestore";
 import { differenceInDays, format } from "date-fns";
-import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { openRazorpayCheckout } from "@/lib/payments-razorpay"; // ✅ unified Razorpay helper
+import { Button } from "@/components/ui/Button";
+import { startPayment } from "@/lib/payments/client"; // ✅ Universal Razorpay flow
 
 export default function BookingPage() {
-  const { listingId } = useParams();
+  const { id } = useParams();
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [checkIn, setCheckIn] = useState("");
@@ -19,31 +19,29 @@ export default function BookingPage() {
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
-  // ✅ Real-time Firestore subscription
+  // ✅ Fetch listing data in real-time
   useEffect(() => {
-    if (!listingId) return;
-
-    const ref = doc(db, "listings", listingId as string);
-    const unsubscribe = onSnapshot(
+    if (!id) return;
+    const ref = doc(db, "listings", id as string);
+    const unsub = onSnapshot(
       ref,
       (snap) => {
         if (snap.exists()) {
-          setListing(snap.data());
+          setListing({ id: snap.id, ...snap.data() });
         } else {
           setListing(null);
         }
         setLoading(false);
       },
-      (error) => {
-        console.error("Error fetching listing:", error);
+      (err) => {
+        console.error("❌ Firestore error:", err);
         setLoading(false);
       }
     );
+    return () => unsub();
+  }, [id]);
 
-    return () => unsubscribe(); // cleanup listener
-  }, [listingId]);
-
-  // ✅ Auto-update total price whenever inputs or listing change
+  // ✅ Calculate total price automatically
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
@@ -55,79 +53,53 @@ export default function BookingPage() {
     }
   }, [checkIn, checkOut, guests, listing]);
 
-  // ✅ Payment flow using unified helper
+  // ✅ Trigger payment flow
   const handlePayment = async () => {
-    if (!checkIn || !checkOut || totalPrice <= 0) return;
+    if (!checkIn || !checkOut || totalPrice <= 0) {
+      alert("Please select valid dates.");
+      return;
+    }
+
     setIsPaying(true);
-
     try {
-      // Step 1 — Create Razorpay order via backend
-      const orderResponse = await fetch("/api/payments/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: totalPrice,
-          listingId,
-          checkIn,
-          checkOut,
-          guests,
-        }),
-      });
-
-      const data = await orderResponse.json();
-      if (!data.success) throw new Error(data.error || "Failed to create order");
-
-      // Step 2 — Open Razorpay checkout
-      openRazorpayCheckout({
-        amount: data.amount,
-        orderId: data.id,
-        name: "BHARATCOMFORT",
-        email: "demo@bharatcomfort.com", // replace with logged-in user
+      await startPayment({
+        amount: totalPrice,
+        context: "booking",
+        listingId: id as string,
+        userId: "guest-user", // ✅ replace with logged-in user UID later
+        name: listing?.name || "BHARATCOMFORT Stay",
+        email: "guest@bharatcomfort.com",
         phone: "9999999999",
-        onSuccess: async (response: any) => {
-          // Step 3 — Verify payment
-          const verifyRes = await fetch("/api/payments/verify", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              razorpay_order_id: response.razorpay_order_id,
-              razorpay_payment_id: response.razorpay_payment_id,
-              razorpay_signature: response.razorpay_signature,
-              listingId,
-              checkIn,
-              checkOut,
-              guests,
-              totalPrice,
-            }),
-          });
-
-          const result = await verifyRes.json();
-          if (result.success) alert("✅ Booking confirmed!");
-          else alert("❌ Payment verification failed");
+        onSuccess: (msg) => {
+          alert("✅ " + msg);
         },
-        onFailure: () => alert("❌ Payment cancelled or failed."),
+        onFailure: (msg) => {
+          alert("❌ " + msg);
+        },
       });
-    } catch (err: any) {
-      console.error("Payment error:", err);
-      alert("Error: " + err.message);
+    } catch (err) {
+      console.error("❌ Payment failed:", err);
+      alert("Payment could not be processed");
     } finally {
       setIsPaying(false);
     }
   };
 
-  // ✅ UI
-  if (loading) return <div className="p-8 text-center">Loading...</div>;
-  if (!listing) return <div className="p-8 text-center">Listing not found</div>;
+  // ✅ UI States
+  if (loading)
+    return <div className="text-center py-10 text-gray-500">Loading listing...</div>;
+  if (!listing)
+    return <div className="text-center py-10 text-gray-500">Listing not found</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-      {/* LEFT: Booking Form */}
+      {/* Left: Booking Inputs */}
       <div className="md:col-span-2 bg-white rounded-2xl shadow-lg p-6 space-y-6 border">
         <h2 className="text-2xl font-semibold">{listing.name}</h2>
-        <p className="text-gray-500">{listing.location}</p>
+        <p className="text-gray-600">{listing.location}</p>
+        <p className="text-gray-500">₹{listing.price} / night</p>
 
-        {/* Dates */}
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 mt-4">
           <div>
             <label className="block text-sm font-medium mb-1">Check-In</label>
             <input
@@ -148,7 +120,6 @@ export default function BookingPage() {
           </div>
         </div>
 
-        {/* Guests */}
         <div>
           <label className="block text-sm font-medium mb-1">Guests</label>
           <input
@@ -161,24 +132,30 @@ export default function BookingPage() {
         </div>
       </div>
 
-      {/* RIGHT: Summary Card */}
+      {/* Right: Booking Summary */}
       <Card className="p-6 space-y-3 shadow-xl rounded-2xl border bg-white sticky top-20">
         <h3 className="text-xl font-semibold">Booking Summary</h3>
         <p className="text-gray-600">{listing.name}</p>
-        <p className="text-gray-600">₹{listing.price} / night</p>
-        <hr className="my-2" />
+
         {checkIn && checkOut && (
           <p className="text-sm text-gray-700">
             {format(new Date(checkIn), "MMM dd")} →{" "}
             {format(new Date(checkOut), "MMM dd")}
           </p>
         )}
+
+        <div className="flex justify-between mt-2">
+          <span className="text-gray-700 font-medium">Guests:</span>
+          <span>{guests}</span>
+        </div>
+
         {totalPrice > 0 && (
           <div className="flex justify-between text-lg font-semibold mt-3">
             <span>Total</span>
             <span>₹{totalPrice}</span>
           </div>
         )}
+
         <Button
           onClick={handlePayment}
           className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3"

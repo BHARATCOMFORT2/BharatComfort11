@@ -17,8 +17,8 @@ import { useRouter } from "next/navigation";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
+import LoginModal from "@/components/auth/LoginModal"; // ✅ Import modal
 
-// ✅ Avoid SSR issues with Leaflet map
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
   ssr: false,
 });
@@ -50,6 +50,7 @@ export default function ListingsPage() {
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
   const [user, setUser] = useState<any>(null);
+  const [showLoginModal, setShowLoginModal] = useState(false); // ✅ Control modal visibility
 
   // 🧭 Filters
   const [filters, setFilters] = useState({
@@ -92,14 +93,14 @@ export default function ListingsPage() {
         const colRef = collection(db, "listings");
         const conditions: any[] = [where("status", "==", "approved")];
 
-        if (filters.category !== "all") {
+        if (filters.category !== "all")
           conditions.push(where("category", "==", filters.category));
-        }
-        if (filters.minPrice > 0) conditions.push(where("price", ">=", filters.minPrice));
-        if (filters.maxPrice < 10000) conditions.push(where("price", "<=", filters.maxPrice));
+        if (filters.minPrice > 0)
+          conditions.push(where("price", ">=", filters.minPrice));
+        if (filters.maxPrice < 10000)
+          conditions.push(where("price", "<=", filters.maxPrice));
 
         let q = query(colRef, ...conditions, orderBy("createdAt", "desc"), limit(9));
-
         if (!reset && lastDoc) {
           q = query(
             colRef,
@@ -111,7 +112,6 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
-
         const newListings = snap.docs.map((doc) => {
           const { id: _ignoredId, ...data } = doc.data() as Listing;
           const images =
@@ -164,8 +164,7 @@ export default function ListingsPage() {
   --------------------------------------------------- */
   const handleBookNow = async (listing: Listing) => {
     if (!user) {
-      alert("Please login to continue booking.");
-      router.push("/login");
+      setShowLoginModal(true); // ✅ Show login modal instead of redirect
       return;
     }
 
@@ -284,12 +283,12 @@ export default function ListingsPage() {
         </span>
       </header>
 
-     {/* 🎛️ Filters Section */}
-<ListingFilters
-  filters={filters}
-  setFilters={setFilters}
-  onSearch={(value) => setFilters((prev) => ({ ...prev, search: value }))}
-/>
+      {/* 🎛️ Filters Section */}
+      <ListingFilters
+        filters={filters}
+        setFilters={setFilters}
+        onSearch={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+      />
 
       {/* 🧱 Listings Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -310,12 +309,21 @@ export default function ListingsPage() {
       {/* 🗺️ Map Section */}
       {listings.length > 0 && (
         <section className="pt-8">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">Explore on Map</h2>
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">
+            Explore on Map
+          </h2>
           <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
             <ListingMap listings={listings} />
           </div>
         </section>
       )}
+
+      {/* 🧩 Login Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        bookingCallback={() => alert("✅ Login successful — please proceed with booking.")}
+      />
     </div>
   );
 }

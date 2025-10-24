@@ -243,6 +243,19 @@ export default function LoginModal({
               {mode === "login" ? "Register here" : "Login"}
             </button>
           </p>
+
+          {/* 🚪 Continue as Guest */}
+          <div className="pt-3 border-t border-gray-200">
+            <button
+              onClick={() => {
+                alert("You are continuing as a guest. Login required for booking.");
+                onClose();
+              }}
+              className="w-full text-gray-600 hover:text-gray-800 text-sm underline mt-2"
+            >
+              Continue as Guest →
+            </button>
+          </div>
         </div>
 
         {/* ✕ Close */}

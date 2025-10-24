@@ -18,10 +18,7 @@ import { Eye, EyeOff } from "lucide-react";
 export default function RegisterPage() {
   const router = useRouter();
 
-  // Step tracker
   const [step, setStep] = useState<"form" | "otp" | "done">("form");
-
-  // Form data
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -36,43 +33,43 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
 
-  // OTP state
+  // OTP State
   const [otp, setOtp] = useState("");
   const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
   const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
 
-  // Keep auth listener mounted
+  // Refresh Auth listener
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, () => {});
     return () => unsub();
   }, []);
 
-  // Generic form handler
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
-  // Create or reuse invisible reCAPTCHA
+  /* ---------------------------------------------------------
+     ✅ Ensure reCAPTCHA exists (fixed argument order)
+  --------------------------------------------------------- */
   async function ensureRecaptcha() {
     if (recaptchaVerifierRef.current) return recaptchaVerifierRef.current;
     if (!recaptchaDivRef.current) return null;
 
+    // ✅ Correct argument order → (auth, container, options)
     recaptchaVerifierRef.current = new RecaptchaVerifier(
+      auth,
       recaptchaDivRef.current,
-      {
-        size: "invisible",
-      },
-      auth
+      { size: "invisible" }
     );
 
     await recaptchaVerifierRef.current.render();
     return recaptchaVerifierRef.current;
   }
 
-  /* ----------------------------------------------------------------
-     STEP 1️⃣ : REGISTER USER + SEND EMAIL + SEND PHONE OTP
-  ---------------------------------------------------------------- */
+  /* ---------------------------------------------------------
+     🧩 Step 1: Register user + send email + phone OTP
+  --------------------------------------------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -82,13 +79,13 @@ export default function RegisterPage() {
       return;
     }
     if (!/^\+?\d{10,15}$/.test(form.phone)) {
-      setError("Enter valid phone number with country code (e.g. +919876543210).");
+      setError("Enter valid phone number with country code, e.g. +919876543210");
       return;
     }
 
     setLoading(true);
     try {
-      // 1. Create user with email/password
+      // 1️⃣ Create Auth user
       const cred = await createUserWithEmailAndPassword(
         auth,
         form.email.trim(),
@@ -96,7 +93,7 @@ export default function RegisterPage() {
       );
       const user = cred.user;
 
-      // 2. Create Firestore record with pending verification
+      // 2️⃣ Save in Firestore
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         name: form.name.trim(),
@@ -109,15 +106,14 @@ export default function RegisterPage() {
         createdAt: serverTimestamp(),
       });
 
-      // 3. Send email verification link
+      // 3️⃣ Send email verification
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       await sendEmailVerification(user, { url: `${appUrl}/auth/verify` });
 
-      // 4. Send phone OTP
+      // 4️⃣ Send OTP for phone
       const verifier = await ensureRecaptcha();
-      if (!verifier) throw new Error("Failed to initialize reCAPTCHA verifier.");
-
-      if (!auth.currentUser) throw new Error("No active user found to link phone.");
+      if (!verifier) throw new Error("Failed to initialize reCAPTCHA.");
+      if (!auth.currentUser) throw new Error("No active user found.");
 
       confirmationResultRef.current = await linkWithPhoneNumber(
         auth.currentUser,
@@ -125,7 +121,7 @@ export default function RegisterPage() {
         verifier
       );
 
-      alert("📩 Verification email sent & OTP sent to your phone.");
+      alert("📩 Verification email & OTP sent. Please check inbox and phone.");
       setStep("otp");
     } catch (err: any) {
       console.error("Registration error:", err);
@@ -135,11 +131,11 @@ export default function RegisterPage() {
     }
   };
 
-  /* ----------------------------------------------------------------
-     STEP 2️⃣ : VERIFY PHONE OTP
-  ---------------------------------------------------------------- */
+  /* ---------------------------------------------------------
+     📱 Step 2: Verify OTP
+  --------------------------------------------------------- */
   const handleVerifyOtp = async () => {
-    if (!otp) return setError("Enter the 6-digit OTP.");
+    if (!otp) return setError("Enter 6-digit OTP.");
     if (!confirmationResultRef.current)
       return setError("OTP session expired. Please re-register.");
 
@@ -149,7 +145,6 @@ export default function RegisterPage() {
       const result = await confirmationResultRef.current.confirm(otp);
       const linkedUser = result.user;
 
-      // ✅ Mark phone verified in Firestore
       await updateDoc(doc(db, "users", linkedUser.uid), {
         phoneVerified: true,
       });
@@ -157,26 +152,26 @@ export default function RegisterPage() {
       setStep("done");
     } catch (err: any) {
       console.error("OTP verification error:", err);
-      setError(err?.message || "Invalid or expired OTP. Try again.");
+      setError(err?.message || "Invalid OTP. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------------------------------------------------
-     STEP 3️⃣ : FINAL — Redirect to Verify Page
-  ---------------------------------------------------------------- */
+  /* ---------------------------------------------------------
+     🎉 Step 3: Redirect to verify page
+  --------------------------------------------------------- */
   const handleGoToVerifyPage = () => {
     router.push("/auth/verify");
   };
 
-  /* ----------------------------------------------------------------
-     UI RENDER
-  ---------------------------------------------------------------- */
+  /* ---------------------------------------------------------
+     🖼️ UI Rendering
+  --------------------------------------------------------- */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
-        {/* Step 1: Registration Form */}
+        {/* STEP 1: REGISTER FORM */}
         {step === "form" && (
           <>
             <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
@@ -184,9 +179,7 @@ export default function RegisterPage() {
             </h1>
 
             {error && (
-              <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">
-                {error}
-              </p>
+              <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</p>
             )}
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -218,7 +211,7 @@ export default function RegisterPage() {
                 required
               />
 
-              {/* Password */}
+              {/* Password field */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Password
@@ -241,7 +234,7 @@ export default function RegisterPage() {
                 </button>
               </div>
 
-              {/* Confirm Password */}
+              {/* Confirm password */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   Confirm Password
@@ -264,7 +257,7 @@ export default function RegisterPage() {
                 </button>
               </div>
 
-              {/* Role Selector */}
+              {/* Role selector */}
               <label className="text-gray-700 font-medium">
                 Select Role
                 <select
@@ -294,21 +287,18 @@ export default function RegisterPage() {
           </>
         )}
 
-        {/* Step 2: OTP Verification */}
+        {/* STEP 2: OTP */}
         {step === "otp" && (
           <>
             <h2 className="text-2xl font-semibold text-center mb-4">
               Verify Phone Number
             </h2>
             <p className="text-sm text-gray-600 mb-4">
-              OTP sent to <b>{form.phone}</b>. We also sent a verification email to{" "}
-              <b>{form.email}</b>.
+              OTP sent to <b>{form.phone}</b>. Also check your email <b>{form.email}</b> for verification link.
             </p>
 
             {error && (
-              <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">
-                {error}
-              </p>
+              <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</p>
             )}
 
             <div className="flex gap-2">
@@ -325,22 +315,15 @@ export default function RegisterPage() {
                 {loading ? "Verifying..." : "Verify"}
               </Button>
             </div>
-
-            <p className="text-xs text-gray-500 mt-3">
-              Didn’t get OTP? Wait a few seconds and try again.
-            </p>
           </>
         )}
 
-        {/* Step 3: Done */}
+        {/* STEP 3: DONE */}
         {step === "done" && (
           <>
-            <h2 className="text-2xl font-semibold text-center mb-4">
-              All Set! 🎉
-            </h2>
+            <h2 className="text-2xl font-semibold text-center mb-4">All Set! 🎉</h2>
             <p className="text-gray-700 text-center">
-              Your phone number is verified. Please verify your email by clicking
-              the link we sent to <b>{form.email}</b>.
+              Your phone number is verified. Please verify your email by clicking the link we sent to <b>{form.email}</b>.
             </p>
             <Button className="mt-6 w-full" onClick={handleGoToVerifyPage}>
               Go to Verification Status

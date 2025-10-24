@@ -10,6 +10,7 @@ import {
 } from "firebase/auth";
 import { loginUser, registerUser } from "@/lib/auth";
 import { auth } from "@/lib/firebase";
+import { Eye, EyeOff } from "lucide-react";
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -27,6 +28,7 @@ export default function LoginModal({
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
@@ -34,7 +36,30 @@ export default function LoginModal({
   const [loading, setLoading] = useState(false);
   const recaptchaContainer = useRef<HTMLDivElement>(null);
 
-  if (!isOpen) return null;
+  /* ------------------------------
+     AUTH STATE MONITOR
+  ------------------------------- */
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        onSuccess?.();
+        onClose();
+        bookingCallback?.();
+      }
+    });
+    return () => unsub();
+  }, [onSuccess, onClose, bookingCallback]);
+
+  /* ------------------------------
+     PLAY SOUND ON OPEN
+  ------------------------------- */
+  useEffect(() => {
+    if (isOpen) {
+      const chime = new Audio("/chime.mp3");
+      chime.volume = 0.4;
+      chime.play().catch(() => {});
+    }
+  }, [isOpen]);
 
   /* ------------------------------
      EMAIL/PASSWORD AUTH
@@ -45,14 +70,6 @@ export default function LoginModal({
     try {
       if (mode === "login") await loginUser(email, password);
       else await registerUser(email, password, name);
-
-      onAuthStateChanged(auth, (user) => {
-        if (user) {
-          onSuccess?.();
-          onClose();
-          bookingCallback?.();
-        }
-      });
     } catch (err: any) {
       alert(err.message);
     } finally {
@@ -67,9 +84,6 @@ export default function LoginModal({
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-      onSuccess?.();
-      onClose();
-      bookingCallback?.();
     } catch (err: any) {
       alert("Google login failed");
       console.error("Google login error:", err);
@@ -98,24 +112,15 @@ export default function LoginModal({
     if (!otp || !confirmResult) return alert("Enter OTP first");
     try {
       await confirmResult.confirm(otp);
-      onSuccess?.();
-      onClose();
-      bookingCallback?.();
     } catch (err: any) {
       alert("Invalid OTP");
     }
   };
 
   /* ------------------------------
-     ANIMATION + SOUND
+     SAFE EARLY RETURN
   ------------------------------- */
-  useEffect(() => {
-    if (isOpen) {
-      const chime = new Audio("/chime.mp3");
-      chime.volume = 0.4;
-      chime.play().catch(() => {});
-    }
-  }, [isOpen]);
+  if (!isOpen) return null;
 
   /* ------------------------------
      UI
@@ -161,14 +166,24 @@ export default function LoginModal({
               required
             />
 
-            <input
-              type="password"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full border rounded-lg p-2"
-              required
-            />
+            {/* 👁️ Password Field with Show/Hide */}
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full border rounded-lg p-2 pr-10"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
 
             <button
               type="submit"

@@ -3,7 +3,7 @@
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { db, auth } from "@/lib/firebase";
-import { doc, onSnapshot } from "firebase/firestore";
+import { doc, onSnapshot, collection, onSnapshot as onBookingSnapshot } from "firebase/firestore";
 import ImageGallery from "@/components/ui/ImageGallery";
 import ReviewCard from "@/components/reviews/ReviewCard";
 import { Button } from "@/components/ui/Button";
@@ -19,6 +19,7 @@ interface Listing {
   price: number;
   rating?: number;
   images?: string[];
+  unavailableDates?: string[];
 }
 
 interface Review {
@@ -62,8 +63,14 @@ export default function ListingDetailsPage() {
     const unsub = onSnapshot(
       ref,
       (snap) => {
-        if (snap.exists()) setListing({ id: snap.id, ...(snap.data() as Listing) });
-        else setListing(null);
+        if (snap.exists()) {
+          const data = snap.data() as Listing;
+          setListing({
+            id: snap.id,
+            ...data,
+            unavailableDates: data.unavailableDates || [],
+          });
+        } else setListing(null);
         setLoading(false);
       },
       (err) => {
@@ -71,6 +78,32 @@ export default function ListingDetailsPage() {
         setLoading(false);
       }
     );
+    return () => unsub();
+  }, [id]);
+
+  /* ---------------------------------------------------
+     🔁 Real-time unavailable sync from /bookings
+  --------------------------------------------------- */
+  useEffect(() => {
+    if (!id) return;
+    const q = collection(db, "bookings");
+    const unsub = onBookingSnapshot(q, (snap) => {
+      const bookedDates: string[] = [];
+      snap.forEach((docSnap) => {
+        const data = docSnap.data();
+        if (data.listingId === id) {
+          const current = new Date(data.checkIn);
+          const end = new Date(data.checkOut);
+          while (current <= end) {
+            bookedDates.push(current.toISOString().split("T")[0]);
+            current.setDate(current.getDate() + 1);
+          }
+        }
+      });
+      setListing((prev) =>
+        prev ? { ...prev, unavailableDates: bookedDates } : prev
+      );
+    });
     return () => unsub();
   }, [id]);
 
@@ -90,6 +123,9 @@ export default function ListingDetailsPage() {
   /* ---------------------------------------------------
      🧮 Date Validation + Price Calculation
   --------------------------------------------------- */
+  const isUnavailable = (date: string) =>
+    listing?.unavailableDates?.includes(date);
+
   useEffect(() => {
     if (!checkIn || !checkOut || !listing?.price) {
       setTotalNights(0);
@@ -102,26 +138,32 @@ export default function ListingDetailsPage() {
     const start = new Date(checkIn);
     const end = new Date(checkOut);
 
-    // Reset error first
     setDateError(null);
 
-    if (start < today.setHours(0, 0, 0, 0)) {
+    if (start.getTime() < today.setHours(0, 0, 0, 0)) {
       setDateError("Check-in date cannot be in the past.");
       setTotalNights(0);
       setTotalPrice(0);
       return;
     }
 
-    if (end <= start) {
-      setDateError("Check-out date must be after check-in date.");
+    if (isUnavailable(checkIn) || isUnavailable(checkOut)) {
+      setDateError("Some of these dates are already booked.");
       setTotalNights(0);
       setTotalPrice(0);
       return;
     }
 
+    if (end <= start) {
+      const nextDay = new Date(start);
+      nextDay.setDate(start.getDate() + 1);
+      setCheckOut(nextDay.toISOString().split("T")[0]);
+      setDateError("Checkout date adjusted to next day automatically.");
+      return;
+    }
+
     const diffTime = Math.max(0, end.getTime() - start.getTime());
     const nights = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
     setTotalNights(nights);
     setTotalPrice(nights * listing.price);
   }, [checkIn, checkOut, listing]);
@@ -129,7 +171,7 @@ export default function ListingDetailsPage() {
   /* ---------------------------------------------------
      💳 Handle Booking
   --------------------------------------------------- */
-  const handleBookNow = () => {
+  const handleBookNow = async () => {
     if (!listing?.id) return;
 
     if (!user) {
@@ -142,14 +184,28 @@ export default function ListingDetailsPage() {
       return;
     }
 
-    const params = new URLSearchParams({
-      checkIn,
-      checkOut,
-      nights: totalNights.toString(),
-      total: totalPrice.toString(),
-    });
+    try {
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingId: listing.id,
+          userId: user.uid,
+          checkIn,
+          checkOut,
+          total: totalPrice,
+        }),
+      });
 
-    router.push(`/listing/${listing.id}/book?${params.toString()}`);
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "Booking failed");
+
+      alert("✅ Booking confirmed!");
+      router.push(`/listing/${listing.id}/book?checkIn=${checkIn}&checkOut=${checkOut}`);
+    } catch (err) {
+      console.error("Booking error:", err);
+      alert("❌ Failed to book. Please try again.");
+    }
   };
 
   /* ---------------------------------------------------
@@ -193,19 +249,16 @@ export default function ListingDetailsPage() {
 
       {/* 📜 Details + Booking */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left: Details */}
         <article className="lg:col-span-2">
           <h2 className="text-xl font-semibold mb-4">About</h2>
           <p className="text-gray-700 leading-relaxed">{listing.description}</p>
         </article>
 
-        {/* Right: Booking Card */}
+        {/* Booking Card */}
         <aside className="border rounded-lg shadow-lg p-6 bg-white sticky top-24">
-          <h3 className="text-lg font-semibold mb-4 text-gray-800">
-            Ready to book?
-          </h3>
+          <h3 className="text-lg font-semibold mb-4 text-gray-800">Ready to book?</h3>
 
-          {/* 🗓️ Date Inputs */}
+          {/* Date Inputs */}
           <div className="space-y-3 mb-4">
             <div>
               <label className="block text-sm text-gray-600">Check-in</label>
@@ -213,28 +266,46 @@ export default function ListingDetailsPage() {
                 type="date"
                 value={checkIn}
                 min={new Date().toISOString().split("T")[0]}
-                onChange={(e) => setCheckIn(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (isUnavailable(val)) {
+                    setDateError("⚠️ This date is unavailable.");
+                    return;
+                  }
+                  setCheckIn(val);
+                  if (!checkOut || new Date(checkOut) <= new Date(val)) {
+                    const nextDay = new Date(val);
+                    nextDay.setDate(nextDay.getDate() + 1);
+                    setCheckOut(nextDay.toISOString().split("T")[0]);
+                  }
+                }}
                 className="w-full border rounded-lg p-2"
               />
             </div>
+
             <div>
               <label className="block text-sm text-gray-600">Check-out</label>
               <input
                 type="date"
                 value={checkOut}
                 min={checkIn || new Date().toISOString().split("T")[0]}
-                onChange={(e) => setCheckOut(e.target.value)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (isUnavailable(val)) {
+                    setDateError("⚠️ This date is unavailable.");
+                    return;
+                  }
+                  setCheckOut(val);
+                }}
                 className="w-full border rounded-lg p-2"
               />
             </div>
           </div>
 
-          {/* ⚠️ Date Validation Error */}
-          {dateError && (
-            <p className="text-red-600 text-sm mb-3 text-center">{dateError}</p>
-          )}
+          {/* Error */}
+          {dateError && <p className="text-red-600 text-sm mb-3 text-center">{dateError}</p>}
 
-          {/* 💰 Price Summary */}
+          {/* Price Summary */}
           {totalNights > 0 && !dateError && (
             <div className="bg-gray-50 rounded-lg p-4 mb-4 border text-sm">
               <div className="flex justify-between">
@@ -252,7 +323,6 @@ export default function ListingDetailsPage() {
             </div>
           )}
 
-          {/* 🟡 Book Now */}
           <Button
             onClick={handleBookNow}
             disabled={!checkIn || !checkOut || !!dateError}
@@ -269,7 +339,7 @@ export default function ListingDetailsPage() {
         </aside>
       </div>
 
-      {/* ⭐ Reviews */}
+      {/* Reviews */}
       <section className="mt-12">
         <h2 className="text-xl font-semibold mb-6">Guest Reviews</h2>
         {reviews.length === 0 ? (
@@ -283,7 +353,7 @@ export default function ListingDetailsPage() {
         )}
       </section>
 
-      {/* 🔐 Login/Register Modal */}
+      {/* Login Modal */}
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}

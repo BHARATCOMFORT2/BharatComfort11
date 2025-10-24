@@ -23,13 +23,14 @@ export default function VerifyPage() {
   const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
   const confirmationRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
 
-  /* ----------------------------------------------------------------
-     🧠 Fetch Auth User + Firestore Profile
-  ---------------------------------------------------------------- */
+  /* ------------------------------------------------------
+     🔐 AUTH STATE LISTENER + FETCH PROFILE
+  ------------------------------------------------------ */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setMsg(null);
+
       if (u) {
         const snap = await getDoc(doc(db, "users", u.uid));
         if (snap.exists()) {
@@ -39,48 +40,49 @@ export default function VerifyPage() {
         }
       }
     });
+
     return () => unsub();
   }, []);
 
-  /* ----------------------------------------------------------------
-     ⚙️ Ensure reCAPTCHA Exists
-  ---------------------------------------------------------------- */
+  /* ------------------------------------------------------
+     ✅ Initialize reCAPTCHA (fixed argument order)
+  ------------------------------------------------------ */
   async function ensureRecaptcha() {
     if (recaptchaRef.current) return recaptchaRef.current;
     if (!recaptchaDivRef.current) return null;
 
     recaptchaRef.current = new RecaptchaVerifier(
-      recaptchaDivRef.current,
-      { size: "invisible" },
-      auth
+      auth, // ✅ first: Auth instance
+      recaptchaDivRef.current, // ✅ second: container element
+      { size: "invisible" }
     );
+
     await recaptchaRef.current.render();
     return recaptchaRef.current;
   }
 
-  /* ----------------------------------------------------------------
-     ✉️ Send Email Verification Link
-  ---------------------------------------------------------------- */
+  /* ------------------------------------------------------
+     ✉️ SEND EMAIL VERIFICATION
+  ------------------------------------------------------ */
   const handleSendVerification = async () => {
     if (!auth.currentUser) return;
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
 
-    await sendEmailVerification(auth.currentUser, {
-      url: `${appUrl}/auth/verify`,
-    });
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+    await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
 
     setEmailSent(true);
-    setMsg("📩 Verification email sent. Please check your inbox.");
+    setMsg("📩 Verification email sent successfully!");
   };
 
-  /* ----------------------------------------------------------------
-     📱 Start Phone OTP Flow
-  ---------------------------------------------------------------- */
+  /* ------------------------------------------------------
+     📱 SEND PHONE OTP
+  ------------------------------------------------------ */
   const startPhoneLink = async () => {
     setMsg(null);
     if (!auth.currentUser) return;
+
     if (!/^\+?\d{10,15}$/.test(phone)) {
-      setMsg("Enter a valid phone number with country code, e.g. +919876543210");
+      setMsg("Enter valid phone number with country code (e.g. +919876543210)");
       return;
     }
 
@@ -89,139 +91,125 @@ export default function VerifyPage() {
       const verifier = await ensureRecaptcha();
       if (!verifier) throw new Error("Failed to initialize reCAPTCHA.");
 
-      confirmationRef.current = await linkWithPhoneNumber(
-        auth.currentUser,
-        phone,
-        verifier
-      );
+      confirmationRef.current = await linkWithPhoneNumber(auth.currentUser, phone, verifier);
       setMsg("📲 OTP sent to your phone.");
     } catch (e: any) {
-      console.error("Phone verification error:", e);
+      console.error(e);
       setMsg(e?.message || "Failed to send OTP.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------------------------------------------------
-     🔢 Verify Phone OTP
-  ---------------------------------------------------------------- */
+  /* ------------------------------------------------------
+     ✅ VERIFY OTP
+  ------------------------------------------------------ */
   const verifyOtp = async () => {
     setMsg(null);
-    if (!otp) return setMsg("Enter the OTP.");
-    if (!confirmationRef.current) return setMsg("OTP session expired. Send again.");
+
+    if (!otp) return setMsg("Enter the OTP first.");
+    if (!confirmationRef.current) return setMsg("OTP session expired. Please resend.");
 
     setLoading(true);
     try {
       const res = await confirmationRef.current.confirm(otp);
-
-      // ✅ Update Firestore phoneVerified flag
       await updateDoc(doc(db, "users", res.user.uid), {
         phoneVerified: true,
         phone,
       });
-
-      setMsg("✅ Phone number verified successfully.");
+      setMsg("✅ Phone number verified successfully!");
     } catch (e: any) {
-      console.error("OTP verification failed:", e);
+      console.error(e);
       setMsg(e?.message || "Invalid OTP. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------------------------------------------------
-     🔄 Sync Firestore Flags When Both Verified
-  ---------------------------------------------------------------- */
-  useEffect(() => {
-    if (!user || !profile) return;
-    const checkAndMarkVerified = async () => {
-      const emailVerified = user.emailVerified;
-      const phoneVerified = profile.phoneVerified || !!user.phoneNumber;
-
-      if (emailVerified && phoneVerified) {
-        await updateDoc(doc(db, "users", user.uid), {
-          emailVerified: true,
-          verified: true,
-        });
-        setMsg("🎉 Both email and phone verified. Your account is now active!");
-      }
-    };
-    checkAndMarkVerified();
-  }, [user, profile]);
-
-  /* ----------------------------------------------------------------
-     🚫 Not Logged In UI
-  ---------------------------------------------------------------- */
+  /* ------------------------------------------------------
+     🚫 Not logged in state
+  ------------------------------------------------------ */
   if (!user) {
     return (
       <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow">
         <h1 className="text-xl font-bold">Not logged in</h1>
-        <p>Please register or log in first.</p>
+        <p className="text-gray-600">Please register or login first.</p>
       </div>
     );
   }
 
+  /* ------------------------------------------------------
+     ✅ STATUS UI
+  ------------------------------------------------------ */
   const emailVerified = user.emailVerified;
   const phoneVerified = Boolean(profile?.phoneVerified || user.phoneNumber);
 
-  /* ----------------------------------------------------------------
-     🖼️ UI
-  ---------------------------------------------------------------- */
   return (
     <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-5">
-      <h1 className="text-2xl font-bold text-center">Verify Your Account</h1>
+      <h1 className="text-2xl font-bold text-center text-gray-800">
+        Verify Your Account
+      </h1>
 
-      {/* ✅ Email Verification */}
+      {/* EMAIL VERIFICATION */}
       {!emailVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-2">
           <p>
-            Your email <b>{user.email}</b> is not verified.
+            Your email <b>{user.email}</b> is not verified yet.
           </p>
           <button
             onClick={handleSendVerification}
             disabled={emailSent}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
           >
             {emailSent ? "Verification Sent ✔" : "Send Verification Email"}
           </button>
         </div>
       ) : (
-        <div className="p-4 border rounded bg-green-50">✅ Email verified.</div>
+        <div className="p-4 border rounded bg-green-50">
+          ✅ Your email is verified.
+        </div>
       )}
 
-      {/* ✅ Phone Verification */}
+      {/* PHONE VERIFICATION */}
       {!phoneVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-3">
-          <p>Verify your phone number via OTP:</p>
+          <p className="font-medium text-gray-800">
+            Verify your phone number via OTP:
+          </p>
+
           <input
             className="w-full border rounded p-2"
             placeholder="+919876543210"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
+
           <div className="flex gap-2">
             <button
               onClick={startPhoneLink}
               disabled={loading}
-              className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90"
+              className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90 transition"
             >
-              {loading ? "Sending OTP..." : "Send OTP"}
+              {loading ? "Sending..." : "Send OTP"}
             </button>
+
             <input
               className="flex-1 border rounded p-2"
               placeholder="Enter OTP"
               value={otp}
               onChange={(e) => setOtp(e.target.value)}
             />
+
             <button
               onClick={verifyOtp}
               disabled={loading}
-              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
             >
               {loading ? "Verifying..." : "Verify"}
             </button>
           </div>
+
+          {/* reCAPTCHA container */}
           <div ref={recaptchaDivRef} />
         </div>
       ) : (
@@ -230,17 +218,7 @@ export default function VerifyPage() {
         </div>
       )}
 
-      {msg && (
-        <p
-          className={`text-sm ${
-            msg.includes("✅") || msg.includes("🎉")
-              ? "text-green-700"
-              : "text-gray-700"
-          }`}
-        >
-          {msg}
-        </p>
-      )}
+      {msg && <p className="text-sm text-gray-700">{msg}</p>}
     </div>
   );
 }

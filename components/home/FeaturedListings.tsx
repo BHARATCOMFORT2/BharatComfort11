@@ -14,6 +14,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
+import LoginModal from "@/components/auth/LoginModal";
 
 /* ------------------------------------------
    🪶 Inline Debounce Hook (No dependency)
@@ -50,6 +51,8 @@ export default function FeaturedListings() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
@@ -103,49 +106,30 @@ export default function FeaturedListings() {
   const filtered = debouncedSearch
     ? listings.filter(
         (l) =>
-          (l.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-            l.location?.toLowerCase().includes(debouncedSearch.toLowerCase())) ??
-          false
+          l.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+          l.location?.toLowerCase().includes(debouncedSearch.toLowerCase())
       )
     : listings;
 
   /* ------------------------------------------
      💳 Handle Book Now
   ------------------------------------------- */
-  const handleBookNow = async (listing: Listing) => {
+  const handleBookNow = (listing: Listing) => {
     if (!user) {
-      alert("Please login to continue booking.");
-      router.push("/login");
+      setSelectedListing(listing);
+      setShowLoginModal(true);
       return;
     }
 
-    try {
-      const res = await fetch("/api/payments/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: listing.price,
-          listingId: listing.id,
-          userId: user.uid,
-        }),
-      });
-
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Failed to create order");
-
-      openRazorpayCheckout({
-        amount: listing.price!,
-        orderId: data.id,
-        name: listing.name,
-        email: user.email,
-        phone: user.phoneNumber || "9999999999",
-        onSuccess: () => alert("✅ Payment Successful!"),
-        onFailure: () => alert("❌ Payment Failed"),
-      });
-    } catch (err) {
-      console.error("Booking error:", err);
-      alert("Failed to start payment.");
-    }
+    // Proceed to Razorpay payment
+    openRazorpayCheckout({
+      amount: listing.price!,
+      name: listing.name,
+      email: user.email,
+      phone: user.phoneNumber || "9999999999",
+      onSuccess: () => alert("✅ Payment Successful!"),
+      onFailure: () => alert("❌ Payment Failed"),
+    });
   };
 
   /* ------------------------------------------
@@ -159,32 +143,29 @@ export default function FeaturedListings() {
   };
 
   /* ------------------------------------------
-     🚗 Auto Scroll (pause on hover/touch)
+     🚗 Smooth Auto Scroll
   ------------------------------------------- */
-  // 🚀 Improved smooth auto-scroll
-useEffect(() => {
-  if (!scrollRef.current) return;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
 
-  const el = scrollRef.current;
-  let animationFrame: number;
-  const scrollSpeed = 0.6; // Adjust this value to control speed
+    let frame: number;
+    const scrollSpeed = 0.5;
 
-  const autoScroll = () => {
-    if (!isHovered) {
-      // keep scrolling until end, then reset
-      if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
-        el.scrollTo({ left: 0 });
-      } else {
-        el.scrollLeft += scrollSpeed;
+    const autoScroll = () => {
+      if (!isHovered) {
+        if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
+          el.scrollTo({ left: 0 });
+        } else {
+          el.scrollLeft += scrollSpeed;
+        }
       }
-    }
-    animationFrame = requestAnimationFrame(autoScroll);
-  };
+      frame = requestAnimationFrame(autoScroll);
+    };
 
-  animationFrame = requestAnimationFrame(autoScroll);
-  return () => cancelAnimationFrame(animationFrame);
-}, [isHovered]);
-
+    frame = requestAnimationFrame(autoScroll);
+    return () => cancelAnimationFrame(frame);
+  }, [isHovered]);
 
   /* ------------------------------------------
      🧠 UI Loading State
@@ -297,6 +278,16 @@ useEffect(() => {
           </div>
         </div>
       </div>
+
+      {/* 🔐 Login Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        bookingCallback={() => {
+          if (selectedListing)
+            handleBookNow(selectedListing); // Continue booking post-login
+        }}
+      />
     </section>
   );
 }

@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { sendPasswordResetEmail } from "firebase/auth";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { getDocs, collection, query, where } from "firebase/firestore";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
@@ -17,10 +18,35 @@ export default function ForgotPasswordPage() {
     setLoading(true);
 
     try {
-      await sendPasswordResetEmail(auth, email);
-      setMessage("Password reset link sent! Check your inbox.");
+      // 🔍 Check if user exists and is verified
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("email", "==", email));
+      const snap = await getDocs(q);
+
+      if (snap.empty) {
+        setError("❌ No account found with this email.");
+        return;
+      }
+
+      const userData = snap.docs[0].data();
+
+      // 🔒 Require verified email
+      if (!userData.emailVerified) {
+        setError(
+          "⚠️ Your email is not verified. Please verify your account before resetting your password."
+        );
+        return;
+      }
+
+      // ✉️ Send reset email
+      await sendPasswordResetEmail(auth, email, {
+        url: `${process.env.NEXT_PUBLIC_APP_URL}/auth/login`,
+      });
+
+      setMessage("✅ Password reset link sent! Check your inbox.");
     } catch (err: any) {
-      setError("Failed to send reset email. Please check the email address.");
+      console.error("Reset error:", err);
+      setError("❌ Failed to send reset email. Please check your email address.");
     } finally {
       setLoading(false);
     }
@@ -28,7 +54,9 @@ export default function ForgotPasswordPage() {
 
   return (
     <div className="container mx-auto px-4 py-12 max-w-md">
-      <h1 className="text-2xl font-bold mb-6 text-center">Forgot Password</h1>
+      <h1 className="text-2xl font-bold mb-6 text-center text-gray-800">
+        Forgot Password
+      </h1>
 
       <form
         onSubmit={handleSubmit}
@@ -37,7 +65,7 @@ export default function ForgotPasswordPage() {
         <input
           type="email"
           name="email"
-          placeholder="Enter your email address"
+          placeholder="Enter your verified email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           className="w-full p-3 border rounded"
@@ -56,7 +84,7 @@ export default function ForgotPasswordPage() {
         </button>
       </form>
 
-      <p className="text-center text-sm mt-4">
+      <p className="text-center text-sm mt-4 text-gray-600">
         Remember your password?{" "}
         <a href="/auth/login" className="text-blue-600 hover:underline">
           Login

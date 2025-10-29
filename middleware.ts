@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { i18n } from "./app/i18n/settings";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Detect locale
+/* --------------------------------------------------
+   🌐 Locale Detection
+-------------------------------------------------- */
 function getLocale(request: NextRequest): string {
   const { locales, defaultLocale } = i18n;
   const pathLocale = request.nextUrl.pathname.split("/")[1];
@@ -12,11 +15,14 @@ function getLocale(request: NextRequest): string {
   return detected || defaultLocale;
 }
 
+/* --------------------------------------------------
+   🧠 Middleware
+-------------------------------------------------- */
 export async function middleware(request: NextRequest) {
-  const locale = getLocale(request);
   const pathname = request.nextUrl.pathname;
+  const locale = getLocale(request);
 
-  // Skip static, API, and assets
+  // Skip static assets & API routes
   if (
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
@@ -25,19 +31,22 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Add locale prefix if missing
+  // Locale prefixing
   if (!i18n.locales.some((loc) => pathname.startsWith(`/${loc}`))) {
     return NextResponse.redirect(new URL(`/${locale}${pathname}`, request.url));
   }
 
-  // Read session cookie
+  /* --------------------------------------------------
+     🔐 Session Cookie Check
+  -------------------------------------------------- */
   const sessionCookie = request.cookies.get("session")?.value;
+
+  // Redirect unauthenticated users from protected routes
+  const protectedPaths = ["/dashboard", "/partner", "/admin", "/book", "/chat"];
+  const isProtected = protectedPaths.some((p) => pathname.includes(p));
+
   if (!sessionCookie) {
-    if (
-      pathname.includes("/dashboard") ||
-      pathname.includes("/book") ||
-      pathname.includes("/chat")
-    ) {
+    if (isProtected) {
       const loginUrl = new URL(`/${locale}/auth/login`, request.url);
       loginUrl.searchParams.set("redirect", pathname);
       return NextResponse.redirect(loginUrl);
@@ -45,16 +54,35 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Decode JWT safely
-  let role = "user";
+  /* --------------------------------------------------
+     🔎 Verify Session Cookie with Firebase Admin
+  -------------------------------------------------- */
+  let decoded: any = null;
   try {
-    const payload = JSON.parse(
-      Buffer.from(sessionCookie.split(".")[1], "base64").toString()
-    );
-    role = payload?.role || "user";
-  } catch {}
+    const { adminAuth } = getFirebaseAdmin();
+    decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+  } catch (err: any) {
+    console.warn("⚠️ Invalid or expired session cookie:", err.message);
 
-  // Role restrictions
+    // Clear invalid cookie & redirect to login
+    const loginUrl = new URL(`/${locale}/auth/login`, request.url);
+    loginUrl.searchParams.set("redirect", pathname);
+
+    const res = NextResponse.redirect(loginUrl);
+    res.cookies.set({
+      name: "session",
+      value: "",
+      path: "/",
+      maxAge: 0,
+    });
+    return res;
+  }
+
+  /* --------------------------------------------------
+     👮 Role-based Route Protection
+  -------------------------------------------------- */
+  const role = decoded?.role || "user";
+
   if (pathname.includes("/admin") && role !== "admin") {
     return NextResponse.redirect(new URL(`/${locale}/user/dashboard`, request.url));
   }
@@ -62,9 +90,15 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL(`/${locale}/user/dashboard`, request.url));
   }
 
+  /* --------------------------------------------------
+     ✅ Allow Request
+  -------------------------------------------------- */
   return NextResponse.next();
 }
 
+/* --------------------------------------------------
+   ⚙️ Middleware Config
+-------------------------------------------------- */
 export const config = {
   matcher: ["/((?!_next|.*\\..*|api).*)"],
 };

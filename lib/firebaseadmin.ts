@@ -1,75 +1,94 @@
 // lib/firebaseadmin.ts
 import * as admin from "firebase-admin";
 
-let app: admin.app.App;
+let app: admin.app.App | undefined;
 
 /* --------------------------------------------------
-   🔐 Resolve Private Key (works for both formats)
+   🔐 Resolve Private Key (supports both escaped & raw)
 -------------------------------------------------- */
 function resolvePrivateKey(): string {
-  const rawKey = process.env.FIREBASE_PRIVATE_KEY;
+  const key = process.env.FIREBASE_PRIVATE_KEY;
 
-  if (!rawKey) {
-    throw new Error("❌ FIREBASE_PRIVATE_KEY is missing from environment variables");
+  if (!key) {
+    throw new Error("❌ FIREBASE_PRIVATE_KEY missing from environment variables");
   }
 
-  // Handle both escaped (\n) and raw multiline keys
-  const formattedKey = rawKey.includes("\\n")
-    ? rawKey.replace(/\\n/g, "\n")
-    : rawKey;
+  const formatted = key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
 
-  if (!formattedKey.includes("BEGIN PRIVATE KEY")) {
-    throw new Error("❌ FIREBASE_PRIVATE_KEY format invalid — must contain BEGIN PRIVATE KEY header");
+  if (!formatted.includes("BEGIN PRIVATE KEY")) {
+    throw new Error("❌ FIREBASE_PRIVATE_KEY format invalid (missing BEGIN PRIVATE KEY)");
   }
 
-  return formattedKey;
+  return formatted;
 }
 
 /* --------------------------------------------------
-   🧠 Validate Required Variables
+   🧠 Validate Required Environment Variables
 -------------------------------------------------- */
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const privateKey = resolvePrivateKey();
 
 if (!projectId || !clientEmail) {
-  throw new Error("❌ Firebase Admin environment variables missing (projectId/clientEmail)");
+  throw new Error("❌ Missing Firebase Admin environment variables: projectId/clientEmail");
 }
 
 /* --------------------------------------------------
-   🚀 Initialize Firebase Admin App
+   🚀 Initialize Firebase Admin (singleton-safe)
 -------------------------------------------------- */
 if (!admin.apps.length) {
-  app = admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-  });
-  console.log("✅ Firebase Admin initialized successfully");
+  try {
+    app = admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+    });
+    if (process.env.NODE_ENV !== "production") {
+      console.log("✅ Firebase Admin initialized (dev mode)");
+    }
+  } catch (err: any) {
+    console.error("🔥 Firebase Admin initialization failed:", err.message);
+    throw err;
+  }
 } else {
   app = admin.app();
 }
 
 /* --------------------------------------------------
-   🧩 Exports
+   🧩 Exports (Admin SDK instances)
 -------------------------------------------------- */
-export const adminDb = admin.firestore();
 export const adminAuth = admin.auth();
+export const adminDb = admin.firestore();
 
+/**
+ * Unified getter to access Admin services safely
+ */
 export function getFirebaseAdmin() {
-  return { admin, app, adminDb, adminAuth };
+  return { admin, app, adminAuth, adminDb };
 }
 
 /* --------------------------------------------------
-   ✅ Optional Firestore Connectivity Test
+   ✅ Optional Firestore Connectivity Check
+   (Silent in production to avoid console spam)
 -------------------------------------------------- */
 (async () => {
   try {
     await adminDb.listCollections();
-    console.log("✅ Firebase Admin Firestore connection verified");
-  } catch (err) {
-    console.error("🔥 Firebase Admin Firestore connection failed:", err);
+    if (process.env.NODE_ENV !== "production") {
+      console.log("✅ Firebase Admin Firestore connection verified");
+    }
+  } catch (err: any) {
+    console.error("⚠️ Firestore connectivity issue:", err.message);
+    // Retry once after a delay (handles cold starts)
+    setTimeout(async () => {
+      try {
+        await adminDb.listCollections();
+        console.log("✅ Firestore connection re-established");
+      } catch {
+        console.error("🔥 Firestore still unreachable after retry");
+      }
+    }, 2000);
   }
 })();

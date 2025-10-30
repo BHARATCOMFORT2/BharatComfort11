@@ -25,9 +25,6 @@ const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"),
 
 export const dynamic = "force-dynamic";
 
-/* ---------------------------------------------------
-   📦 Listing Interface
---------------------------------------------------- */
 interface Listing {
   id: string;
   name: string;
@@ -41,9 +38,6 @@ interface Listing {
   lng?: number;
 }
 
-/* ---------------------------------------------------
-   📄 Main Page
---------------------------------------------------- */
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,6 +45,7 @@ export default function ListingsPage() {
   const [hasMore, setHasMore] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const [pendingListing, setPendingListing] = useState<Listing | null>(null); // 🧠 Store listing for booking after login
 
   const [filters, setFilters] = useState({
     search: "",
@@ -67,12 +62,19 @@ export default function ListingsPage() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   /* ---------------------------------------------------
-     👤 Auth Listener
+     👤 Auth Listener (reactive)
   --------------------------------------------------- */
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => setUser(u));
+    const unsub = auth.onAuthStateChanged((u) => {
+      setUser(u);
+      if (u && pendingListing) {
+        // 🔄 Automatically continue booking if modal just logged in
+        handleBookNow(pendingListing);
+        setPendingListing(null);
+      }
+    });
     return () => unsub();
-  }, []);
+  }, [pendingListing]);
 
   /* ---------------------------------------------------
      ⏱ Debounce Filters
@@ -94,7 +96,7 @@ export default function ListingsPage() {
         const colRef = collection(db, "listings");
         const conditions: any[] = [];
 
-        // ✅ If your DB has status field:
+        // Uncomment if your listings have approval status
         // conditions.push(where("status", "==", "approved"));
 
         if (filters.category !== "all")
@@ -116,22 +118,20 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
-
-        // 🛑 Prevent infinite loop if no results
         if (snap.empty) {
           setHasMore(false);
           setLoading(false);
           return;
         }
 
-       const newListings = snap.docs.map((doc) => {
-  const { id: _ignoredId, ...data } = doc.data() as any; // 🧹 remove old id if exists
-  const images =
-    Array.isArray(data.images) && data.images.length > 0
-      ? data.images
-      : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
-  return { id: doc.id, ...data, images }; // ✅ now only one id
-});
+        const newListings = snap.docs.map((doc) => {
+          const { id: _ignoredId, ...data } = doc.data() as any;
+          const images =
+            Array.isArray(data.images) && data.images.length > 0
+              ? data.images
+              : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
+          return { id: doc.id, ...data, images };
+        });
 
         setListings((prev) => (reset ? newListings : [...prev, ...newListings]));
         setLastDoc(snap.docs[snap.docs.length - 1]);
@@ -176,6 +176,8 @@ export default function ListingsPage() {
   --------------------------------------------------- */
   const handleBookNow = async (listing: Listing) => {
     if (!user) {
+      // 🔒 Save listing and open login modal
+      setPendingListing(listing);
       setShowLoginModal(true);
       return;
     }
@@ -330,6 +332,7 @@ export default function ListingsPage() {
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
+        onSuccess={() => setUser(auth.currentUser)} // ✅ instant state update
       />
     </div>
   );

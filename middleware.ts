@@ -21,7 +21,7 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const locale = getLocale(request);
 
-  // Skip static assets & API routes
+  // 🚫 Skip static assets, API routes, and Next internals
   if (
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
@@ -30,25 +30,38 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Locale prefixing
+  // 🌍 Ensure locale prefix (e.g., /en, /hi)
   if (!i18n.locales.some((loc) => pathname.startsWith(`/${loc}`))) {
     return NextResponse.redirect(new URL(`/${locale}${pathname}`, request.url));
   }
 
   /* --------------------------------------------------
-     🔐 Session Cookie Check
+     🔐 Auth Logic
+     - Guests can browse all listings & homepage
+     - Only /book, /chat, /dashboard, /partner, /admin need login
   -------------------------------------------------- */
   const sessionCookie = request.cookies.get("session")?.value;
-  const protectedPaths = ["/dashboard", "/partner", "/admin", "/book", "/chat"];
+
+  // These routes require authentication
+  const protectedPaths = [
+    "/book",
+    "/dashboard",
+    "/partner",
+    "/admin",
+    "/chat",
+  ];
+
+  // Check if this page is protected
   const isProtected = protectedPaths.some((p) => pathname.includes(p));
 
-  if (!sessionCookie && isProtected) {
+  // 🔒 If protected and no session → redirect to login
+  if (isProtected && !sessionCookie) {
     const loginUrl = new URL(`/${locale}/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // ✅ Verify session via API (Node runtime) instead of firebase-admin directly
+  // ✅ If session exists, verify via secure API (Node runtime)
   if (sessionCookie) {
     try {
       const verifyUrl =
@@ -62,6 +75,7 @@ export async function middleware(request: NextRequest) {
 
       const { valid, role } = await res.json();
 
+      // 🔄 Invalid or expired session → force re-login
       if (!valid) {
         const loginUrl = new URL(`/${locale}/auth/login`, request.url);
         loginUrl.searchParams.set("redirect", pathname);
@@ -70,7 +84,7 @@ export async function middleware(request: NextRequest) {
         return r;
       }
 
-      // Role-based protection
+      // 👮 Role protection
       if (pathname.includes("/admin") && role !== "admin") {
         return NextResponse.redirect(
           new URL(`/${locale}/user/dashboard`, request.url)
@@ -82,12 +96,13 @@ export async function middleware(request: NextRequest) {
         );
       }
     } catch (err) {
-      console.error("Session verification failed:", err);
+      console.error("⚠️ Session verification failed:", err);
     }
   }
 
   /* --------------------------------------------------
-     ✅ Allow Request
+     ✅ Allow normal browsing
+     (Home, Listings, About, etc.)
   -------------------------------------------------- */
   return NextResponse.next();
 }

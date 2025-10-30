@@ -13,9 +13,13 @@ export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // ✅ Capture redirect param (default to /user/dashboard)
-  const redirectTo =
-    searchParams.get("redirect") || "/(dashboard)/user";
+  // ✅ Lazy state for redirect (prevents build-time useSearchParams issue)
+  const [redirectTo, setRedirectTo] = useState("/(dashboard)/user");
+
+  useEffect(() => {
+    const redirect = searchParams?.get("redirect");
+    if (redirect) setRedirectTo(redirect);
+  }, [searchParams]);
 
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -32,12 +36,10 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 🔹 Login with Firebase
       const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
       const user = cred.user;
       await user.reload();
 
-      // 🔹 Fetch user data
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
@@ -50,25 +52,21 @@ export default function LoginPage() {
       const role = userData.role || "user";
       const phoneVerified = userData.phoneVerified ?? true;
 
-      // 🔹 Require verified email
       if (!user.emailVerified) {
         setError("📧 Please verify your email before continuing.");
         return;
       }
 
-      // 🔹 Require phone verification (if used)
       if (!phoneVerified) {
         setError("📱 Please verify your phone number before continuing.");
         router.push("/auth/verify");
         return;
       }
 
-      // 🔹 Update Firestore verification once
       if (!userData.emailVerified) {
         await updateDoc(userRef, { emailVerified: true });
       }
 
-      // 🔹 Create session cookie via API
       const token = await getIdToken(user);
       await fetch("/api/auth/session", {
         method: "POST",
@@ -76,14 +74,12 @@ export default function LoginPage() {
         body: JSON.stringify({ token }),
       });
 
-      // ✅ Smart Redirect Handling
+      // ✅ Redirect logic — safe & simple
       if (redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
-        // Return user to the booking they came from
         router.push(redirectTo);
         return;
       }
 
-      // 🔹 Role-based fallback redirect
       switch (role) {
         case "admin":
           router.push("/(dashboard)/admin");
@@ -99,7 +95,6 @@ export default function LoginPage() {
         default:
           router.push("/(dashboard)/user");
       }
-
     } catch (err: any) {
       console.error("Login error:", err);
       let msg = "❌ Login failed. Please try again.";
@@ -118,9 +113,7 @@ export default function LoginPage() {
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
 
-        {error && (
-          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm">{error}</p>
-        )}
+        {error && <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input
@@ -134,9 +127,7 @@ export default function LoginPage() {
           />
 
           <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
               name="password"
               type={showPassword ? "text" : "password"}

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
-import { db } from "@/lib/firebaseadmin"; // ✅ Use admin SDK for secure access
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import admin from "firebase-admin";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+
+const { adminDb } = getFirebaseAdmin(); // ✅ Correctly get Firestore instance from Admin SDK
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,16 +57,16 @@ export async function POST(req: NextRequest) {
       notes: { userId, listingId },
     });
 
-    // ✅ 6️⃣ Save Payment Info in Firestore
-    const orderRef = doc(db, "payments", order.id);
-    await setDoc(orderRef, {
+    // ✅ 6️⃣ Save Payment Info in Firestore (Admin SDK)
+    const orderRef = adminDb.collection("payments").doc(order.id);
+    await orderRef.set({
       userId,
       listingId: listingId ?? null,
       amount,
       currency: "INR",
       status: "pending",
       razorpayOrderId: order.id,
-      createdAt: serverTimestamp(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     // ✅ 7️⃣ Respond

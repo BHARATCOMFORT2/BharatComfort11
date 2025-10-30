@@ -16,7 +16,7 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
-  bookingCallback?: () => void;
+  bookingCallback?: () => void; // kept for future, not used automatically now
 }
 
 export default function LoginModal({
@@ -37,21 +37,29 @@ export default function LoginModal({
   const recaptchaContainer = useRef<HTMLDivElement>(null);
 
   /* ------------------------------
-     AUTH STATE MONITOR
+     ✅ AUTH STATE MONITOR
+     (Only closes modal after login, no auto-booking)
   ------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
         onSuccess?.();
         onClose();
-        bookingCallback?.();
+
+        // optional: refresh page to show logged-in state
+        if (typeof window !== "undefined") {
+          window.location.reload();
+        }
+
+        // ❌ removed auto booking trigger for safety
+        // bookingCallback?.();
       }
     });
     return () => unsub();
-  }, [onSuccess, onClose, bookingCallback]);
+  }, [onSuccess, onClose]);
 
   /* ------------------------------
-     PLAY SOUND ON OPEN
+     🔔 PLAY SOUND ON OPEN
   ------------------------------- */
   useEffect(() => {
     if (isOpen) {
@@ -62,36 +70,39 @@ export default function LoginModal({
   }, [isOpen]);
 
   /* ------------------------------
-     EMAIL/PASSWORD AUTH
+     📧 EMAIL / PASSWORD AUTH
   ------------------------------- */
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (mode === "login") await loginUser(email, password);
-      else await registerUser(email, password, name);
+      if (mode === "login") {
+        await loginUser(email, password);
+      } else {
+        await registerUser(email, password, name);
+      }
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || "Something went wrong.");
     } finally {
       setLoading(false);
     }
   };
 
   /* ------------------------------
-     GOOGLE AUTH
+     🌐 GOOGLE AUTH
   ------------------------------- */
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-    } catch (err: any) {
-      alert("Google login failed");
+    } catch (err) {
+      alert("Google login failed. Please try again.");
       console.error("Google login error:", err);
     }
   };
 
   /* ------------------------------
-     PHONE OTP AUTH
+     📱 PHONE OTP AUTH
   ------------------------------- */
   const handleSendOTP = async () => {
     if (!phone) return alert("Enter your phone number");
@@ -102,7 +113,7 @@ export default function LoginModal({
       const result = await signInWithPhoneNumber(auth, phone, recaptcha);
       setConfirmResult(result);
       alert("OTP sent successfully!");
-    } catch (err: any) {
+    } catch (err) {
       console.error("OTP send error:", err);
       alert("Failed to send OTP");
     }
@@ -112,23 +123,23 @@ export default function LoginModal({
     if (!otp || !confirmResult) return alert("Enter OTP first");
     try {
       await confirmResult.confirm(otp);
-    } catch (err: any) {
-      alert("Invalid OTP");
+    } catch {
+      alert("Invalid OTP. Please try again.");
     }
   };
 
   /* ------------------------------
-     SAFE EARLY RETURN
+     🧱 SAFE RETURN IF CLOSED
   ------------------------------- */
   if (!isOpen) return null;
 
   /* ------------------------------
-     UI
+     🎨 UI
   ------------------------------- */
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md relative overflow-hidden animate-fadeZoom">
-        {/* 🟡 Header with Brand */}
+        {/* 🟡 Header */}
         <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 py-6 text-center relative">
           <img
             src="/logo.png"
@@ -143,8 +154,8 @@ export default function LoginModal({
           </p>
         </div>
 
+        {/* 🧾 Form */}
         <div className="p-6 space-y-4">
-          {/* ✏️ Email/Password Form */}
           <form onSubmit={handleEmailAuth} className="space-y-3">
             {mode === "register" && (
               <input
@@ -166,7 +177,6 @@ export default function LoginModal({
               required
             />
 
-            {/* 👁️ Password Field with Show/Hide */}
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
@@ -210,7 +220,7 @@ export default function LoginModal({
             Continue with Google
           </button>
 
-          {/* 📱 Phone OTP */}
+          {/* 📱 Phone Login */}
           <div className="space-y-2">
             {!confirmResult ? (
               <>
@@ -248,7 +258,7 @@ export default function LoginModal({
             <div ref={recaptchaContainer}></div>
           </div>
 
-          {/* 🔄 Switch Mode */}
+          {/* 🔁 Switch Mode */}
           <p className="text-center text-sm text-gray-600">
             {mode === "login" ? "New user?" : "Already have an account?"}{" "}
             <button
@@ -263,7 +273,7 @@ export default function LoginModal({
           <div className="pt-3 border-t border-gray-200">
             <button
               onClick={() => {
-                alert("You are continuing as a guest. Login required for booking.");
+                alert("⚠️ Login required to book a stay.");
                 onClose();
               }}
               className="w-full text-gray-600 hover:text-gray-800 text-sm underline mt-2"
@@ -273,7 +283,7 @@ export default function LoginModal({
           </div>
         </div>
 
-        {/* ✕ Close */}
+        {/* ✖ Close Button */}
         <button
           onClick={onClose}
           className="absolute top-3 right-4 text-gray-400 hover:text-gray-600 text-xl"

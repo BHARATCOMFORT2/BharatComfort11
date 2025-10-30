@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { i18n } from "./app/i18n/settings";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /* --------------------------------------------------
    🌐 Locale Detection
@@ -40,54 +39,51 @@ export async function middleware(request: NextRequest) {
      🔐 Session Cookie Check
   -------------------------------------------------- */
   const sessionCookie = request.cookies.get("session")?.value;
-
-  // Redirect unauthenticated users from protected routes
   const protectedPaths = ["/dashboard", "/partner", "/admin", "/book", "/chat"];
   const isProtected = protectedPaths.some((p) => pathname.includes(p));
 
-  if (!sessionCookie) {
-    if (isProtected) {
-      const loginUrl = new URL(`/${locale}/auth/login`, request.url);
-      loginUrl.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-    return NextResponse.next();
-  }
-
-  /* --------------------------------------------------
-     🔎 Verify Session Cookie with Firebase Admin
-  -------------------------------------------------- */
-  let decoded: any = null;
-  try {
-    const { adminAuth } = getFirebaseAdmin();
-    decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-  } catch (err: any) {
-    console.warn("⚠️ Invalid or expired session cookie:", err.message);
-
-    // Clear invalid cookie & redirect to login
+  if (!sessionCookie && isProtected) {
     const loginUrl = new URL(`/${locale}/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
-
-    const res = NextResponse.redirect(loginUrl);
-    res.cookies.set({
-      name: "session",
-      value: "",
-      path: "/",
-      maxAge: 0,
-    });
-    return res;
+    return NextResponse.redirect(loginUrl);
   }
 
-  /* --------------------------------------------------
-     👮 Role-based Route Protection
-  -------------------------------------------------- */
-  const role = decoded?.role || "user";
+  // ✅ Verify session via API (Node runtime) instead of firebase-admin directly
+  if (sessionCookie) {
+    try {
+      const verifyUrl =
+        process.env.NEXT_PUBLIC_APP_URL + "/api/auth/verify-session";
 
-  if (pathname.includes("/admin") && role !== "admin") {
-    return NextResponse.redirect(new URL(`/${locale}/user/dashboard`, request.url));
-  }
-  if (pathname.includes("/partner") && role !== "partner") {
-    return NextResponse.redirect(new URL(`/${locale}/user/dashboard`, request.url));
+      const res = await fetch(verifyUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session: sessionCookie }),
+      });
+
+      const { valid, role } = await res.json();
+
+      if (!valid) {
+        const loginUrl = new URL(`/${locale}/auth/login`, request.url);
+        loginUrl.searchParams.set("redirect", pathname);
+        const r = NextResponse.redirect(loginUrl);
+        r.cookies.delete("session");
+        return r;
+      }
+
+      // Role-based protection
+      if (pathname.includes("/admin") && role !== "admin") {
+        return NextResponse.redirect(
+          new URL(`/${locale}/user/dashboard`, request.url)
+        );
+      }
+      if (pathname.includes("/partner") && role !== "partner") {
+        return NextResponse.redirect(
+          new URL(`/${locale}/user/dashboard`, request.url)
+        );
+      }
+    } catch (err) {
+      console.error("Session verification failed:", err);
+    }
   }
 
   /* --------------------------------------------------

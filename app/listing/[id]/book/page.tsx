@@ -8,7 +8,7 @@ import { differenceInDays, format } from "date-fns";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { startPayment } from "@/lib/payments/client";
-import { requireAuthUser } from "@/lib/auth-client"; // ✅ added helper for strict auth
+import { requireAuthUser } from "@/lib/auth-client";
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -16,14 +16,14 @@ export default function BookingPage() {
 
   const [listing, setListing] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(undefined); // undefined = loading, null = not logged in
+  const [user, setUser] = useState<any>(undefined);
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
   const [guests, setGuests] = useState(1);
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
 
-  // 🔐 Auth Check — Real-time listener
+  // 🔐 Auth listener — check if user logged in
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser || null);
@@ -31,7 +31,7 @@ export default function BookingPage() {
     return () => unsubscribe();
   }, []);
 
-  // 🏠 Realtime Listing Data
+  // 🏠 Fetch listing data
   useEffect(() => {
     if (!id) return;
     const ref = doc(db, "listings", id as string);
@@ -46,7 +46,7 @@ export default function BookingPage() {
     return () => unsubscribe();
   }, [id]);
 
-  // 💰 Auto Price Calculation
+  // 💰 Calculate total price
   useEffect(() => {
     if (checkIn && checkOut && listing?.price) {
       const nights = differenceInDays(new Date(checkOut), new Date(checkIn));
@@ -57,15 +57,14 @@ export default function BookingPage() {
   // 💳 Handle Secure Payment
   const handlePayment = async () => {
     try {
-      // 🔒 Enforce authentication (double check)
+      // 🔒 Require login before booking
       const currentUser = await requireAuthUser().catch(() => null);
       if (!currentUser) {
-        alert("Please log in to continue booking.");
-        router.push(`/login?redirect=/listing/${id}/book`);
+        router.push(`/auth/login?redirect=/listing/${id}/book`);
         return;
       }
 
-      // 🧩 Validate form
+      // 🧩 Validate booking details
       if (!checkIn || !checkOut || totalPrice <= 0) {
         alert("Please select valid dates before booking.");
         return;
@@ -73,7 +72,7 @@ export default function BookingPage() {
 
       setIsPaying(true);
 
-      // 💰 Trigger payment flow
+      // 💰 Start Razorpay or custom payment
       await startPayment({
         amount: totalPrice,
         context: "booking",
@@ -98,32 +97,17 @@ export default function BookingPage() {
     }
   };
 
-  // 🔒 Auth gate before rendering UI
-  if (user === undefined)
-    return <div className="text-center py-10 text-gray-500">Checking login status...</div>;
+  // 🕒 Loading states
+  if (loading)
+    return <div className="text-center py-10 text-gray-500">Loading...</div>;
 
-  if (!user)
-    return (
-      <div className="text-center py-12 text-gray-600">
-        Please{" "}
-        <button
-          onClick={() => router.push(`/login?redirect=/listing/${id}/book`)}
-          className="text-blue-600 underline"
-        >
-          log in
-        </button>{" "}
-        to book this stay.
-      </div>
-    );
-
-  // 🕒 Loading or missing listing
-  if (loading) return <div className="text-center py-10 text-gray-500">Loading...</div>;
-  if (!listing) return <div className="text-center py-10 text-gray-500">Listing not found</div>;
+  if (!listing)
+    return <div className="text-center py-10 text-gray-500">Listing not found</div>;
 
   // 🎨 UI Layout
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-8">
-      {/* LEFT SIDE — Booking Form */}
+      {/* LEFT — Booking Form */}
       <div className="md:col-span-2 bg-white rounded-2xl shadow-lg p-6 space-y-6 border">
         <h2 className="text-2xl font-semibold">{listing.name}</h2>
         <p className="text-gray-600">{listing.location}</p>
@@ -162,7 +146,7 @@ export default function BookingPage() {
         </div>
       </div>
 
-      {/* RIGHT SIDE — Booking Summary */}
+      {/* RIGHT — Summary */}
       <Card className="p-6 space-y-3 shadow-xl rounded-2xl border bg-white sticky top-20">
         <h3 className="text-xl font-semibold">Booking Summary</h3>
         <p className="text-gray-600">{listing.name}</p>
@@ -184,17 +168,17 @@ export default function BookingPage() {
         <Button
           onClick={handlePayment}
           className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3"
-          disabled={
-            !user ||
-            !checkIn ||
-            !checkOut ||
-            totalPrice === 0 ||
-            isPaying ||
-            user === undefined
-          }
+          disabled={!checkIn || !checkOut || totalPrice === 0 || isPaying}
         >
           {isPaying ? "Processing..." : "Proceed to Payment"}
         </Button>
+
+        {/* 🔒 Show message if not logged in */}
+        {!user && (
+          <p className="text-center text-sm text-gray-500 mt-3">
+            You must log in before booking.
+          </p>
+        )}
       </Card>
     </div>
   );

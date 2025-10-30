@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation"; // ⬅️ only useRouter now
 import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
-import { useRouter, useSearchParams } from "next/navigation";
 import { signInWithEmailAndPassword, getIdToken } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
@@ -11,15 +11,18 @@ import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
-  // ✅ Lazy state for redirect (prevents build-time useSearchParams issue)
+  // ✅ Instead of useSearchParams
   const [redirectTo, setRedirectTo] = useState("/(dashboard)/user");
 
+  // ✅ We read the query string manually from window.location
   useEffect(() => {
-    const redirect = searchParams?.get("redirect");
-    if (redirect) setRedirectTo(redirect);
-  }, [searchParams]);
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const redirect = urlParams.get("redirect");
+      if (redirect) setRedirectTo(redirect);
+    }
+  }, []);
 
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -74,7 +77,7 @@ export default function LoginPage() {
         body: JSON.stringify({ token }),
       });
 
-      // ✅ Redirect logic — safe & simple
+      // ✅ Safe redirect logic
       if (redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
         router.push(redirectTo);
         return;

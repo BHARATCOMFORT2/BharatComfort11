@@ -16,7 +16,7 @@ interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
-  bookingCallback?: () => void; // kept for future, not used automatically now
+  bookingCallback?: () => void;
 }
 
 export default function LoginModal({
@@ -36,31 +36,26 @@ export default function LoginModal({
   const [loading, setLoading] = useState(false);
   const recaptchaContainer = useRef<HTMLDivElement>(null);
 
-  /* ------------------------------
-     ✅ AUTH STATE MONITOR
-     (Only closes modal after login, no auto-booking)
-  ------------------------------- */
+  /* ---------------------------------
+     🔐 AUTH STATE MONITOR (NO RELOAD)
+  ---------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (user) => {
       if (user) {
+        console.log("✅ User logged in:", user.email);
         onSuccess?.();
         onClose();
 
-        // optional: refresh page to show logged-in state
-        if (typeof window !== "undefined") {
-          window.location.reload();
-        }
-
-        // ❌ removed auto booking trigger for safety
-        // bookingCallback?.();
+        // Optional: trigger booking flow callback manually
+        bookingCallback?.();
       }
     });
     return () => unsub();
-  }, [onSuccess, onClose]);
+  }, [onSuccess, onClose, bookingCallback]);
 
-  /* ------------------------------
-     🔔 PLAY SOUND ON OPEN
-  ------------------------------- */
+  /* ---------------------------------
+     🔔 Play gentle sound on open
+  ---------------------------------- */
   useEffect(() => {
     if (isOpen) {
       const chime = new Audio("/chime.mp3");
@@ -69,41 +64,38 @@ export default function LoginModal({
     }
   }, [isOpen]);
 
-  /* ------------------------------
-     📧 EMAIL / PASSWORD AUTH
-  ------------------------------- */
+  /* ---------------------------------
+     📧 Email/Password Auth
+  ---------------------------------- */
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
-      if (mode === "login") {
-        await loginUser(email, password);
-      } else {
-        await registerUser(email, password, name);
-      }
+      if (mode === "login") await loginUser(email, password);
+      else await registerUser(email, password, name);
     } catch (err: any) {
-      alert(err.message || "Something went wrong.");
+      alert(err.message || "Authentication failed. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ------------------------------
-     🌐 GOOGLE AUTH
-  ------------------------------- */
+  /* ---------------------------------
+     🌐 Google Login
+  ---------------------------------- */
   const handleGoogleLogin = async () => {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
     } catch (err) {
-      alert("Google login failed. Please try again.");
       console.error("Google login error:", err);
+      alert("Google login failed. Please try again.");
     }
   };
 
-  /* ------------------------------
-     📱 PHONE OTP AUTH
-  ------------------------------- */
+  /* ---------------------------------
+     📱 Phone OTP Login
+  ---------------------------------- */
   const handleSendOTP = async () => {
     if (!phone) return alert("Enter your phone number");
     try {
@@ -113,7 +105,7 @@ export default function LoginModal({
       const result = await signInWithPhoneNumber(auth, phone, recaptcha);
       setConfirmResult(result);
       alert("OTP sent successfully!");
-    } catch (err) {
+    } catch (err: any) {
       console.error("OTP send error:", err);
       alert("Failed to send OTP");
     }
@@ -128,14 +120,11 @@ export default function LoginModal({
     }
   };
 
-  /* ------------------------------
-     🧱 SAFE RETURN IF CLOSED
-  ------------------------------- */
   if (!isOpen) return null;
 
-  /* ------------------------------
+  /* ---------------------------------
      🎨 UI
-  ------------------------------- */
+  ---------------------------------- */
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
       <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md relative overflow-hidden animate-fadeZoom">
@@ -204,14 +193,12 @@ export default function LoginModal({
             </button>
           </form>
 
-          {/* Divider */}
           <div className="flex items-center my-3">
             <div className="flex-1 border-t border-gray-300"></div>
             <p className="mx-2 text-gray-400 text-sm">OR</p>
             <div className="flex-1 border-t border-gray-300"></div>
           </div>
 
-          {/* 🌐 Google Login */}
           <button
             onClick={handleGoogleLogin}
             className="w-full bg-white border text-gray-700 py-2 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
@@ -220,7 +207,6 @@ export default function LoginModal({
             Continue with Google
           </button>
 
-          {/* 📱 Phone Login */}
           <div className="space-y-2">
             {!confirmResult ? (
               <>
@@ -258,7 +244,6 @@ export default function LoginModal({
             <div ref={recaptchaContainer}></div>
           </div>
 
-          {/* 🔁 Switch Mode */}
           <p className="text-center text-sm text-gray-600">
             {mode === "login" ? "New user?" : "Already have an account?"}{" "}
             <button
@@ -269,7 +254,6 @@ export default function LoginModal({
             </button>
           </p>
 
-          {/* 🚪 Continue as Guest */}
           <div className="pt-3 border-t border-gray-200">
             <button
               onClick={() => {
@@ -283,7 +267,6 @@ export default function LoginModal({
           </div>
         </div>
 
-        {/* ✖ Close Button */}
         <button
           onClick={onClose}
           className="absolute top-3 right-4 text-gray-400 hover:text-gray-600 text-xl"

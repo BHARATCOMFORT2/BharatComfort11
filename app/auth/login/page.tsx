@@ -7,18 +7,17 @@ import { useRouter } from "next/navigation";
 import {
   signInWithEmailAndPassword,
   getIdToken,
-  sendEmailVerification,
 } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { Eye, EyeOff } from "lucide-react"; // 👁️ using lucide-react icons
+import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false); // 👈 toggle state
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -30,81 +29,88 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 🔹 Firebase Auth login
+      // 🔹 Login via Firebase Auth
       const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
       const user = cred.user;
+      await user.reload(); // ensure latest verification status
 
-      // 🔹 Fetch user document
-      const ref = doc(db, "users", user.uid);
-      const snap = await getDoc(ref);
+      // 🔹 Fetch user profile from Firestore
+      const userRef = doc(db, "users", user.uid);
+      const snap = await getDoc(userRef);
       if (!snap.exists()) {
-        setError("⚠️ No user profile found in Firestore.");
+        setError("⚠️ No user profile found. Please contact support.");
+        await auth.signOut();
         return;
       }
 
       const userData = snap.data();
       const role = userData.role || "user";
-      const phoneVerified = userData.phoneVerified || false;
+      const phoneVerified = userData.phoneVerified ?? true; // default true if not using phone
 
-      // 🔹 Check email verification
+      // 🔹 Verify email (no duplicate sending)
       if (!user.emailVerified) {
-        await sendEmailVerification(user, {
-          url: `${process.env.NEXT_PUBLIC_APP_URL}/auth/verify`,
-        });
-        alert("📧 Please verify your email first. A verification link has been sent!");
-        router.push("/auth/verify");
+        setError("📧 Please verify your email before continuing.");
         return;
       }
 
-      // 🔹 Check phone verification
+      // 🔹 Verify phone if applicable
       if (!phoneVerified) {
-        alert("📱 Please verify your phone number before continuing.");
+        setError("📱 Please verify your phone number before continuing.");
         router.push("/auth/verify");
         return;
       }
 
-      // 🔹 Mark email as verified in Firestore
-      await updateDoc(ref, { emailVerified: true });
+      // 🔹 Update Firestore verification flag once
+      if (!userData.emailVerified) {
+        await updateDoc(userRef, { emailVerified: true });
+      }
 
-      // 🔹 Create a secure session
+      // 🔹 Secure custom session setup (optional if using NextAuth)
       const token = await getIdToken(user);
       await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
-      });
+      }).catch(() => console.warn("Session API unavailable, skipping."));
 
       // 🔹 Role-based redirection
-      if (role === "admin") {
-        alert("✅ Welcome Admin!");
-        router.push("/admin/dashboard");
-      } else if (role === "partner") {
-        if (userData.status === "pending") {
-          alert("⚠️ Your partner account is pending approval.");
-          router.push("/auth/verify");
-          return;
-        }
-        alert("✅ Welcome Partner!");
-        router.push("/partner/dashboard");
-      } else {
-        alert("✅ Welcome User!");
-        router.push("/user/dashboard");
+      switch (role) {
+        case "admin":
+          router.push("/(dashboard)/admin");
+          break;
+        case "partner":
+          if (userData.status === "pending") {
+            alert("⚠️ Your partner account is pending admin approval.");
+            router.push("/auth/verify");
+            return;
+          }
+          router.push("/(dashboard)/partner");
+          break;
+        default:
+          router.push("/(dashboard)/user");
       }
+
     } catch (err: any) {
       console.error("Login error:", err);
-      setError("❌ " + (err.message || "Login failed. Please try again."));
+      // Firebase-specific error mapping
+      let msg = "❌ Login failed. Please try again.";
+      if (err.code === "auth/invalid-email") msg = "Invalid email address.";
+      if (err.code === "auth/user-not-found") msg = "User not found.";
+      if (err.code === "auth/wrong-password") msg = "Incorrect password.";
+      if (err.code === "auth/too-many-requests") msg = "Too many attempts. Try again later.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
 
         {error && (
-          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</p>
+          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm">{error}</p>
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -116,6 +122,7 @@ export default function LoginPage() {
             placeholder="Enter your email"
             value={form.email}
             onChange={handleChange}
+            required
           />
 
           {/* 🔒 Password Input with Eye Icon */}
@@ -129,13 +136,14 @@ export default function LoginPage() {
               placeholder="Enter your password"
               value={form.password}
               onChange={handleChange}
-              className="w-full border rounded-lg p-3 pr-10"
+              className="w-full border rounded-lg p-3 pr-10 focus:ring focus:ring-blue-100"
               required
             />
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-9 text-gray-500 hover:text-gray-700"
+              aria-label="Toggle password visibility"
             >
               {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
@@ -147,7 +155,7 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <div className="mt-4 text-center text-gray-500 space-y-1">
+        <div className="mt-4 text-center text-gray-500 text-sm space-y-1">
           <p>
             Forgot your password?{" "}
             <a

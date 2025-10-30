@@ -25,6 +25,9 @@ const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"),
 
 export const dynamic = "force-dynamic";
 
+/* ---------------------------------------------------
+   📦 Listing Interface
+--------------------------------------------------- */
 interface Listing {
   id: string;
   name: string;
@@ -38,6 +41,9 @@ interface Listing {
   lng?: number;
 }
 
+/* ---------------------------------------------------
+   📄 Main Page
+--------------------------------------------------- */
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(false);
@@ -56,22 +62,29 @@ export default function ListingsPage() {
   });
 
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebouncedFilters(filters), 400);
-    return () => clearTimeout(timer);
-  }, [filters]);
-
   const router = useRouter();
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  // 🔐 Auth Listener
+  /* ---------------------------------------------------
+     👤 Auth Listener
+  --------------------------------------------------- */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setUser(u));
     return () => unsub();
   }, []);
 
-  // 📦 Load Listings
+  /* ---------------------------------------------------
+     ⏱ Debounce Filters
+  --------------------------------------------------- */
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedFilters(filters), 400);
+    return () => clearTimeout(timer);
+  }, [filters]);
+
+  /* ---------------------------------------------------
+     🔁 Load Listings
+  --------------------------------------------------- */
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
@@ -79,7 +92,10 @@ export default function ListingsPage() {
 
       try {
         const colRef = collection(db, "listings");
-        const conditions: any[] = [where("status", "==", "approved")];
+        const conditions: any[] = [];
+
+        // ✅ If your DB has status field:
+        // conditions.push(where("status", "==", "approved"));
 
         if (filters.category !== "all")
           conditions.push(where("category", "==", filters.category));
@@ -100,8 +116,16 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
+
+        // 🛑 Prevent infinite loop if no results
+        if (snap.empty) {
+          setHasMore(false);
+          setLoading(false);
+          return;
+        }
+
         const newListings = snap.docs.map((doc) => {
-          const { id: _ignoredId, ...data } = doc.data() as Listing;
+          const data = doc.data() as Listing;
           const images =
             Array.isArray(data.images) && data.images.length > 0
               ? data.images
@@ -121,27 +145,35 @@ export default function ListingsPage() {
     [filters, lastDoc, hasMore, loading]
   );
 
-  // ♾️ Infinite Scroll
+  /* ---------------------------------------------------
+     🔄 Infinite Scroll
+  --------------------------------------------------- */
   useEffect(() => {
     if (observer.current) observer.current.disconnect();
+
     observer.current = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loading) loadListings(false);
       },
       { threshold: 1 }
     );
+
     if (loadMoreRef.current) observer.current.observe(loadMoreRef.current);
     return () => observer.current?.disconnect();
   }, [loadListings, hasMore, loading]);
 
-  // 🔄 Refresh listings when filters change
+  /* ---------------------------------------------------
+     🔍 Reload on Filter Change
+  --------------------------------------------------- */
   useEffect(() => {
     setLastDoc(null);
     setHasMore(true);
     loadListings(true);
   }, [debouncedFilters]);
 
-  // 💳 Handle Booking
+  /* ---------------------------------------------------
+     💳 Book Now Handler
+  --------------------------------------------------- */
   const handleBookNow = async (listing: Listing) => {
     if (!user) {
       setShowLoginModal(true);
@@ -177,9 +209,12 @@ export default function ListingsPage() {
     }
   };
 
-  // 🧱 Listing Card Component
+  /* ---------------------------------------------------
+     🧱 Listing Card
+  --------------------------------------------------- */
   const ListingCard = ({ listing }: { listing: Listing }) => {
     const [current, setCurrent] = useState(0);
+
     useEffect(() => {
       const timer = setInterval(
         () => setCurrent((prev) => (prev + 1) % listing.images!.length),
@@ -246,7 +281,9 @@ export default function ListingsPage() {
     );
   };
 
-  // 🖼️ Render Page
+  /* ---------------------------------------------------
+     🖼️ Page UI
+  --------------------------------------------------- */
   return (
     <div className="p-6 space-y-8">
       <header className="flex items-center justify-between flex-wrap gap-2">
@@ -269,7 +306,9 @@ export default function ListingsPage() {
       </div>
 
       <div ref={loadMoreRef} className="py-8 text-center text-gray-500">
-        {loading
+        {!loading && listings.length === 0
+          ? "No listings found."
+          : loading
           ? "Loading more listings..."
           : hasMore
           ? "Scroll down to load more"
@@ -287,11 +326,10 @@ export default function ListingsPage() {
         </section>
       )}
 
-      {/* ✅ Login Modal without alert */}
+      {/* 🧩 Login Modal */}
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
-        bookingCallback={() => setShowLoginModal(false)}
       />
     </div>
   );

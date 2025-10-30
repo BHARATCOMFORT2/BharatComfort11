@@ -5,142 +5,159 @@ import { auth, db } from "@/lib/firebase";
 import {
   onAuthStateChanged,
   sendEmailVerification,
-  linkWithPhoneNumber,
   RecaptchaVerifier,
+  signInWithPhoneNumber,
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 
 export default function VerifyPage() {
   const [user, setUser] = useState<any>(null);
-  const [emailSent, setEmailSent] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [emailSent, setEmailSent] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
 
+  // Refs for reCAPTCHA & OTP confirmation
   const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
-  const recaptchaRef = useRef<RecaptchaVerifier | null>(null);
-  const confirmationRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
 
-  /* ------------------------------------------------------
-     🔐 AUTH STATE LISTENER + FETCH PROFILE
-  ------------------------------------------------------ */
+  /* ----------------------------------------------------------
+     🔐 AUTH STATE LISTENER + LOAD USER PROFILE
+  ---------------------------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       setMsg(null);
-
       if (u) {
         const snap = await getDoc(doc(db, "users", u.uid));
         if (snap.exists()) {
-          const p = snap.data();
-          setProfile(p);
-          setPhone(p.phone || u.phoneNumber || "");
+          const data = snap.data();
+          setProfile(data);
+          setPhone(data.phone || u.phoneNumber || "");
         }
       }
     });
-
     return () => unsub();
   }, []);
 
-  /* ------------------------------------------------------
-     ✅ Initialize reCAPTCHA (fixed argument order)
-  ------------------------------------------------------ */
-  async function ensureRecaptcha() {
-    if (recaptchaRef.current) return recaptchaRef.current;
-    if (!recaptchaDivRef.current) return null;
+  /* ----------------------------------------------------------
+     ✅ Initialize Invisible reCAPTCHA (one-time)
+  ---------------------------------------------------------- */
+  useEffect(() => {
+    if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaDivRef.current) {
+      try {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
+          size: "invisible",
+        });
+      } catch (err) {
+        console.warn("reCAPTCHA already initialized or unavailable");
+      }
+    }
+  }, []);
 
-    recaptchaRef.current = new RecaptchaVerifier(
-      auth, // ✅ first: Auth instance
-      recaptchaDivRef.current, // ✅ second: container element
-      { size: "invisible" }
-    );
-
-    await recaptchaRef.current.render();
-    return recaptchaRef.current;
-  }
-
-  /* ------------------------------------------------------
+  /* ----------------------------------------------------------
      ✉️ SEND EMAIL VERIFICATION
-  ------------------------------------------------------ */
+  ---------------------------------------------------------- */
   const handleSendVerification = async () => {
     if (!auth.currentUser) return;
-
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-    await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
-
-    setEmailSent(true);
-    setMsg("📩 Verification email sent successfully!");
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
+      setEmailSent(true);
+      setMsg("📩 Verification email sent successfully! Please check your inbox.");
+    } catch (err: any) {
+      console.error("Email verification error:", err);
+      setMsg(err.message || "Failed to send verification email.");
+    }
   };
 
-  /* ------------------------------------------------------
-     📱 SEND PHONE OTP
-  ------------------------------------------------------ */
-  const startPhoneLink = async () => {
-    setMsg(null);
-    if (!auth.currentUser) return;
+  /* ----------------------------------------------------------
+     🔁 REFRESH EMAIL VERIFICATION STATUS
+  ---------------------------------------------------------- */
+  const handleRefreshStatus = async () => {
+    try {
+      await auth.currentUser?.reload();
+      const updatedUser = auth.currentUser;
+      if (updatedUser?.emailVerified) {
+        await updateDoc(doc(db, "users", updatedUser.uid), { emailVerified: true });
+        setMsg("✅ Email verified successfully!");
+      } else {
+        setMsg("⏳ Still not verified. Check your inbox.");
+      }
+      setUser(updatedUser);
+    } catch (err: any) {
+      console.error("Refresh error:", err);
+      setMsg(err.message || "Failed to refresh verification status.");
+    }
+  };
 
+  /* ----------------------------------------------------------
+     📱 SEND PHONE OTP (using signInWithPhoneNumber)
+  ---------------------------------------------------------- */
+  const handleSendOtp = async () => {
+    setMsg(null);
+    if (!auth.currentUser) return setMsg("Please login again.");
     if (!/^\+?\d{10,15}$/.test(phone)) {
-      setMsg("Enter valid phone number with country code (e.g. +919876543210)");
-      return;
+      return setMsg("Enter valid phone number with country code (e.g. +919876543210)");
     }
 
     setLoading(true);
     try {
-      const verifier = await ensureRecaptcha();
+      const verifier = recaptchaVerifierRef.current;
       if (!verifier) throw new Error("Failed to initialize reCAPTCHA.");
-
-      confirmationRef.current = await linkWithPhoneNumber(auth.currentUser, phone, verifier);
-      setMsg("📲 OTP sent to your phone.");
-    } catch (e: any) {
-      console.error(e);
-      setMsg(e?.message || "Failed to send OTP.");
+      confirmationResultRef.current = await signInWithPhoneNumber(auth, phone, verifier);
+      setMsg("📲 OTP sent to your phone successfully!");
+    } catch (err: any) {
+      console.error("Send OTP error:", err);
+      setMsg(err.message || "Failed to send OTP. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ------------------------------------------------------
-     ✅ VERIFY OTP
-  ------------------------------------------------------ */
-  const verifyOtp = async () => {
-    setMsg(null);
-
-    if (!otp) return setMsg("Enter the OTP first.");
-    if (!confirmationRef.current) return setMsg("OTP session expired. Please resend.");
+  /* ----------------------------------------------------------
+     ✅ VERIFY OTP & UPDATE PROFILE
+  ---------------------------------------------------------- */
+  const handleVerifyOtp = async () => {
+    if (!otp.trim()) return setMsg("Enter OTP first.");
+    if (!confirmationResultRef.current) return setMsg("OTP session expired. Please resend.");
 
     setLoading(true);
     try {
-      const res = await confirmationRef.current.confirm(otp);
-      await updateDoc(doc(db, "users", res.user.uid), {
+      const result = await confirmationResultRef.current.confirm(otp.trim());
+      await updateDoc(doc(db, "users", result.user.uid), {
         phoneVerified: true,
         phone,
       });
-      setMsg("✅ Phone number verified successfully!");
-    } catch (e: any) {
-      console.error(e);
-      setMsg(e?.message || "Invalid OTP. Try again.");
+      setMsg("✅ Phone verified successfully!");
+      setProfile({ ...profile, phoneVerified: true });
+    } catch (err: any) {
+      console.error("OTP verify error:", err);
+      setMsg(err.message || "Invalid OTP. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ------------------------------------------------------
-     🚫 Not logged in state
-  ------------------------------------------------------ */
+  /* ----------------------------------------------------------
+     🚫 NOT LOGGED IN STATE
+  ---------------------------------------------------------- */
   if (!user) {
     return (
       <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow">
-        <h1 className="text-xl font-bold">Not logged in</h1>
-        <p className="text-gray-600">Please register or login first.</p>
+        <h1 className="text-xl font-bold text-gray-800 mb-2">Not Logged In</h1>
+        <p className="text-gray-600">Please register or log in first to verify your account.</p>
       </div>
     );
   }
 
-  /* ------------------------------------------------------
-     ✅ STATUS UI
-  ------------------------------------------------------ */
+  /* ----------------------------------------------------------
+     ✅ STATUS SECTION
+  ---------------------------------------------------------- */
   const emailVerified = user.emailVerified;
   const phoneVerified = Boolean(profile?.phoneVerified || user.phoneNumber);
 
@@ -156,13 +173,21 @@ export default function VerifyPage() {
           <p>
             Your email <b>{user.email}</b> is not verified yet.
           </p>
-          <button
-            onClick={handleSendVerification}
-            disabled={emailSent}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
-          >
-            {emailSent ? "Verification Sent ✔" : "Send Verification Email"}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSendVerification}
+              disabled={emailSent}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
+            >
+              {emailSent ? "Verification Sent ✔" : "Send Verification Email"}
+            </button>
+            <button
+              onClick={handleRefreshStatus}
+              className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90 transition"
+            >
+              Refresh
+            </button>
+          </div>
         </div>
       ) : (
         <div className="p-4 border rounded bg-green-50">
@@ -184,9 +209,9 @@ export default function VerifyPage() {
             onChange={(e) => setPhone(e.target.value)}
           />
 
-          <div className="flex gap-2">
+          <div className="flex flex-col sm:flex-row gap-2">
             <button
-              onClick={startPhoneLink}
+              onClick={handleSendOtp}
               disabled={loading}
               className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90 transition"
             >
@@ -201,7 +226,7 @@ export default function VerifyPage() {
             />
 
             <button
-              onClick={verifyOtp}
+              onClick={handleVerifyOtp}
               disabled={loading}
               className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
             >
@@ -218,7 +243,11 @@ export default function VerifyPage() {
         </div>
       )}
 
-      {msg && <p className="text-sm text-gray-700">{msg}</p>}
+      {msg && (
+        <p className="text-sm text-gray-700 text-center bg-gray-100 p-2 rounded">
+          {msg}
+        </p>
+      )}
     </div>
   );
 }

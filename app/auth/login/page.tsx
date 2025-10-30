@@ -1,19 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
-import { useRouter } from "next/navigation";
-import {
-  signInWithEmailAndPassword,
-  getIdToken,
-} from "firebase/auth";
+import { useRouter, useSearchParams } from "next/navigation";
+import { signInWithEmailAndPassword, getIdToken } from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+
+  // ✅ Capture redirect param (default to /user/dashboard)
+  const redirectTo =
+    searchParams.get("redirect") || "/(dashboard)/user";
+
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,12 +32,12 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 🔹 Login via Firebase Auth
+      // 🔹 Login with Firebase
       const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
       const user = cred.user;
-      await user.reload(); // ensure latest verification status
+      await user.reload();
 
-      // 🔹 Fetch user profile from Firestore
+      // 🔹 Fetch user data
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
       if (!snap.exists()) {
@@ -45,35 +48,42 @@ export default function LoginPage() {
 
       const userData = snap.data();
       const role = userData.role || "user";
-      const phoneVerified = userData.phoneVerified ?? true; // default true if not using phone
+      const phoneVerified = userData.phoneVerified ?? true;
 
-      // 🔹 Verify email (no duplicate sending)
+      // 🔹 Require verified email
       if (!user.emailVerified) {
         setError("📧 Please verify your email before continuing.");
         return;
       }
 
-      // 🔹 Verify phone if applicable
+      // 🔹 Require phone verification (if used)
       if (!phoneVerified) {
         setError("📱 Please verify your phone number before continuing.");
         router.push("/auth/verify");
         return;
       }
 
-      // 🔹 Update Firestore verification flag once
+      // 🔹 Update Firestore verification once
       if (!userData.emailVerified) {
         await updateDoc(userRef, { emailVerified: true });
       }
 
-      // 🔹 Secure custom session setup (optional if using NextAuth)
+      // 🔹 Create session cookie via API
       const token = await getIdToken(user);
       await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
-      }).catch(() => console.warn("Session API unavailable, skipping."));
+      });
 
-      // 🔹 Role-based redirection
+      // ✅ Smart Redirect Handling
+      if (redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
+        // Return user to the booking they came from
+        router.push(redirectTo);
+        return;
+      }
+
+      // 🔹 Role-based fallback redirect
       switch (role) {
         case "admin":
           router.push("/(dashboard)/admin");
@@ -92,7 +102,6 @@ export default function LoginPage() {
 
     } catch (err: any) {
       console.error("Login error:", err);
-      // Firebase-specific error mapping
       let msg = "❌ Login failed. Please try again.";
       if (err.code === "auth/invalid-email") msg = "Invalid email address.";
       if (err.code === "auth/user-not-found") msg = "User not found.";
@@ -114,7 +123,6 @@ export default function LoginPage() {
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          {/* 📧 Email Input */}
           <Input
             label="Email"
             name="email"
@@ -125,7 +133,6 @@ export default function LoginPage() {
             required
           />
 
-          {/* 🔒 Password Input with Eye Icon */}
           <div className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Password
@@ -149,7 +156,6 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* 🚀 Submit Button */}
           <Button type="submit" disabled={loading}>
             {loading ? "Logging in..." : "Login"}
           </Button>
@@ -158,19 +164,13 @@ export default function LoginPage() {
         <div className="mt-4 text-center text-gray-500 text-sm space-y-1">
           <p>
             Forgot your password?{" "}
-            <a
-              href="/auth/forgot-password"
-              className="text-blue-600 font-medium hover:underline"
-            >
+            <a href="/auth/forgot-password" className="text-blue-600 font-medium hover:underline">
               Reset here
             </a>
           </p>
           <p>
             Don’t have an account?{" "}
-            <a
-              href="/auth/register"
-              className="text-blue-600 font-medium hover:underline"
-            >
+            <a href="/auth/register" className="text-blue-600 font-medium hover:underline">
               Register
             </a>
           </p>

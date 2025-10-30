@@ -6,9 +6,8 @@ import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
-  onAuthStateChanged,
   RecaptchaVerifier,
-  linkWithPhoneNumber,
+  signInWithPhoneNumber,
 } from "firebase/auth";
 import { doc, setDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import Input from "@/components/forms/Input";
@@ -32,17 +31,30 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-
-  // OTP State
   const [otp, setOtp] = useState("");
-  const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
-  const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
 
-  // Refresh Auth listener
+  // Firebase confirmationResult reference
+  const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
+
+  // Recaptcha verifier reference
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const recaptchaContainerRef = useRef<HTMLDivElement | null>(null);
+
+  /* ---------------------------------------------------------
+     ✅ Initialize invisible reCAPTCHA once
+  --------------------------------------------------------- */
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, () => {});
-    return () => unsub();
+    if (typeof window !== "undefined" && !recaptchaVerifierRef.current) {
+      try {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(
+          auth,
+          recaptchaContainerRef.current!,
+          { size: "invisible" }
+        );
+      } catch (err) {
+        console.warn("reCAPTCHA already initialized or unavailable");
+      }
+    }
   }, []);
 
   const handleChange = (
@@ -50,42 +62,22 @@ export default function RegisterPage() {
   ) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   /* ---------------------------------------------------------
-     ✅ Ensure reCAPTCHA exists (fixed argument order)
-  --------------------------------------------------------- */
-  async function ensureRecaptcha() {
-    if (recaptchaVerifierRef.current) return recaptchaVerifierRef.current;
-    if (!recaptchaDivRef.current) return null;
-
-    // ✅ Correct argument order → (auth, container, options)
-    recaptchaVerifierRef.current = new RecaptchaVerifier(
-      auth,
-      recaptchaDivRef.current,
-      { size: "invisible" }
-    );
-
-    await recaptchaVerifierRef.current.render();
-    return recaptchaVerifierRef.current;
-  }
-
-  /* ---------------------------------------------------------
-     🧩 Step 1: Register user + send email + phone OTP
+     🧩 STEP 1: Register user (email/password) + send OTP
   --------------------------------------------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
-    if (form.password !== form.confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-    if (!/^\+?\d{10,15}$/.test(form.phone)) {
-      setError("Enter valid phone number with country code, e.g. +919876543210");
-      return;
-    }
+    // validation
+    if (!form.name.trim()) return setError("Enter your full name.");
+    if (form.password !== form.confirmPassword)
+      return setError("Passwords do not match.");
+    if (!/^\+?\d{10,15}$/.test(form.phone))
+      return setError("Enter valid phone number with country code (e.g. +919876543210)");
 
     setLoading(true);
     try {
-      // 1️⃣ Create Auth user
+      // 🔹 1. Create Firebase Auth user
       const cred = await createUserWithEmailAndPassword(
         auth,
         form.email.trim(),
@@ -93,7 +85,7 @@ export default function RegisterPage() {
       );
       const user = cred.user;
 
-      // 2️⃣ Save in Firestore
+      // 🔹 2. Save initial user profile in Firestore
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         name: form.name.trim(),
@@ -106,72 +98,73 @@ export default function RegisterPage() {
         createdAt: serverTimestamp(),
       });
 
-      // 3️⃣ Send email verification
+      // 🔹 3. Send email verification
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       await sendEmailVerification(user, { url: `${appUrl}/auth/verify` });
 
-      // 4️⃣ Send OTP for phone
-      const verifier = await ensureRecaptcha();
+      // 🔹 4. Send OTP to phone using signInWithPhoneNumber
+      const verifier = recaptchaVerifierRef.current;
       if (!verifier) throw new Error("Failed to initialize reCAPTCHA.");
-      if (!auth.currentUser) throw new Error("No active user found.");
 
-      confirmationResultRef.current = await linkWithPhoneNumber(
-        auth.currentUser,
+      confirmationResultRef.current = await signInWithPhoneNumber(
+        auth,
         form.phone.trim(),
         verifier
       );
 
-      alert("📩 Verification email & OTP sent. Please check inbox and phone.");
+      alert("📩 Verification email sent & OTP sent to your phone.");
       setStep("otp");
     } catch (err: any) {
       console.error("Registration error:", err);
-      setError(err?.message || "Registration failed. Try again.");
+      let msg = "Registration failed. Try again.";
+      if (err.code === "auth/email-already-in-use") msg = "Email already in use.";
+      if (err.code === "auth/invalid-email") msg = "Invalid email address.";
+      if (err.code === "auth/weak-password") msg = "Password should be at least 6 characters.";
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
   /* ---------------------------------------------------------
-     📱 Step 2: Verify OTP
+     📱 STEP 2: Verify OTP
   --------------------------------------------------------- */
   const handleVerifyOtp = async () => {
-    if (!otp) return setError("Enter 6-digit OTP.");
+    if (!otp.trim()) return setError("Enter the 6-digit OTP.");
     if (!confirmationResultRef.current)
       return setError("OTP session expired. Please re-register.");
 
     setLoading(true);
     setError("");
     try {
-      const result = await confirmationResultRef.current.confirm(otp);
-      const linkedUser = result.user;
+      const result = await confirmationResultRef.current.confirm(otp.trim());
+      const verifiedUser = result.user;
 
-      await updateDoc(doc(db, "users", linkedUser.uid), {
+      await updateDoc(doc(db, "users", verifiedUser.uid), {
         phoneVerified: true,
       });
 
+      alert("✅ Phone verified successfully!");
       setStep("done");
     } catch (err: any) {
       console.error("OTP verification error:", err);
-      setError(err?.message || "Invalid OTP. Try again.");
+      setError(err.message || "Invalid OTP. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
   /* ---------------------------------------------------------
-     🎉 Step 3: Redirect to verify page
+     🎉 STEP 3: Redirect to verify page
   --------------------------------------------------------- */
-  const handleGoToVerifyPage = () => {
-    router.push("/auth/verify");
-  };
+  const handleGoToVerifyPage = () => router.push("/auth/verify");
 
   /* ---------------------------------------------------------
-     🖼️ UI Rendering
+     🖼️ UI RENDER
   --------------------------------------------------------- */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
-        {/* STEP 1: REGISTER FORM */}
         {step === "form" && (
           <>
             <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
@@ -283,11 +276,10 @@ export default function RegisterPage() {
               </a>
             </p>
 
-            <div ref={recaptchaDivRef} id="recaptcha-register" />
+            <div ref={recaptchaContainerRef} id="recaptcha-register" />
           </>
         )}
 
-        {/* STEP 2: OTP */}
         {step === "otp" && (
           <>
             <h2 className="text-2xl font-semibold text-center mb-4">
@@ -318,7 +310,6 @@ export default function RegisterPage() {
           </>
         )}
 
-        {/* STEP 3: DONE */}
         {step === "done" && (
           <>
             <h2 className="text-2xl font-semibold text-center mb-4">All Set! 🎉</h2>

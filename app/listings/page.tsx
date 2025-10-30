@@ -124,14 +124,14 @@ export default function ListingsPage() {
           return;
         }
 
-        const newListings = snap.docs.map((doc) => {
-          const data = doc.data() as Listing;
-          const images =
-            Array.isArray(data.images) && data.images.length > 0
-              ? data.images
-              : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
-          return { id: doc.id, ...data, images };
-        });
+       const newListings = snap.docs.map((doc) => {
+  const { id: _ignoredId, ...data } = doc.data() as any; // 🧹 remove old id if exists
+  const images =
+    Array.isArray(data.images) && data.images.length > 0
+      ? data.images
+      : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
+  return { id: doc.id, ...data, images }; // ✅ now only one id
+});
 
         setListings((prev) => (reset ? newListings : [...prev, ...newListings]));
         setLastDoc(snap.docs[snap.docs.length - 1]);

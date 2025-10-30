@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
-import LoginModal from "@/components/auth/LoginModal"; // ✅ Import modal
+import LoginModal from "@/components/auth/LoginModal";
 
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
   ssr: false,
@@ -25,9 +25,6 @@ const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"),
 
 export const dynamic = "force-dynamic";
 
-/* ---------------------------------------------------
-   📦 Listing Interface
---------------------------------------------------- */
 interface Listing {
   id: string;
   name: string;
@@ -41,18 +38,14 @@ interface Listing {
   lng?: number;
 }
 
-/* ---------------------------------------------------
-   📄 Main Page
---------------------------------------------------- */
 export default function ListingsPage() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
   const [user, setUser] = useState<any>(null);
-  const [showLoginModal, setShowLoginModal] = useState(false); // ✅ Control modal visibility
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
-  // 🧭 Filters
   const [filters, setFilters] = useState({
     search: "",
     category: "all",
@@ -62,7 +55,6 @@ export default function ListingsPage() {
     rating: 0,
   });
 
-  // 🧠 Local debounce logic
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedFilters(filters), 400);
@@ -73,17 +65,13 @@ export default function ListingsPage() {
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  /* ---------------------------------------------------
-     👤 Auth Listener
-  --------------------------------------------------- */
+  // 🔐 Auth Listener
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => setUser(u));
     return () => unsub();
   }, []);
 
-  /* ---------------------------------------------------
-     🔁 Load Listings
-  --------------------------------------------------- */
+  // 📦 Load Listings
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
@@ -133,38 +121,30 @@ export default function ListingsPage() {
     [filters, lastDoc, hasMore, loading]
   );
 
-  /* ---------------------------------------------------
-     🔄 Infinite Scroll
-  --------------------------------------------------- */
+  // ♾️ Infinite Scroll
   useEffect(() => {
     if (observer.current) observer.current.disconnect();
-
     observer.current = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting && hasMore && !loading) loadListings(false);
       },
       { threshold: 1 }
     );
-
     if (loadMoreRef.current) observer.current.observe(loadMoreRef.current);
     return () => observer.current?.disconnect();
   }, [loadListings, hasMore, loading]);
 
-  /* ---------------------------------------------------
-     🔍 Filter change refresh
-  --------------------------------------------------- */
+  // 🔄 Refresh listings when filters change
   useEffect(() => {
     setLastDoc(null);
     setHasMore(true);
     loadListings(true);
   }, [debouncedFilters]);
 
-  /* ---------------------------------------------------
-     💳 Book Now Handler
-  --------------------------------------------------- */
+  // 💳 Handle Booking
   const handleBookNow = async (listing: Listing) => {
     if (!user) {
-      setShowLoginModal(true); // ✅ Show login modal instead of redirect
+      setShowLoginModal(true);
       return;
     }
 
@@ -197,12 +177,9 @@ export default function ListingsPage() {
     }
   };
 
-  /* ---------------------------------------------------
-     🧱 Listing Card with Lazy Carousel + Fade Transition
-  --------------------------------------------------- */
+  // 🧱 Listing Card Component
   const ListingCard = ({ listing }: { listing: Listing }) => {
     const [current, setCurrent] = useState(0);
-
     useEffect(() => {
       const timer = setInterval(
         () => setCurrent((prev) => (prev + 1) % listing.images!.length),
@@ -213,7 +190,6 @@ export default function ListingsPage() {
 
     return (
       <div className="border rounded-xl shadow hover:shadow-xl bg-white overflow-hidden transition-all duration-300">
-        {/* 🖼️ Carousel */}
         <div className="relative w-full h-52 overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.img
@@ -240,7 +216,6 @@ export default function ListingsPage() {
           </div>
         </div>
 
-        {/* 📋 Info */}
         <div className="p-4 space-y-2">
           <h3 className="text-lg font-semibold text-gray-800 truncate">
             {listing.name}
@@ -271,9 +246,7 @@ export default function ListingsPage() {
     );
   };
 
-  /* ---------------------------------------------------
-     🖼️ Page UI
-  --------------------------------------------------- */
+  // 🖼️ Render Page
   return (
     <div className="p-6 space-y-8">
       <header className="flex items-center justify-between flex-wrap gap-2">
@@ -283,21 +256,18 @@ export default function ListingsPage() {
         </span>
       </header>
 
-      {/* 🎛️ Filters Section */}
       <ListingFilters
         filters={filters}
         setFilters={setFilters}
         onSearch={(value) => setFilters((prev) => ({ ...prev, search: value }))}
       />
 
-      {/* 🧱 Listings Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {listings.map((listing) => (
           <ListingCard key={listing.id} listing={listing} />
         ))}
       </div>
 
-      {/* ♾️ Infinite Scroll Loader */}
       <div ref={loadMoreRef} className="py-8 text-center text-gray-500">
         {loading
           ? "Loading more listings..."
@@ -306,7 +276,6 @@ export default function ListingsPage() {
           : "🎉 You've reached the end"}
       </div>
 
-      {/* 🗺️ Map Section */}
       {listings.length > 0 && (
         <section className="pt-8">
           <h2 className="text-xl font-semibold mb-4 text-gray-800">
@@ -318,11 +287,11 @@ export default function ListingsPage() {
         </section>
       )}
 
-      {/* 🧩 Login Modal */}
+      {/* ✅ Login Modal without alert */}
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
-        bookingCallback={() => alert("✅ Login successful — please proceed with booking.")}
+        bookingCallback={() => setShowLoginModal(false)}
       />
     </div>
   );

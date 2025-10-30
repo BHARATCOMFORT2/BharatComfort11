@@ -1,23 +1,39 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { getProvider } from "@/lib/payments/core";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/firebaseadmin"; // ✅ use admin SDK here
+import admin from "firebase-admin";
 import { doc, setDoc, serverTimestamp } from "firebase/firestore";
 
 /**
- * 🔹 POST /api/payments/create
- * Creates a Razorpay order and stores a pending record in Firestore
+ * 🔹 POST /api/payments/create-order
+ * Securely creates a Razorpay order (only for verified Firebase users)
  */
-export async function POST(req: Request) {
+export async function POST(req: NextRequest) {
   try {
-    const { amount, context, listingId, userId } = await req.json();
-    if (!userId || userId === "guest-user") {
-  return NextResponse.json(
-    { success: false, error: "Unauthorized: Login required" },
-    { status: 401 }
-  );
-}
+    const { amount, context, listingId } = await req.json();
 
-    // ✅ 1️⃣ Validate Input
+    // 🔒 Verify Firebase Auth Token
+    const authHeader = req.headers.get("authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized: No token provided" },
+        { status: 401 }
+      );
+    }
+
+    const idToken = authHeader.split("Bearer ")[1];
+    const decoded = await admin.auth().verifyIdToken(idToken).catch(() => null);
+
+    if (!decoded?.uid) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized: Invalid token" },
+        { status: 403 }
+      );
+    }
+
+    const userId = decoded.uid;
+
+    // ✅ Validate amount
     if (!amount || amount <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid payment amount" },
@@ -25,33 +41,25 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 2️⃣ Initialize Payment Provider (Razorpay)
+    // ✅ Create Razorpay Order
     const provider = getProvider();
-
-    // ✅ 3️⃣ Create Razorpay Order
     const result = await provider.createOrder({
       amount,
       meta: { context, listingId, userId },
     });
 
-    // ✅ 4️⃣ Save Payment Record in Firestore
-    try {
-      await setDoc(doc(db, "payments", result.orderId), {
-        provider: result.provider,
-        status: "pending",
-        context: context || "general",
-        amount,
-        currency: result.currency,
-        listingId: listingId ?? null,
-        userId: userId ?? "guest",
-        createdAt: serverTimestamp(),
-      });
-    } catch (fireErr: any) {
-      console.warn("⚠️ Firestore payment record failed:", fireErr.message);
-      // Continue — we still return order details even if Firestore write fails
-    }
+    // ✅ Save Firestore record (optional)
+    await setDoc(doc(db, "payments", result.orderId), {
+      provider: result.provider,
+      status: "pending",
+      context: context || "general",
+      amount,
+      currency: result.currency,
+      listingId: listingId ?? null,
+      userId,
+      createdAt: serverTimestamp(),
+    });
 
-    // ✅ 5️⃣ Respond to Client
     return NextResponse.json({
       success: true,
       id: result.orderId,
@@ -59,9 +67,9 @@ export async function POST(req: Request) {
       currency: result.currency,
     });
   } catch (err: any) {
-    console.error("❌ /api/payments/create error:", err);
+    console.error("❌ create-order error:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Server error" },
       { status: 500 }
     );
   }

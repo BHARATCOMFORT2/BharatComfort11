@@ -143,7 +143,7 @@ export function openRazorpayCheckout({
       email,
       contact: phone || "",
     },
-    theme: { color: "#f59e0b" }, // BharatComfort theme color
+    theme: { color: "#f59e0b" }, // BharatComfort theme
     handler: (response: any) => onSuccess?.(response),
     modal: {
       ondismiss: () => onFailure?.({ error: "Payment cancelled" }),
@@ -158,3 +158,10 @@ export function openRazorpayCheckout({
     onFailure?.(err);
   }
 }
+
+/* ============================================================
+   ✅ EXPLICIT EXPORTS (Fix for Netlify / Next.js)
+============================================================ */
+const razorpay = getRazorpayServerInstance();
+
+export { razorpay };

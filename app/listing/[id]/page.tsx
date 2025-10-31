@@ -353,14 +353,14 @@ export default function ListingDetailsPage() {
         )}
       </section>
 
-      {/* Login Modal */}
       <LoginModal
-        isOpen={showLoginModal}
-        onClose={() => setShowLoginModal(false)}
-        bookingCallback={() =>
-          router.push(`/listing/${listing?.id}/book?checkIn=${checkIn}&checkOut=${checkOut}`)
-        }
-      />
+  isOpen={showLoginModal}
+  onClose={() => setShowLoginModal(false)}
+  onSuccess={() => setUser(auth.currentUser)}
+  bookingCallback={() =>
+    router.push(`/listing/${listing?.id}/book?checkIn=${checkIn}&checkOut=${checkOut}`)
+  }
+/>
     </div>
   );
 }

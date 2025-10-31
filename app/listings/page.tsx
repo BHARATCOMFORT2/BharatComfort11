@@ -45,7 +45,7 @@ export default function ListingsPage() {
   const [hasMore, setHasMore] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [pendingListing, setPendingListing] = useState<Listing | null>(null); // 🧠 Store listing for booking after login
+  const [pendingListing, setPendingListing] = useState<Listing | null>(null);
 
   const [filters, setFilters] = useState({
     search: "",
@@ -62,13 +62,13 @@ export default function ListingsPage() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   /* ---------------------------------------------------
-     👤 Auth Listener (reactive)
+     👤 Auth Listener
   --------------------------------------------------- */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       setUser(u);
+      // Resume booking after login
       if (u && pendingListing) {
-        // 🔄 Automatically continue booking if modal just logged in
         handleBookNow(pendingListing);
         setPendingListing(null);
       }
@@ -95,9 +95,6 @@ export default function ListingsPage() {
       try {
         const colRef = collection(db, "listings");
         const conditions: any[] = [];
-
-        // Uncomment if your listings have approval status
-        // conditions.push(where("status", "==", "approved"));
 
         if (filters.category !== "all")
           conditions.push(where("category", "==", filters.category));
@@ -172,42 +169,44 @@ export default function ListingsPage() {
   }, [debouncedFilters]);
 
   /* ---------------------------------------------------
-     💳 Book Now Handler
+     💳 Booking & Payment Flow
   --------------------------------------------------- */
   const handleBookNow = async (listing: Listing) => {
     if (!user) {
-      // 🔒 Save listing and open login modal
       setPendingListing(listing);
       setShowLoginModal(true);
       return;
     }
 
     try {
+      const token = await user.getIdToken(); // ✅ secure authentication
       const res = await fetch("/api/payments/create-order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           amount: listing.price,
           listingId: listing.id,
-          userId: user.uid,
         }),
       });
 
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Failed to create order");
+      if (!data.success) throw new Error(data.error || "Payment order failed");
 
       openRazorpayCheckout({
         amount: listing.price,
         orderId: data.id,
         name: listing.name,
         email: user.email,
-        phone: user.phoneNumber || "9999999999",
+        phone: user.phoneNumber || "",
         onSuccess: () => alert("✅ Payment Successful!"),
         onFailure: () => alert("❌ Payment Failed"),
       });
     } catch (err) {
       console.error("Booking error:", err);
-      alert("Failed to start payment.");
+      alert("Payment could not be initiated. Try again.");
     }
   };
 
@@ -254,15 +253,11 @@ export default function ListingsPage() {
         </div>
 
         <div className="p-4 space-y-2">
-          <h3 className="text-lg font-semibold text-gray-800 truncate">
-            {listing.name}
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-800 truncate">{listing.name}</h3>
           <p className="text-gray-600 text-sm truncate">{listing.location}</p>
           <div className="flex justify-between items-center">
             <span className="text-blue-600 font-bold">₹{listing.price}</span>
-            <span className="text-yellow-600 text-sm">
-              ⭐ {listing.rating || 4.2}
-            </span>
+            <span className="text-yellow-600 text-sm">⭐ {listing.rating || 4.2}</span>
           </div>
           <div className="flex gap-2 mt-4">
             <Button
@@ -319,9 +314,7 @@ export default function ListingsPage() {
 
       {listings.length > 0 && (
         <section className="pt-8">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">
-            Explore on Map
-          </h2>
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">Explore on Map</h2>
           <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
             <ListingMap listings={listings} />
           </div>
@@ -332,7 +325,7 @@ export default function ListingsPage() {
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}
-        onSuccess={() => setUser(auth.currentUser)} // ✅ instant state update
+        onSuccess={() => setUser(auth.currentUser)}
       />
     </div>
   );

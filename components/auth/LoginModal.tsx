@@ -1,279 +1,287 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
+import { auth, db } from "@/lib/firebase";
 import {
-  signInWithPopup,
-  GoogleAuthProvider,
-  signInWithPhoneNumber,
-  RecaptchaVerifier,
-  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  updateProfile,
 } from "firebase/auth";
-import { loginUser, registerUser } from "@/lib/auth";
-import { auth } from "@/lib/firebase";
-import { Eye, EyeOff } from "lucide-react";
+import { doc, setDoc, getDoc } from "firebase/firestore";
+import { motion, AnimatePresence } from "framer-motion";
+import { X } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
-  bookingCallback?: () => void;
+  onSuccess: () => void;
 }
 
-export default function LoginModal({
-  isOpen,
-  onClose,
-  onSuccess,
-  bookingCallback,
-}: LoginModalProps) {
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [confirmResult, setConfirmResult] = useState<any>(null);
+export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
+  const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    password: "",
+  });
   const [loading, setLoading] = useState(false);
-  const recaptchaContainer = useRef<HTMLDivElement>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  /* ---------------------------------
-     🔐 AUTH STATE MONITOR (NO RELOAD)
-  ---------------------------------- */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        console.log("✅ User logged in:", user.email);
-        onSuccess?.();
-        onClose();
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
 
-        // Optional: trigger booking flow callback manually
-        bookingCallback?.();
-      }
-    });
-    return () => unsub();
-  }, [onSuccess, onClose, bookingCallback]);
-
-  /* ---------------------------------
-     🔔 Play gentle sound on open
-  ---------------------------------- */
-  useEffect(() => {
-    if (isOpen) {
-      const chime = new Audio("/chime.mp3");
-      chime.volume = 0.4;
-      chime.play().catch(() => {});
-    }
-  }, [isOpen]);
-
-  /* ---------------------------------
-     📧 Email/Password Auth
-  ---------------------------------- */
-  const handleEmailAuth = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /* ------------------------------------------------------
+     🔹 LOGIN USER
+  ------------------------------------------------------ */
+  const handleLogin = async () => {
+    setError(null);
     setLoading(true);
     try {
-      if (mode === "login") await loginUser(email, password);
-      else await registerUser(email, password, name);
+      const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
+      const user = cred.user;
+
+      if (!user.emailVerified) {
+        setError("Please verify your email before continuing.");
+        setLoading(false);
+        return;
+      }
+
+      const userDoc = await getDoc(doc(db, "users", user.uid));
+      if (!userDoc.exists()) {
+        setError("User profile missing. Please contact support.");
+        await auth.signOut();
+        return;
+      }
+
+      setMessage("✅ Login successful!");
+      onSuccess();
+      onClose();
     } catch (err: any) {
-      alert(err.message || "Authentication failed. Try again.");
+      console.error("Login error:", err);
+      if (err.code === "auth/invalid-email") setError("Invalid email address.");
+      else if (err.code === "auth/wrong-password") setError("Incorrect password.");
+      else if (err.code === "auth/user-not-found") setError("User not found.");
+      else setError("Login failed. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ---------------------------------
-     🌐 Google Login
-  ---------------------------------- */
-  const handleGoogleLogin = async () => {
-    try {
-      const provider = new GoogleAuthProvider();
-      await signInWithPopup(auth, provider);
-    } catch (err) {
-      console.error("Google login error:", err);
-      alert("Google login failed. Please try again.");
-    }
-  };
+  /* ------------------------------------------------------
+     🔹 REGISTER USER
+  ------------------------------------------------------ */
+  const handleRegister = async () => {
+    setError(null);
+    setMessage(null);
+    setLoading(true);
 
-  /* ---------------------------------
-     📱 Phone OTP Login
-  ---------------------------------- */
-  const handleSendOTP = async () => {
-    if (!phone) return alert("Enter your phone number");
     try {
-      const recaptcha = new RecaptchaVerifier(auth, recaptchaContainer.current!, {
-        size: "invisible",
+      const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+      const user = cred.user;
+
+      if (form.name) await updateProfile(user, { displayName: form.name });
+
+      await setDoc(doc(db, "users", user.uid), {
+        uid: user.uid,
+        name: form.name,
+        email: form.email,
+        role: "user",
+        phoneVerified: false,
+        emailVerified: false,
+        createdAt: new Date(),
       });
-      const result = await signInWithPhoneNumber(auth, phone, recaptcha);
-      setConfirmResult(result);
-      alert("OTP sent successfully!");
+
+      await sendEmailVerification(user);
+      setMessage("📩 Verification email sent. Please check your inbox.");
+      setMode("login");
     } catch (err: any) {
-      console.error("OTP send error:", err);
-      alert("Failed to send OTP");
+      console.error("Register error:", err);
+      if (err.code === "auth/email-already-in-use") setError("Email already registered.");
+      else if (err.code === "auth/weak-password") setError("Password must be at least 6 characters.");
+      else setError("Registration failed. Try again.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleVerifyOTP = async () => {
-    if (!otp || !confirmResult) return alert("Enter OTP first");
-    try {
-      await confirmResult.confirm(otp);
-    } catch {
-      alert("Invalid OTP. Please try again.");
+  /* ------------------------------------------------------
+     🔹 FORGOT PASSWORD
+  ------------------------------------------------------ */
+  const handleForgot = async () => {
+    setError(null);
+    setMessage("📨 Password reset link will be added later (open full page).");
+  };
+
+  /* ------------------------------------------------------
+     🔹 CLOSE MODAL
+  ------------------------------------------------------ */
+  const handleClose = () => {
+    if (!loading) {
+      setError(null);
+      setMessage(null);
+      setForm({ name: "", email: "", password: "" });
+      setMode("login");
+      onClose();
     }
   };
 
   if (!isOpen) return null;
 
-  /* ---------------------------------
-     🎨 UI
-  ---------------------------------- */
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md relative overflow-hidden animate-fadeZoom">
-        {/* 🟡 Header */}
-        <div className="bg-gradient-to-r from-yellow-500 to-yellow-600 py-6 text-center relative">
-          <img
-            src="/logo.png"
-            alt="BharatComfort Logo"
-            className="w-20 h-20 mx-auto mb-2 drop-shadow-lg"
-          />
-          <h2 className="text-xl font-extrabold text-gray-800">
-            {mode === "login" ? "Login to Continue" : "Create Your Account"}
-          </h2>
-          <p className="text-xs text-gray-700">
-            Discover comfort in every journey ✈️
-          </p>
-        </div>
-
-        {/* 🧾 Form */}
-        <div className="p-6 space-y-4">
-          <form onSubmit={handleEmailAuth} className="space-y-3">
-            {mode === "register" && (
-              <input
-                type="text"
-                placeholder="Full Name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="w-full border rounded-lg p-2"
-                required
-              />
-            )}
-
-            <input
-              type="email"
-              placeholder="Email Address"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full border rounded-lg p-2"
-              required
-            />
-
-            <div className="relative">
-              <input
-                type={showPassword ? "text" : "password"}
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full border rounded-lg p-2 pr-10"
-                required
-              />
-              <button
-                type="button"
-                onClick={() => setShowPassword((prev) => !prev)}
-                className="absolute right-3 top-2.5 text-gray-500 hover:text-gray-700"
-              >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded-lg font-semibold transition"
-            >
-              {loading ? "Please wait..." : mode === "login" ? "Login" : "Register"}
-            </button>
-          </form>
-
-          <div className="flex items-center my-3">
-            <div className="flex-1 border-t border-gray-300"></div>
-            <p className="mx-2 text-gray-400 text-sm">OR</p>
-            <div className="flex-1 border-t border-gray-300"></div>
-          </div>
-
+    <AnimatePresence>
+      <motion.div
+        className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 backdrop-blur-sm"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+      >
+        <motion.div
+          className="bg-white rounded-2xl shadow-lg w-full max-w-md relative overflow-hidden"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+        >
           <button
-            onClick={handleGoogleLogin}
-            className="w-full bg-white border text-gray-700 py-2 rounded-lg hover:bg-gray-50 flex items-center justify-center gap-2"
+            onClick={handleClose}
+            className="absolute top-3 right-3 text-gray-400 hover:text-gray-700"
           >
-            <img src="/icons/google.svg" alt="Google" className="w-5 h-5" />
-            Continue with Google
+            <X size={22} />
           </button>
 
-          <div className="space-y-2">
-            {!confirmResult ? (
-              <>
-                <input
-                  type="tel"
-                  placeholder="+91 9876543210"
-                  value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  className="w-full border rounded-lg p-2"
-                />
-                <button
-                  onClick={handleSendOTP}
-                  className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg"
-                >
-                  Send OTP
-                </button>
-              </>
-            ) : (
-              <>
+          <div className="p-8 space-y-5">
+            <h2 className="text-2xl font-bold text-center text-gray-800">
+              {mode === "login"
+                ? "Welcome Back"
+                : mode === "register"
+                ? "Create Account"
+                : "Forgot Password"}
+            </h2>
+
+            {message && (
+              <p className="bg-green-50 text-green-700 p-3 rounded text-sm text-center">
+                {message}
+              </p>
+            )}
+            {error && (
+              <p className="bg-red-50 text-red-700 p-3 rounded text-sm text-center">
+                {error}
+              </p>
+            )}
+
+            <div className="space-y-4">
+              {mode === "register" && (
                 <input
                   type="text"
-                  placeholder="Enter OTP"
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value)}
-                  className="w-full border rounded-lg p-2"
+                  name="name"
+                  placeholder="Full Name"
+                  value={form.name}
+                  onChange={handleChange}
+                  className="w-full border rounded-lg p-3"
+                  required
                 />
-                <button
-                  onClick={handleVerifyOTP}
-                  className="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg"
-                >
-                  Verify OTP
-                </button>
-              </>
-            )}
-            <div ref={recaptchaContainer}></div>
+              )}
+
+              <input
+                type="email"
+                name="email"
+                placeholder="Email Address"
+                value={form.email}
+                onChange={handleChange}
+                className="w-full border rounded-lg p-3"
+                required
+              />
+
+              {mode !== "forgot" && (
+                <input
+                  type="password"
+                  name="password"
+                  placeholder="Password"
+                  value={form.password}
+                  onChange={handleChange}
+                  className="w-full border rounded-lg p-3"
+                  required
+                />
+              )}
+            </div>
+
+            <div className="flex flex-col gap-3 mt-4">
+              {mode === "login" && (
+                <>
+                  <Button
+                    onClick={handleLogin}
+                    disabled={loading}
+                    className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                  >
+                    {loading ? "Logging in..." : "Login"}
+                  </Button>
+                  <p className="text-center text-sm text-gray-600">
+                    Don’t have an account?{" "}
+                    <button
+                      onClick={() => setMode("register")}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Register
+                    </button>
+                  </p>
+                  <p className="text-center text-sm text-gray-600">
+                    <button
+                      onClick={() => setMode("forgot")}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Forgot password?
+                    </button>
+                  </p>
+                </>
+              )}
+
+              {mode === "register" && (
+                <>
+                  <Button
+                    onClick={handleRegister}
+                    disabled={loading}
+                    className="bg-yellow-600 hover:bg-yellow-700 text-white"
+                  >
+                    {loading ? "Creating..." : "Register"}
+                  </Button>
+                  <p className="text-center text-sm text-gray-600">
+                    Already have an account?{" "}
+                    <button
+                      onClick={() => setMode("login")}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Login
+                    </button>
+                  </p>
+                </>
+              )}
+
+              {mode === "forgot" && (
+                <>
+                  <Button
+                    onClick={handleForgot}
+                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                  >
+                    Send Reset Link
+                  </Button>
+                  <p className="text-center text-sm text-gray-600">
+                    Remembered your password?{" "}
+                    <button
+                      onClick={() => setMode("login")}
+                      className="text-blue-600 hover:underline"
+                    >
+                      Login
+                    </button>
+                  </p>
+                </>
+              )}
+            </div>
           </div>
-
-          <p className="text-center text-sm text-gray-600">
-            {mode === "login" ? "New user?" : "Already have an account?"}{" "}
-            <button
-              onClick={() => setMode(mode === "login" ? "register" : "login")}
-              className="text-yellow-600 font-semibold underline"
-            >
-              {mode === "login" ? "Register here" : "Login"}
-            </button>
-          </p>
-
-          <div className="pt-3 border-t border-gray-200">
-            <button
-              onClick={() => {
-                alert("⚠️ Login required to book a stay.");
-                onClose();
-              }}
-              className="w-full text-gray-600 hover:text-gray-800 text-sm underline mt-2"
-            >
-              Continue as Guest →
-            </button>
-          </div>
-        </div>
-
-        <button
-          onClick={onClose}
-          className="absolute top-3 right-4 text-gray-400 hover:text-gray-600 text-xl"
-        >
-          ✕
-        </button>
-      </div>
-    </div>
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }

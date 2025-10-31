@@ -9,24 +9,24 @@ import {
   signInWithPhoneNumber,
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 
 export default function VerifyPage() {
+  const router = useRouter();
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [emailSent, setEmailSent] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
 
-  // Refs for reCAPTCHA & OTP confirmation
   const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
   const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
 
   /* ----------------------------------------------------------
-     🔐 AUTH STATE LISTENER + LOAD USER PROFILE
+     🔐 Load user and Firestore profile
   ---------------------------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
@@ -45,7 +45,7 @@ export default function VerifyPage() {
   }, []);
 
   /* ----------------------------------------------------------
-     ✅ Initialize Invisible reCAPTCHA (one-time)
+     ✅ Initialize invisible reCAPTCHA once
   ---------------------------------------------------------- */
   useEffect(() => {
     if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaDivRef.current) {
@@ -53,8 +53,8 @@ export default function VerifyPage() {
         recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
           size: "invisible",
         });
-      } catch (err) {
-        console.warn("reCAPTCHA already initialized or unavailable");
+      } catch {
+        console.warn("⚠️ reCAPTCHA already initialized or unavailable");
       }
     }
   }, []);
@@ -68,7 +68,7 @@ export default function VerifyPage() {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
       setEmailSent(true);
-      setMsg("📩 Verification email sent successfully! Please check your inbox.");
+      setMsg("📩 Verification email sent successfully! Check your inbox.");
     } catch (err: any) {
       console.error("Email verification error:", err);
       setMsg(err.message || "Failed to send verification email.");
@@ -82,13 +82,17 @@ export default function VerifyPage() {
     try {
       await auth.currentUser?.reload();
       const updatedUser = auth.currentUser;
-      if (updatedUser?.emailVerified) {
+      if (!updatedUser) return;
+
+      if (updatedUser.emailVerified) {
         await updateDoc(doc(db, "users", updatedUser.uid), { emailVerified: true });
         setMsg("✅ Email verified successfully!");
       } else {
         setMsg("⏳ Still not verified. Check your inbox.");
       }
+
       setUser(updatedUser);
+      setProfile((prev: any) => ({ ...prev, emailVerified: updatedUser.emailVerified }));
     } catch (err: any) {
       console.error("Refresh error:", err);
       setMsg(err.message || "Failed to refresh verification status.");
@@ -96,20 +100,24 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     📱 SEND PHONE OTP (using signInWithPhoneNumber)
+     📱 SEND PHONE OTP
   ---------------------------------------------------------- */
   const handleSendOtp = async () => {
     setMsg(null);
     if (!auth.currentUser) return setMsg("Please login again.");
     if (!/^\+?\d{10,15}$/.test(phone)) {
-      return setMsg("Enter valid phone number with country code (e.g. +919876543210)");
+      return setMsg("Enter a valid phone number with country code (e.g. +919876543210)");
     }
 
     setLoading(true);
     try {
-      const verifier = recaptchaVerifierRef.current;
-      if (!verifier) throw new Error("Failed to initialize reCAPTCHA.");
-      confirmationResultRef.current = await signInWithPhoneNumber(auth, phone, verifier);
+      if (!recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current!, {
+          size: "invisible",
+        });
+      }
+
+      confirmationResultRef.current = await signInWithPhoneNumber(auth, phone, recaptchaVerifierRef.current);
       setMsg("📲 OTP sent to your phone successfully!");
     } catch (err: any) {
       console.error("Send OTP error:", err);
@@ -120,7 +128,7 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     ✅ VERIFY OTP & UPDATE PROFILE
+     ✅ VERIFY PHONE OTP
   ---------------------------------------------------------- */
   const handleVerifyOtp = async () => {
     if (!otp.trim()) return setMsg("Enter OTP first.");
@@ -134,7 +142,7 @@ export default function VerifyPage() {
         phone,
       });
       setMsg("✅ Phone verified successfully!");
-      setProfile({ ...profile, phoneVerified: true });
+      setProfile((prev: any) => ({ ...prev, phoneVerified: true }));
     } catch (err: any) {
       console.error("OTP verify error:", err);
       setMsg(err.message || "Invalid OTP. Try again.");
@@ -144,7 +152,19 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     🚫 NOT LOGGED IN STATE
+     🚀 Redirect when both verified
+  ---------------------------------------------------------- */
+  useEffect(() => {
+    if (user && profile?.emailVerified && profile?.phoneVerified) {
+      const timeout = setTimeout(() => {
+        router.push("/(dashboard)/user");
+      }, 1500);
+      return () => clearTimeout(timeout);
+    }
+  }, [user, profile]);
+
+  /* ----------------------------------------------------------
+     🚫 NOT LOGGED IN
   ---------------------------------------------------------- */
   if (!user) {
     return (
@@ -155,14 +175,14 @@ export default function VerifyPage() {
     );
   }
 
-  /* ----------------------------------------------------------
-     ✅ STATUS SECTION
-  ---------------------------------------------------------- */
-  const emailVerified = user.emailVerified;
+  const emailVerified = profile?.emailVerified || user.emailVerified;
   const phoneVerified = Boolean(profile?.phoneVerified || user.phoneNumber);
 
+  /* ----------------------------------------------------------
+     ✅ MAIN UI
+  ---------------------------------------------------------- */
   return (
-    <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-5">
+    <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-6">
       <h1 className="text-2xl font-bold text-center text-gray-800">
         Verify Your Account
       </h1>
@@ -170,10 +190,8 @@ export default function VerifyPage() {
       {/* EMAIL VERIFICATION */}
       {!emailVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-2">
-          <p>
-            Your email <b>{user.email}</b> is not verified yet.
-          </p>
-          <div className="flex gap-2">
+          <p>Your email <b>{user.email}</b> is not verified yet.</p>
+          <div className="flex gap-2 flex-wrap">
             <button
               onClick={handleSendVerification}
               disabled={emailSent}
@@ -190,17 +208,13 @@ export default function VerifyPage() {
           </div>
         </div>
       ) : (
-        <div className="p-4 border rounded bg-green-50">
-          ✅ Your email is verified.
-        </div>
+        <div className="p-4 border rounded bg-green-50">✅ Your email is verified.</div>
       )}
 
       {/* PHONE VERIFICATION */}
       {!phoneVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-3">
-          <p className="font-medium text-gray-800">
-            Verify your phone number via OTP:
-          </p>
+          <p className="font-medium text-gray-800">Verify your phone number via OTP:</p>
 
           <input
             className="w-full border rounded p-2"
@@ -234,7 +248,6 @@ export default function VerifyPage() {
             </button>
           </div>
 
-          {/* reCAPTCHA container */}
           <div ref={recaptchaDivRef} />
         </div>
       ) : (

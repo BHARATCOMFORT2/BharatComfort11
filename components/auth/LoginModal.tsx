@@ -13,13 +13,25 @@ import { motion, AnimatePresence } from "framer-motion";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 
+/* ============================================================
+   ✅ TYPE DEFINITION
+============================================================ */
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  bookingCallback?: () => void; // ✅ Added optional callback for bookings
 }
 
-export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalProps) {
+/* ============================================================
+   🧠 COMPONENT
+============================================================ */
+export default function LoginModal({
+  isOpen,
+  onClose,
+  onSuccess,
+  bookingCallback,
+}: LoginModalProps) {
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [form, setForm] = useState({
     name: "",
@@ -58,7 +70,8 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
       }
 
       setMessage("✅ Login successful!");
-      onSuccess();
+      onSuccess(); // Notify parent (update auth state)
+      bookingCallback?.(); // ✅ If bookingCallback passed, trigger redirect
       onClose();
     } catch (err: any) {
       console.error("Login error:", err);
@@ -131,6 +144,9 @@ export default function LoginModal({ isOpen, onClose, onSuccess }: LoginModalPro
 
   if (!isOpen) return null;
 
+  /* ------------------------------------------------------
+     🖼️ UI RENDER
+  ------------------------------------------------------ */
   return (
     <AnimatePresence>
       <motion.div

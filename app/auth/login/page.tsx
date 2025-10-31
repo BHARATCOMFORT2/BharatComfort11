@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation"; // ⬅️ only useRouter now
+import { useRouter } from "next/navigation";
 import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
 import { signInWithEmailAndPassword, getIdToken } from "firebase/auth";
@@ -11,11 +11,15 @@ import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
-
-  // ✅ Instead of useSearchParams
   const [redirectTo, setRedirectTo] = useState("/(dashboard)/user");
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
-  // ✅ We read the query string manually from window.location
+  /* ----------------------------------------------------
+     ✅ Capture redirect query if coming from "Book Now"
+  ---------------------------------------------------- */
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
@@ -24,27 +28,27 @@ export default function LoginPage() {
     }
   }, []);
 
-  const [form, setForm] = useState({ email: "", password: "" });
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [e.target.name]: e.target.value });
-  };
 
+  /* ----------------------------------------------------
+     🔐 LOGIN HANDLER
+  ---------------------------------------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      const cred = await signInWithEmailAndPassword(auth, form.email, form.password);
+      // 1️⃣ Sign in with Firebase Auth
+      const cred = await signInWithEmailAndPassword(auth, form.email.trim(), form.password);
       const user = cred.user;
       await user.reload();
 
+      // 2️⃣ Load user Firestore profile
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
+
       if (!snap.exists()) {
         setError("⚠️ No user profile found. Please contact support.");
         await auth.signOut();
@@ -53,31 +57,43 @@ export default function LoginPage() {
 
       const userData = snap.data();
       const role = userData.role || "user";
-      const phoneVerified = userData.phoneVerified ?? true;
+      const emailVerified = user.emailVerified || userData.emailVerified;
+      const phoneVerified = userData.phoneVerified || false;
 
-      if (!user.emailVerified) {
+      // 3️⃣ Email verification check
+      if (!emailVerified) {
         setError("📧 Please verify your email before continuing.");
         return;
       }
 
+      // 4️⃣ Phone verification check
       if (!phoneVerified) {
         setError("📱 Please verify your phone number before continuing.");
         router.push("/auth/verify");
         return;
       }
 
-      if (!userData.emailVerified) {
-        await updateDoc(userRef, { emailVerified: true });
+      // 5️⃣ Sync Firestore if not already updated
+      if (!userData.emailVerified || !userData.phoneVerified) {
+        await updateDoc(userRef, {
+          emailVerified: true,
+          phoneVerified: true,
+        });
       }
 
+      // 6️⃣ Create session token (server validation)
       const token = await getIdToken(user);
-      await fetch("/api/auth/session", {
+      const res = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token }),
       });
 
-      // ✅ Safe redirect logic
+      if (!res.ok) {
+        throw new Error("Session setup failed. Try again.");
+      }
+
+      // 7️⃣ Redirect logic
       if (redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
         router.push(redirectTo);
         return;
@@ -91,15 +107,15 @@ export default function LoginPage() {
           if (userData.status === "pending") {
             alert("⚠️ Your partner account is pending admin approval.");
             router.push("/auth/verify");
-            return;
+          } else {
+            router.push("/(dashboard)/partner");
           }
-          router.push("/(dashboard)/partner");
           break;
         default:
           router.push("/(dashboard)/user");
       }
     } catch (err: any) {
-      console.error("Login error:", err);
+      console.error("❌ Login error:", err);
       let msg = "❌ Login failed. Please try again.";
       if (err.code === "auth/invalid-email") msg = "Invalid email address.";
       if (err.code === "auth/user-not-found") msg = "User not found.";
@@ -111,12 +127,19 @@ export default function LoginPage() {
     }
   };
 
+  /* ----------------------------------------------------
+     🖼️ UI
+  ---------------------------------------------------- */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
         <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
 
-        {error && <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm">{error}</p>}
+        {error && (
+          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm text-center">
+            {error}
+          </p>
+        )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input

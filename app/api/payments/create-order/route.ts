@@ -1,15 +1,24 @@
+// app/api/payments/create-order/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import admin from "firebase-admin";
 
-const { adminDb } = getFirebaseAdmin(); // ✅ Correctly get Firestore instance from Admin SDK
+/* ============================================================
+   🧠 INITIALIZE FIREBASE ADMIN
+============================================================ */
+const { adminDb } = getFirebaseAdmin();
 
+/* ============================================================
+   💳 POST: Create Secure Razorpay Order
+============================================================ */
 export async function POST(req: NextRequest) {
   try {
     const { amount, listingId } = await req.json();
 
-    // ✅ 1️⃣ Require Authorization header
+    /* --------------------------------------------------------
+       🔐 Verify Firebase Auth Token
+    -------------------------------------------------------- */
     const authHeader = req.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
@@ -18,7 +27,6 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ 2️⃣ Verify Firebase ID Token
     const idToken = authHeader.split("Bearer ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken).catch(() => null);
 
@@ -31,15 +39,19 @@ export async function POST(req: NextRequest) {
 
     const userId = decoded.uid;
 
-    // ✅ 3️⃣ Validate Input
+    /* --------------------------------------------------------
+       ✅ Validate Payment Input
+    -------------------------------------------------------- */
     if (!amount || amount <= 0) {
       return NextResponse.json(
-        { success: false, error: "Invalid amount provided" },
+        { success: false, error: "Invalid payment amount" },
         { status: 400 }
       );
     }
 
-    // ✅ 4️⃣ Initialize Razorpay securely
+    /* --------------------------------------------------------
+       ⚙️ Initialize Razorpay Server
+    -------------------------------------------------------- */
     const razorpay = getRazorpayServerInstance();
     if (!razorpay) {
       console.error("❌ Razorpay not initialized");
@@ -49,7 +61,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ✅ 5️⃣ Create Razorpay Order
+    /* --------------------------------------------------------
+       💳 Create Razorpay Order
+    -------------------------------------------------------- */
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100),
       currency: "INR",
@@ -57,11 +71,13 @@ export async function POST(req: NextRequest) {
       notes: { userId, listingId },
     });
 
-    // ✅ 6️⃣ Save Payment Info in Firestore (Admin SDK)
+    /* --------------------------------------------------------
+       📦 Store Payment Record in Firestore
+    -------------------------------------------------------- */
     const orderRef = adminDb.collection("payments").doc(order.id);
     await orderRef.set({
       userId,
-      listingId: listingId ?? null,
+      listingId: listingId || null,
       amount,
       currency: "INR",
       status: "pending",
@@ -69,7 +85,9 @@ export async function POST(req: NextRequest) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // ✅ 7️⃣ Respond
+    /* --------------------------------------------------------
+       ✅ Respond to Client
+    -------------------------------------------------------- */
     return NextResponse.json({
       success: true,
       id: order.id,

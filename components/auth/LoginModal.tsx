@@ -19,8 +19,8 @@ import { Button } from "@/components/ui/Button";
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
-  bookingCallback?: () => void; // ✅ Added optional callback for bookings
+  onSuccess?: () => void;        // ✅ made optional
+  bookingCallback?: () => void;  // ✅ made optional
 }
 
 /* ============================================================

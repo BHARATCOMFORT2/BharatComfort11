@@ -1,11 +1,13 @@
+// lib/payments-razorpay.ts
 import Razorpay from "razorpay";
 import crypto from "crypto";
 
 let razorpayInstance: Razorpay | null = null;
 
-/**
- * ✅ Safely resolve the Razorpay secret (supports Base64 fallback)
- */
+/* ============================================================
+   🔐 RESOLVE RAZORPAY SECRET
+   (Supports Base64 or plain secret key)
+============================================================ */
 function resolveSecret(): string | null {
   const rawSecret = process.env.RAZORPAY_KEY_SECRET?.trim();
   const encoded = process.env.RAZORPAY_KEY_SECRET_BASE64?.trim();
@@ -15,74 +17,61 @@ function resolveSecret(): string | null {
     try {
       return Buffer.from(encoded, "base64").toString("utf8");
     } catch (err) {
-      console.error("❌ Failed to decode RAZORPAY_KEY_SECRET_BASE64:", err);
+      console.error("❌ Failed to decode Base64 Razorpay secret:", err);
     }
   }
   return null;
 }
 
-/**
- * ✅ Get and validate Razorpay credentials
- */
+/* ============================================================
+   ⚙️ FETCH RAZORPAY KEYS
+============================================================ */
 function getKeys() {
   const keyId =
     process.env.RAZORPAY_KEY_ID ||
     process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID ||
     "";
   const keySecret = resolveSecret();
+
+  if (!keyId || !keySecret) {
+    console.error("❌ Missing Razorpay environment keys.");
+  }
+
   return { keyId: keyId.trim(), keySecret: keySecret?.trim() || "" };
 }
 
-/**
- * ✅ Create singleton Razorpay instance (server only)
- */
+/* ============================================================
+   🚀 GET SERVER INSTANCE (Singleton)
+============================================================ */
 export function getRazorpayServerInstance(): Razorpay | null {
   const { keyId, keySecret } = getKeys();
 
-  if (!keyId || !keySecret) {
-    console.warn("⚠️ Missing Razorpay environment keys:", {
-      keyId: !!keyId,
-      keySecret: !!keySecret,
-    });
-    return null;
-  }
+  if (!keyId || !keySecret) return null;
 
   if (!razorpayInstance) {
-    razorpayInstance = new Razorpay({
-      key_id: keyId,
-      key_secret: keySecret,
-    });
-    console.log("✅ Razorpay instance initialized successfully");
+    razorpayInstance = new Razorpay({ key_id: keyId, key_secret: keySecret });
+    console.log("✅ Razorpay instance initialized");
   }
 
   return razorpayInstance;
 }
 
-/**
- * ✅ Shared instance for API routes
- */
-export const razorpay = getRazorpayServerInstance();
-
-/* ==============================================================
- 💳 CREATE ORDER
- ============================================================== */
-
-interface CreateOrderInput {
-  amount: number;
-  currency?: string;
-  receipt?: string;
-}
-
+/* ============================================================
+   💳 CREATE ORDER (Server-side only)
+============================================================ */
 export async function createOrder({
   amount,
   currency = "INR",
   receipt,
-}: CreateOrderInput) {
-  if (!amount || amount <= 0) throw new Error("Amount must be greater than 0");
+}: {
+  amount: number;
+  currency?: string;
+  receipt?: string;
+}) {
+  if (!amount || amount <= 0) throw new Error("Invalid amount");
 
   const instance = getRazorpayServerInstance();
-  if (!instance)
-    throw new Error("Razorpay not initialized. Check environment keys.");
+  if (!instance) throw new Error("Razorpay instance not initialized");
 
   return await instance.orders.create({
     amount: Math.round(amount * 100),
@@ -91,10 +80,9 @@ export async function createOrder({
   });
 }
 
-/* ==============================================================
- 🔐 VERIFY SIGNATURE
- ============================================================== */
-
+/* ============================================================
+   🔏 VERIFY SIGNATURE
+============================================================ */
 export function verifyPayment({
   razorpay_order_id,
   razorpay_payment_id,
@@ -105,23 +93,19 @@ export function verifyPayment({
   razorpay_signature: string;
 }): boolean {
   const secret = resolveSecret();
-  if (!secret) {
-    console.error("❌ Razorpay secret missing — cannot verify payment");
-    return false;
-  }
+  if (!secret) return false;
 
-  const sign = `${razorpay_order_id}|${razorpay_payment_id}`;
   const expected = crypto
     .createHmac("sha256", secret)
-    .update(sign)
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
     .digest("hex");
+
   return expected === razorpay_signature;
 }
 
-/* ==============================================================
- 💻 CLIENT CHECKOUT
- ============================================================== */
-
+/* ============================================================
+   🪄 OPEN CHECKOUT (Client-side only)
+============================================================ */
 interface OpenCheckoutInput {
   amount: number;
   orderId: string;
@@ -137,7 +121,7 @@ export function openRazorpayCheckout({
   orderId,
   name,
   email,
-  phone = "",
+  phone,
   onSuccess,
   onFailure,
 }: OpenCheckoutInput) {
@@ -145,8 +129,7 @@ export function openRazorpayCheckout({
 
   const key = process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID;
   if (!key) {
-    console.warn("⚠️ NEXT_PUBLIC_RAZORPAY_KEY_ID missing");
-    onFailure?.({ error: "Razorpay key not configured" });
+    console.error("❌ NEXT_PUBLIC_RAZORPAY_KEY_ID not set");
     return;
   }
 
@@ -155,17 +138,23 @@ export function openRazorpayCheckout({
     amount: Math.round(amount * 100),
     currency: "INR",
     order_id: orderId,
-    name: name || "Payment",
-    prefill: { email, contact: phone },
-    theme: { color: "#2563eb" },
-    handler: (res: any) => onSuccess?.(res),
-    modal: { ondismiss: () => onFailure?.({ error: "Payment cancelled" }) },
+    name,
+    prefill: {
+      email,
+      contact: phone || "",
+    },
+    theme: { color: "#f59e0b" }, // BharatComfort theme color
+    handler: (response: any) => onSuccess?.(response),
+    modal: {
+      ondismiss: () => onFailure?.({ error: "Payment cancelled" }),
+    },
   };
 
   try {
-    new (window as any).Razorpay(options).open();
+    const rzp = new (window as any).Razorpay(options);
+    rzp.open();
   } catch (err) {
     console.error("❌ Razorpay Checkout Error:", err);
-    onFailure?.({ error: err });
+    onFailure?.(err);
   }
 }

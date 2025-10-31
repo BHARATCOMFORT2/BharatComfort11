@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import {
   onAuthStateChanged,
@@ -9,7 +10,6 @@ import {
   signInWithPhoneNumber,
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
 
 export default function VerifyPage() {
   const router = useRouter();
@@ -45,19 +45,18 @@ export default function VerifyPage() {
   }, []);
 
   /* ----------------------------------------------------------
-     ✅ Initialize invisible reCAPTCHA once (important fix)
+     ✅ Initialize invisible reCAPTCHA (Correct order)
   ---------------------------------------------------------- */
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // wait until auth is ready and div is mounted
     const timer = setTimeout(() => {
       if (!recaptchaVerifierRef.current && recaptchaDivRef.current) {
         try {
           recaptchaVerifierRef.current = new RecaptchaVerifier(
-            recaptchaDivRef.current,
-            { size: "invisible" },
-            auth
+            auth,                      // ✅ first argument
+            recaptchaDivRef.current,   // ✅ second: container element
+            { size: "invisible" }      // ✅ third: config
           );
           recaptchaVerifierRef.current.render();
           console.log("✅ reCAPTCHA initialized successfully");
@@ -71,7 +70,7 @@ export default function VerifyPage() {
   }, []);
 
   /* ----------------------------------------------------------
-     ✉️ SEND EMAIL VERIFICATION (safe check added)
+     ✉️ SEND EMAIL VERIFICATION (Safe check)
   ---------------------------------------------------------- */
   const handleSendVerification = async () => {
     const currentUser = auth.currentUser;
@@ -116,7 +115,7 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     📱 SEND PHONE OTP (stable fix)
+     📱 SEND PHONE OTP
   ---------------------------------------------------------- */
   const handleSendOtp = async () => {
     setMsg(null);
@@ -127,16 +126,21 @@ export default function VerifyPage() {
 
     setLoading(true);
     try {
-      if (!recaptchaVerifierRef.current) {
+      if (!recaptchaVerifierRef.current && recaptchaDivRef.current) {
         recaptchaVerifierRef.current = new RecaptchaVerifier(
-          recaptchaDivRef.current!,
-          { size: "invisible" },
-          auth
+          auth,
+          recaptchaDivRef.current,
+          { size: "invisible" }
         );
         await recaptchaVerifierRef.current.render();
       }
 
-      confirmationResultRef.current = await signInWithPhoneNumber(auth, phone.trim(), recaptchaVerifierRef.current);
+      confirmationResultRef.current = await signInWithPhoneNumber(
+        auth,
+        phone.trim(),
+        recaptchaVerifierRef.current
+      );
+
       setMsg("📲 OTP sent to your phone successfully!");
     } catch (err: any) {
       console.error("Send OTP error:", err);

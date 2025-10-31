@@ -9,21 +9,15 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
 } from "firebase/auth";
-import {
-  doc,
-  setDoc,
-  serverTimestamp,
-  updateDoc,
-  getDoc,
-} from "firebase/firestore";
+import { doc, setDoc, serverTimestamp, updateDoc, getDoc } from "firebase/firestore";
 import Input from "@/components/forms/Input";
 import Button from "@/components/forms/Button";
 import { Eye, EyeOff } from "lucide-react";
 
 export default function RegisterPage() {
   const router = useRouter();
-  const [step, setStep] = useState<"form" | "otp" | "done">("form");
 
+  const [step, setStep] = useState<"form" | "otp" | "done">("form");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -32,12 +26,15 @@ export default function RegisterPage() {
     confirmPassword: "",
     role: "user",
   });
-
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [otp, setOtp] = useState("");
+
+  // ⏱️ Countdown states
+  const [otpCountdown, setOtpCountdown] = useState(0);
+  const [emailCountdown, setEmailCountdown] = useState(0);
 
   const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
@@ -47,55 +44,51 @@ export default function RegisterPage() {
      ✅ Initialize Invisible reCAPTCHA
   --------------------------------------------------------- */
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const timer = setTimeout(() => {
-      if (!recaptchaVerifierRef.current && recaptchaContainerRef.current) {
-        try {
-          recaptchaVerifierRef.current = new RecaptchaVerifier(
-            auth,
-            recaptchaContainerRef.current,
-            { size: "invisible" }
-          );
-          recaptchaVerifierRef.current.render();
-          console.log("✅ reCAPTCHA initialized");
-        } catch {
-          console.warn("⚠️ reCAPTCHA already initialized");
-        }
+    if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaContainerRef.current) {
+      try {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaContainerRef.current, {
+          size: "invisible",
+        });
+        recaptchaVerifierRef.current.render();
+        console.log("✅ reCAPTCHA initialized");
+      } catch {
+        console.warn("⚠️ reCAPTCHA already initialized or unavailable");
       }
-    }, 500);
-
-    return () => clearTimeout(timer);
+    }
   }, []);
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
+  /* ---------------------------------------------------------
+     ⏳ Countdown hooks
+  --------------------------------------------------------- */
+  useEffect(() => {
+    if (otpCountdown <= 0) return;
+    const timer = setInterval(() => setOtpCountdown((t) => t - 1), 1000);
+    return () => clearInterval(timer);
+  }, [otpCountdown]);
+
+  useEffect(() => {
+    if (emailCountdown <= 0) return;
+    const timer = setInterval(() => setEmailCountdown((t) => t - 1), 1000);
+    return () => clearInterval(timer);
+  }, [emailCountdown]);
 
   /* ---------------------------------------------------------
-     🧩 STEP 1: Register User + Send OTP + Email Verify
+     🧩 STEP 1: Register user + send email + OTP
   --------------------------------------------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (!form.name.trim()) return setError("Enter your full name.");
-    if (form.password !== form.confirmPassword)
-      return setError("Passwords do not match.");
-    if (!/^\+?\d{10,15}$/.test(form.phone))
-      return setError("Enter valid phone number with country code (+91...).");
+    if (form.password !== form.confirmPassword) return setError("Passwords do not match.");
+    if (!/^\+?\d{10,15}$/.test(form.phone)) return setError("Enter valid phone number (+91...).");
 
     setLoading(true);
     try {
-      const cred = await createUserWithEmailAndPassword(
-        auth,
-        form.email.trim(),
-        form.password
-      );
+      const cred = await createUserWithEmailAndPassword(auth, form.email.trim(), form.password);
       const user = cred.user;
 
-      // 🔹 10-minute verification expiry
-      const expiryTime = Date.now() + 10 * 60 * 1000;
+      const expiryTime = Date.now() + 10 * 60 * 1000; // 10 min expiry
 
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
@@ -111,29 +104,26 @@ export default function RegisterPage() {
         createdAt: serverTimestamp(),
       });
 
-      // 🔹 Send email verification
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      await sendEmailVerification(user, { url: `${appUrl}/auth/verify` });
+      await sendEmailVerification(user);
+      setEmailCountdown(60);
 
-      // 🔹 Send OTP
-      if (!recaptchaVerifierRef.current)
-        throw new Error("reCAPTCHA not initialized.");
-
+      // Send OTP
       confirmationResultRef.current = await signInWithPhoneNumber(
         auth,
         form.phone.trim(),
         recaptchaVerifierRef.current!
       );
+      setOtpCountdown(30);
 
-      alert("📩 Verification email sent & OTP sent to your phone.");
+      alert("📩 Verification email and OTP sent!");
       setStep("otp");
     } catch (err: any) {
-      console.error("❌ Registration error:", err);
-      let msg = "Registration failed. Try again.";
+      console.error("Registration error:", err);
+      let msg = "Registration failed.";
       if (err.code === "auth/email-already-in-use") msg = "Email already in use.";
-      if (err.code === "auth/invalid-email") msg = "Invalid email address.";
-      if (err.code === "auth/weak-password") msg = "Password should be at least 6 characters.";
-      if (err.code === "auth/captcha-check-failed") msg = "Captcha verification failed. Please reload.";
+      if (err.code === "auth/invalid-email") msg = "Invalid email.";
+      if (err.code === "auth/weak-password") msg = "Weak password (min 6 chars).";
+      if (err.code === "auth/captcha-check-failed") msg = "Captcha verification failed.";
       setError(msg);
     } finally {
       setLoading(false);
@@ -141,34 +131,26 @@ export default function RegisterPage() {
   };
 
   /* ---------------------------------------------------------
-     📱 STEP 2: Verify OTP
+     📱 Verify OTP (check expiry)
   --------------------------------------------------------- */
   const handleVerifyOtp = async () => {
-    if (!otp.trim()) return setError("Enter the 6-digit OTP.");
-    if (!confirmationResultRef.current)
-      return setError("OTP session expired. Please re-register.");
+    if (!otp.trim()) return setError("Enter OTP.");
+    if (!confirmationResultRef.current) return setError("OTP session expired.");
 
     setLoading(true);
-    setError("");
     try {
-      // ⏰ Check OTP expiry
-      const userRef = doc(db, "users", auth.currentUser!.uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.otpExpiry && Date.now() > data.otpExpiry) {
-          setError("⏳ OTP expired. Please request a new one.");
-          return;
-        }
-      }
-
       const result = await confirmationResultRef.current.confirm(otp.trim());
-      await updateDoc(userRef, { phoneVerified: true });
+      const ref = doc(db, "users", result.user.uid);
+      const snap = await getDoc(ref);
+      const data = snap.data();
 
+      if (data?.otpExpiry && Date.now() > data.otpExpiry)
+        return setError("⏳ OTP expired. Please resend.");
+
+      await updateDoc(ref, { phoneVerified: true });
       alert("✅ Phone verified successfully!");
       setStep("done");
-    } catch (err: any) {
-      console.error("OTP verification error:", err);
+    } catch {
       setError("Invalid or expired OTP. Try again.");
     } finally {
       setLoading(false);
@@ -176,12 +158,58 @@ export default function RegisterPage() {
   };
 
   /* ---------------------------------------------------------
-     ✅ STEP 3: Redirect
+     🔁 Resend OTP (30s cooldown)
   --------------------------------------------------------- */
+  const handleResendOtp = async () => {
+    if (otpCountdown > 0) return setError("Please wait before resending OTP.");
+    if (!auth.currentUser) return setError("Please login again.");
+    if (!/^\+?\d{10,15}$/.test(form.phone)) return setError("Invalid phone number.");
+
+    setLoading(true);
+    try {
+      await updateDoc(doc(db, "users", auth.currentUser.uid), {
+        otpExpiry: Date.now() + 10 * 60 * 1000,
+      });
+
+      confirmationResultRef.current = await signInWithPhoneNumber(
+        auth,
+        form.phone.trim(),
+        recaptchaVerifierRef.current!
+      );
+
+      setOtpCountdown(30);
+      alert("📲 OTP resent successfully!");
+    } catch {
+      setError("Failed to resend OTP.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ---------------------------------------------------------
+     ✉️ Resend Email (60s cooldown)
+  --------------------------------------------------------- */
+  const handleResendEmail = async () => {
+    if (emailCountdown > 0) return setError("Please wait before resending email.");
+    if (!auth.currentUser) return setError("User not logged in.");
+
+    try {
+      await sendEmailVerification(auth.currentUser);
+      await updateDoc(doc(db, "users", auth.currentUser.uid), {
+        emailExpiry: Date.now() + 10 * 60 * 1000,
+      });
+
+      setEmailCountdown(60);
+      alert("📩 Verification email resent!");
+    } catch {
+      setError("Failed to resend verification email.");
+    }
+  };
+
   const handleGoToVerifyPage = () => router.push("/auth/verify");
 
   /* ---------------------------------------------------------
-     🖼️ UI
+     🎨 UI
   --------------------------------------------------------- */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
@@ -192,24 +220,29 @@ export default function RegisterPage() {
               Create Account
             </h1>
 
-            {error && <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</p>}
+            {error && <p className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</p>}
 
             <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-              <Input label="Full Name" name="name" type="text" value={form.name} onChange={handleChange} required />
-              <Input label="Email" name="email" type="email" value={form.email} onChange={handleChange} required />
-              <Input label="Phone (with country code)" name="phone" type="tel" value={form.phone} onChange={handleChange} required />
+              <Input label="Full Name" name="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
+              <Input label="Email" name="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required />
+              <Input label="Phone" name="phone" type="tel" value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} required />
 
+              {/* Passwords */}
               <div className="relative">
                 <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                 <input
                   name="password"
                   type={showPassword ? "text" : "password"}
                   value={form.password}
-                  onChange={handleChange}
+                  onChange={(e) => setForm({ ...form, password: e.target.value })}
                   className="w-full border rounded-lg p-3 pr-10"
                   required
                 />
-                <button type="button" onClick={() => setShowPassword(!showPassword)} className="absolute right-3 top-9 text-gray-500 hover:text-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="absolute right-3 top-9 text-gray-500"
+                >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
@@ -220,22 +253,26 @@ export default function RegisterPage() {
                   name="confirmPassword"
                   type={showConfirm ? "text" : "password"}
                   value={form.confirmPassword}
-                  onChange={handleChange}
+                  onChange={(e) => setForm({ ...form, confirmPassword: e.target.value })}
                   className="w-full border rounded-lg p-3 pr-10"
                   required
                 />
-                <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-9 text-gray-500 hover:text-gray-700">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm((s) => !s)}
+                  className="absolute right-3 top-9 text-gray-500"
+                >
                   {showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
               <label className="text-gray-700 font-medium">
-                Select Role
+                Role
                 <select
                   name="role"
                   value={form.role}
-                  onChange={handleChange}
-                  className="mt-1 block w-full border rounded-lg p-2"
+                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  className="mt-1 w-full border rounded-lg p-2"
                 >
                   <option value="user">User</option>
                   <option value="partner">Partner</option>
@@ -243,15 +280,13 @@ export default function RegisterPage() {
               </label>
 
               <Button type="submit" disabled={loading}>
-                {loading ? "Creating account..." : "Register"}
+                {loading ? "Creating..." : "Register"}
               </Button>
             </form>
 
             <p className="mt-4 text-center text-gray-500">
               Already have an account?{" "}
-              <a href="/auth/login" className="text-blue-600 hover:underline">
-                Login
-              </a>
+              <a href="/auth/login" className="text-blue-600 hover:underline">Login</a>
             </p>
 
             <div ref={recaptchaContainerRef} id="recaptcha-register" />
@@ -263,9 +298,11 @@ export default function RegisterPage() {
             <h2 className="text-2xl font-semibold text-center mb-4">Verify Phone Number</h2>
             <p className="text-sm text-gray-600 mb-4">
               OTP sent to <b>{form.phone}</b>.  
-              Check your email <b>{form.email}</b> for verification link.
+              Email sent to <b>{form.email}</b>.
             </p>
-            {error && <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4">{error}</p>}
+
+            {error && <p className="bg-red-100 text-red-700 p-3 rounded mb-4">{error}</p>}
+
             <div className="flex gap-2">
               <input
                 type="text"
@@ -274,10 +311,34 @@ export default function RegisterPage() {
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
                 className="flex-1 border rounded-lg p-3"
-                placeholder="Enter 6-digit OTP"
+                placeholder="Enter OTP"
               />
               <Button onClick={handleVerifyOtp} disabled={loading}>
                 {loading ? "Verifying..." : "Verify"}
+              </Button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-between mt-4 gap-3">
+              <Button
+                onClick={handleResendOtp}
+                disabled={otpCountdown > 0}
+                className={`flex-1 ${
+                  otpCountdown > 0 ? "bg-gray-400" : "bg-gray-800 hover:bg-black"
+                }`}
+              >
+                {otpCountdown > 0 ? `Resend OTP in ${otpCountdown}s` : "Resend OTP"}
+              </Button>
+
+              <Button
+                onClick={handleResendEmail}
+                disabled={emailCountdown > 0}
+                className={`flex-1 ${
+                  emailCountdown > 0 ? "bg-gray-400" : "bg-blue-600 hover:bg-blue-700"
+                }`}
+              >
+                {emailCountdown > 0
+                  ? `Resend Email in ${emailCountdown}s`
+                  : "Resend Email"}
               </Button>
             </div>
           </>
@@ -285,9 +346,9 @@ export default function RegisterPage() {
 
         {step === "done" && (
           <>
-            <h2 className="text-2xl font-semibold text-center mb-4">All Set! 🎉</h2>
+            <h2 className="text-2xl font-semibold text-center mb-4">All Set 🎉</h2>
             <p className="text-gray-700 text-center">
-              Your phone number is verified. Please verify your email via the link sent to <b>{form.email}</b>.
+              Phone verified successfully. Please verify your email link.
             </p>
             <Button className="mt-6 w-full" onClick={handleGoToVerifyPage}>
               Go to Verification Status

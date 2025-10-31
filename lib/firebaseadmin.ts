@@ -1,41 +1,37 @@
 // lib/firebaseadmin.ts
 import * as admin from "firebase-admin";
 
+/* ============================================================
+   🧠 SINGLETON INITIALIZATION (Avoid re-initialization)
+============================================================ */
 let app: admin.app.App | undefined;
 
-/* --------------------------------------------------
-   🔐 Resolve Private Key (supports both escaped & raw)
--------------------------------------------------- */
+/* ============================================================
+   🔐 PRIVATE KEY HANDLER (escaped or normal format)
+============================================================ */
 function resolvePrivateKey(): string {
   const key = process.env.FIREBASE_PRIVATE_KEY;
 
-  if (!key) {
-    throw new Error("❌ FIREBASE_PRIVATE_KEY missing from environment variables");
-  }
+  if (!key) throw new Error("❌ FIREBASE_PRIVATE_KEY missing from environment variables");
 
-  const formatted = key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
-
-  if (!formatted.includes("BEGIN PRIVATE KEY")) {
-    throw new Error("❌ FIREBASE_PRIVATE_KEY format invalid (missing BEGIN PRIVATE KEY)");
-  }
-
-  return formatted;
+  // Handles escaped "\n" from Netlify or normal format
+  return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
 }
 
-/* --------------------------------------------------
-   🧠 Validate Required Environment Variables
--------------------------------------------------- */
+/* ============================================================
+   ⚙️ VALIDATE REQUIRED ENVIRONMENT VARIABLES
+============================================================ */
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 const privateKey = resolvePrivateKey();
 
-if (!projectId || !clientEmail) {
-  throw new Error("❌ Missing Firebase Admin environment variables: projectId/clientEmail");
+if (!projectId || !clientEmail || !privateKey) {
+  throw new Error("❌ Missing Firebase Admin environment variables");
 }
 
-/* --------------------------------------------------
-   🚀 Initialize Firebase Admin (singleton-safe)
--------------------------------------------------- */
+/* ============================================================
+   🚀 INITIALIZE FIREBASE ADMIN (Singleton-safe)
+============================================================ */
 if (!admin.apps.length) {
   try {
     app = admin.initializeApp({
@@ -46,49 +42,39 @@ if (!admin.apps.length) {
       }),
     });
     if (process.env.NODE_ENV !== "production") {
-      console.log("✅ Firebase Admin initialized (dev mode)");
+      console.log("✅ Firebase Admin initialized (server-side)");
     }
   } catch (err: any) {
-    console.error("🔥 Firebase Admin initialization failed:", err.message);
+    console.error("🔥 Firebase Admin init failed:", err.message);
     throw err;
   }
 } else {
   app = admin.app();
 }
 
-/* --------------------------------------------------
-   🧩 Exports (Admin SDK instances)
--------------------------------------------------- */
+/* ============================================================
+   🔥 ADMIN SERVICES (For API Routes Only)
+============================================================ */
 export const adminAuth = admin.auth();
 export const adminDb = admin.firestore();
 
-/**
- * Unified getter to access Admin services safely
- */
+/* ============================================================
+   🧩 HELPER — Unified getter
+============================================================ */
 export function getFirebaseAdmin() {
   return { admin, app, adminAuth, adminDb };
 }
 
-/* --------------------------------------------------
-   ✅ Optional Firestore Connectivity Check
-   (Silent in production to avoid console spam)
--------------------------------------------------- */
+/* ============================================================
+   🧠 CONNECTION TEST (Optional)
+============================================================ */
 (async () => {
   try {
     await adminDb.listCollections();
     if (process.env.NODE_ENV !== "production") {
-      console.log("✅ Firebase Admin Firestore connection verified");
+      console.log("✅ Firestore Admin connection verified");
     }
   } catch (err: any) {
-    console.error("⚠️ Firestore connectivity issue:", err.message);
-    // Retry once after a delay (handles cold starts)
-    setTimeout(async () => {
-      try {
-        await adminDb.listCollections();
-        console.log("✅ Firestore connection re-established");
-      } catch {
-        console.error("🔥 Firestore still unreachable after retry");
-      }
-    }, 2000);
+    console.error("⚠️ Firestore connection issue:", err.message);
   }
 })();

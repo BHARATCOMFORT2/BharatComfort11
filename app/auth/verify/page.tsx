@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import {
   onAuthStateChanged,
@@ -10,6 +9,7 @@ import {
   signInWithPhoneNumber,
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { useRouter } from "next/navigation";
 
 export default function VerifyPage() {
   const router = useRouter();
@@ -26,12 +26,11 @@ export default function VerifyPage() {
   const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
 
   /* ----------------------------------------------------------
-     🔐 Load user and Firestore profile
+     🔐 Load User & Profile
   ---------------------------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      setMsg(null);
       if (u) {
         const snap = await getDoc(doc(db, "users", u.uid));
         if (snap.exists()) {
@@ -45,45 +44,38 @@ export default function VerifyPage() {
   }, []);
 
   /* ----------------------------------------------------------
-     ✅ Initialize invisible reCAPTCHA (Correct order)
+     ✅ Initialize Invisible reCAPTCHA
   ---------------------------------------------------------- */
   useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const timer = setTimeout(() => {
-      if (!recaptchaVerifierRef.current && recaptchaDivRef.current) {
-        try {
-          recaptchaVerifierRef.current = new RecaptchaVerifier(
-            auth,                      // ✅ correct order
-            recaptchaDivRef.current,   // ✅ container element
-            { size: "invisible" }      // ✅ config
-          );
-          recaptchaVerifierRef.current.render();
-          console.log("✅ reCAPTCHA initialized successfully");
-        } catch (err) {
-          console.warn("⚠️ reCAPTCHA init failed or already exists:", err);
-        }
+    if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaDivRef.current) {
+      try {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
+          size: "invisible",
+        });
+        recaptchaVerifierRef.current.render();
+        console.log("✅ reCAPTCHA initialized in verify page");
+      } catch {
+        console.warn("⚠️ reCAPTCHA already initialized");
       }
-    }, 600);
-
-    return () => clearTimeout(timer);
+    }
   }, []);
 
   /* ----------------------------------------------------------
-     ✉️ SEND EMAIL VERIFICATION
+     ✉️ Send Email Verification
   ---------------------------------------------------------- */
   const handleSendVerification = async () => {
-    const currentUser = auth.currentUser;
-    if (!currentUser || !currentUser.email) {
-      setMsg("Please log in again. Email not found.");
-      return;
-    }
-
+    if (!auth.currentUser) return;
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      await sendEmailVerification(currentUser, { url: `${appUrl}/auth/verify` });
+      await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
+
+      // 🔹 Reset expiry (10 min)
+      await updateDoc(doc(db, "users", auth.currentUser.uid), {
+        emailExpiry: Date.now() + 10 * 60 * 1000,
+      });
+
       setEmailSent(true);
-      setMsg("📩 Verification email sent successfully! Check your inbox.");
+      setMsg("📩 Verification email sent again! Check your inbox.");
     } catch (err: any) {
       console.error("Email verification error:", err);
       setMsg(err.message || "Failed to send verification email.");
@@ -91,13 +83,22 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     🔁 REFRESH EMAIL VERIFICATION STATUS
+     🔁 Refresh Email Verification Status
   ---------------------------------------------------------- */
   const handleRefreshStatus = async () => {
     try {
       await auth.currentUser?.reload();
       const updatedUser = auth.currentUser;
       if (!updatedUser) return;
+
+      const snap = await getDoc(doc(db, "users", updatedUser.uid));
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.emailExpiry && Date.now() > data.emailExpiry) {
+          setMsg("⏳ Email verification link expired. Please request a new one.");
+          return;
+        }
+      }
 
       if (updatedUser.emailVerified) {
         await updateDoc(doc(db, "users", updatedUser.uid), { emailVerified: true });
@@ -115,48 +116,46 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     📱 SEND PHONE OTP
+     📱 Send Phone OTP (with 10-minute expiry)
   ---------------------------------------------------------- */
   const handleSendOtp = async () => {
     setMsg(null);
-    if (!auth.currentUser) return setMsg("Please log in again.");
+    if (!auth.currentUser) return setMsg("Please login again.");
     if (!/^\+?\d{10,15}$/.test(phone)) {
-      return setMsg("Enter a valid phone number with country code (e.g. +919876543210)");
+      return setMsg("Enter a valid phone number (e.g. +919876543210)");
     }
 
     setLoading(true);
     try {
       if (!recaptchaVerifierRef.current && recaptchaDivRef.current) {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(
-          auth,
-          recaptchaDivRef.current,
-          { size: "invisible" }
-        );
-        await recaptchaVerifierRef.current.render();
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
+          size: "invisible",
+        });
+        recaptchaVerifierRef.current.render();
       }
 
-      // ✅ FIXED TYPE ERROR — ensured non-null
+      // ⏰ Reset OTP expiry
+      await updateDoc(doc(db, "users", auth.currentUser.uid), {
+        otpExpiry: Date.now() + 10 * 60 * 1000,
+      });
+
       confirmationResultRef.current = await signInWithPhoneNumber(
         auth,
         phone.trim(),
-        recaptchaVerifierRef.current! // ✅ non-null assertion
+        recaptchaVerifierRef.current!
       );
 
-      setMsg("📲 OTP sent to your phone successfully!");
+      setMsg("📲 OTP sent successfully! Valid for 10 minutes.");
     } catch (err: any) {
       console.error("Send OTP error:", err);
-      if (err.code === "auth/captcha-check-failed") {
-        setMsg("⚠️ reCAPTCHA verification failed. Please reload the page.");
-      } else {
-        setMsg(err.message || "Failed to send OTP. Try again.");
-      }
+      setMsg(err.message || "Failed to send OTP.");
     } finally {
       setLoading(false);
     }
   };
 
   /* ----------------------------------------------------------
-     ✅ VERIFY PHONE OTP
+     ✅ Verify Phone OTP (with expiry check)
   ---------------------------------------------------------- */
   const handleVerifyOtp = async () => {
     if (!otp.trim()) return setMsg("Enter OTP first.");
@@ -164,11 +163,20 @@ export default function VerifyPage() {
 
     setLoading(true);
     try {
+      const userRef = doc(db, "users", auth.currentUser!.uid);
+      const snap = await getDoc(userRef);
+
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.otpExpiry && Date.now() > data.otpExpiry) {
+          setMsg("⏳ OTP expired. Please request a new one.");
+          return;
+        }
+      }
+
       const result = await confirmationResultRef.current.confirm(otp.trim());
-      await updateDoc(doc(db, "users", result.user.uid), {
-        phoneVerified: true,
-        phone,
-      });
+      await updateDoc(userRef, { phoneVerified: true, phone });
+
       setMsg("✅ Phone verified successfully!");
       setProfile((prev: any) => ({ ...prev, phoneVerified: true }));
     } catch (err: any) {
@@ -184,13 +192,13 @@ export default function VerifyPage() {
   ---------------------------------------------------------- */
   useEffect(() => {
     if (user && profile?.emailVerified && profile?.phoneVerified) {
-      const timeout = setTimeout(() => router.push("/(dashboard)/user"), 1500);
-      return () => clearTimeout(timeout);
+      const t = setTimeout(() => router.push("/(dashboard)/user"), 1500);
+      return () => clearTimeout(t);
     }
   }, [user, profile]);
 
   /* ----------------------------------------------------------
-     🚫 NOT LOGGED IN
+     🚫 Not logged in
   ---------------------------------------------------------- */
   if (!user) {
     return (
@@ -205,7 +213,7 @@ export default function VerifyPage() {
   const phoneVerified = Boolean(profile?.phoneVerified || user.phoneNumber);
 
   /* ----------------------------------------------------------
-     ✅ MAIN UI
+     ✅ UI RENDER
   ---------------------------------------------------------- */
   return (
     <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-6">
@@ -223,7 +231,7 @@ export default function VerifyPage() {
               disabled={emailSent}
               className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 transition"
             >
-              {emailSent ? "Verification Sent ✔" : "Send Verification Email"}
+              {emailSent ? "Verification Sent ✔" : "Resend Verification Email"}
             </button>
             <button
               onClick={handleRefreshStatus}

@@ -19,8 +19,8 @@ import { Button } from "@/components/ui/Button";
 interface LoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: () => void;        // ✅ made optional
-  bookingCallback?: () => void;  // ✅ made optional
+  onSuccess?: () => void;        // ✅ optional
+  bookingCallback?: () => void;  // ✅ optional
 }
 
 /* ============================================================
@@ -69,9 +69,10 @@ export default function LoginModal({
         return;
       }
 
+      // ✅ Success
       setMessage("✅ Login successful!");
-      onSuccess(); // Notify parent (update auth state)
-      bookingCallback?.(); // ✅ If bookingCallback passed, trigger redirect
+      onSuccess?.();         // ✅ Safe optional call
+      bookingCallback?.();   // ✅ Optional booking redirect
       onClose();
     } catch (err: any) {
       console.error("Login error:", err);

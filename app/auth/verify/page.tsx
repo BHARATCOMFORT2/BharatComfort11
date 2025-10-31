@@ -45,28 +45,44 @@ export default function VerifyPage() {
   }, []);
 
   /* ----------------------------------------------------------
-     ✅ Initialize invisible reCAPTCHA once
+     ✅ Initialize invisible reCAPTCHA once (important fix)
   ---------------------------------------------------------- */
   useEffect(() => {
-    if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaDivRef.current) {
-      try {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
-          size: "invisible",
-        });
-      } catch {
-        console.warn("⚠️ reCAPTCHA already initialized or unavailable");
+    if (typeof window === "undefined") return;
+
+    // wait until auth is ready and div is mounted
+    const timer = setTimeout(() => {
+      if (!recaptchaVerifierRef.current && recaptchaDivRef.current) {
+        try {
+          recaptchaVerifierRef.current = new RecaptchaVerifier(
+            recaptchaDivRef.current,
+            { size: "invisible" },
+            auth
+          );
+          recaptchaVerifierRef.current.render();
+          console.log("✅ reCAPTCHA initialized successfully");
+        } catch (err) {
+          console.warn("⚠️ reCAPTCHA init failed or already exists:", err);
+        }
       }
-    }
+    }, 600);
+
+    return () => clearTimeout(timer);
   }, []);
 
   /* ----------------------------------------------------------
-     ✉️ SEND EMAIL VERIFICATION
+     ✉️ SEND EMAIL VERIFICATION (safe check added)
   ---------------------------------------------------------- */
   const handleSendVerification = async () => {
-    if (!auth.currentUser) return;
+    const currentUser = auth.currentUser;
+    if (!currentUser || !currentUser.email) {
+      setMsg("Please log in again. Email not found.");
+      return;
+    }
+
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
+      await sendEmailVerification(currentUser, { url: `${appUrl}/auth/verify` });
       setEmailSent(true);
       setMsg("📩 Verification email sent successfully! Check your inbox.");
     } catch (err: any) {
@@ -100,11 +116,11 @@ export default function VerifyPage() {
   };
 
   /* ----------------------------------------------------------
-     📱 SEND PHONE OTP
+     📱 SEND PHONE OTP (stable fix)
   ---------------------------------------------------------- */
   const handleSendOtp = async () => {
     setMsg(null);
-    if (!auth.currentUser) return setMsg("Please login again.");
+    if (!auth.currentUser) return setMsg("Please log in again.");
     if (!/^\+?\d{10,15}$/.test(phone)) {
       return setMsg("Enter a valid phone number with country code (e.g. +919876543210)");
     }
@@ -112,16 +128,23 @@ export default function VerifyPage() {
     setLoading(true);
     try {
       if (!recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current!, {
-          size: "invisible",
-        });
+        recaptchaVerifierRef.current = new RecaptchaVerifier(
+          recaptchaDivRef.current!,
+          { size: "invisible" },
+          auth
+        );
+        await recaptchaVerifierRef.current.render();
       }
 
-      confirmationResultRef.current = await signInWithPhoneNumber(auth, phone, recaptchaVerifierRef.current);
+      confirmationResultRef.current = await signInWithPhoneNumber(auth, phone.trim(), recaptchaVerifierRef.current);
       setMsg("📲 OTP sent to your phone successfully!");
     } catch (err: any) {
       console.error("Send OTP error:", err);
-      setMsg(err.message || "Failed to send OTP. Try again.");
+      if (err.code === "auth/captcha-check-failed") {
+        setMsg("⚠️ reCAPTCHA verification failed. Please reload the page.");
+      } else {
+        setMsg(err.message || "Failed to send OTP. Try again.");
+      }
     } finally {
       setLoading(false);
     }
@@ -156,9 +179,7 @@ export default function VerifyPage() {
   ---------------------------------------------------------- */
   useEffect(() => {
     if (user && profile?.emailVerified && profile?.phoneVerified) {
-      const timeout = setTimeout(() => {
-        router.push("/(dashboard)/user");
-      }, 1500);
+      const timeout = setTimeout(() => router.push("/(dashboard)/user"), 1500);
       return () => clearTimeout(timeout);
     }
   }, [user, profile]);

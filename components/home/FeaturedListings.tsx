@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { db, auth } from "@/lib/firebase";
 import {
   collection,
@@ -14,9 +14,10 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
+import LoginModal from "@/components/auth/LoginModal";
 
 /* ------------------------------------------
-   🪶 Inline Debounce Hook
+   🕐 Debounce Hook
 ------------------------------------------- */
 function useDebounce<T>(value: T, delay: number): [T] {
   const [debounced, setDebounced] = useState(value);
@@ -38,6 +39,7 @@ interface Listing {
   rating?: number;
   images: string[];
   category?: string;
+  featured?: boolean;
 }
 
 /* ------------------------------------------
@@ -50,6 +52,8 @@ export default function FeaturedListings() {
   const [loading, setLoading] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [isHovered, setIsHovered] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [pendingListing, setPendingListing] = useState<Listing | null>(null);
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
@@ -58,135 +62,147 @@ export default function FeaturedListings() {
      👤 Auth Listener
   ------------------------------------------- */
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => setUser(u));
+    const unsub = auth.onAuthStateChanged((u) => {
+      setUser(u);
+      if (u && pendingListing) {
+        // auto continue after login
+        handleBookNow(pendingListing);
+        setPendingListing(null);
+      }
+    });
     return () => unsub();
-  }, []);
+  }, [pendingListing]);
 
   /* ------------------------------------------
      🔥 Fetch Featured Listings
-  ------------------------------------------- */
+------------------------------------------- */
   useEffect(() => {
     const q = query(
       collection(db, "listings"),
       where("status", "==", "approved"),
+      where("featured", "==", true),
       orderBy("createdAt", "desc"),
-      limit(10)
+      limit(12)
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      const list: Listing[] = snap.docs.map((doc) => {
-        const raw = doc.data();
-        const images =
-          Array.isArray(raw.images) && raw.images.length > 0
-            ? raw.images
-            : [raw.image || "https://via.placeholder.com/400x300?text=No+Image"];
-        return {
-          id: doc.id,
-          name: raw.name || "Unnamed Listing",
-          location: raw.location || "Unknown",
-          price: raw.price || 0,
-          rating: raw.rating || 4.2,
-          images,
-          category: raw.category || "General",
-        };
-      });
-      setListings(list);
-      setLoading(false);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const list: Listing[] = snap.docs.map((doc) => {
+          const data = doc.data();
+          const images =
+            Array.isArray(data.images) && data.images.length > 0
+              ? data.images
+              : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
+          return {
+            id: doc.id,
+            name: data.name || "Unnamed Listing",
+            location: data.location || "Unknown",
+            price: data.price || 0,
+            rating: data.rating || 4.2,
+            images,
+            category: data.category || "General",
+            featured: data.featured || false,
+          };
+        });
+        setListings(list);
+        setLoading(false);
+      },
+      (err) => {
+        console.error("❌ Featured listings error:", err);
+        setLoading(false);
+      }
+    );
 
     return () => unsub();
   }, []);
 
   /* ------------------------------------------
-     🔍 Filter by search
-  ------------------------------------------- */
+     🔍 Filter by Search
+------------------------------------------- */
   const filtered = debouncedSearch
     ? listings.filter(
         (l) =>
-          (l.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
-            l.location?.toLowerCase().includes(debouncedSearch.toLowerCase())) ?? false
+          l.name?.toLowerCase().includes(debouncedSearch.toLowerCase()) ||
+          l.location?.toLowerCase().includes(debouncedSearch.toLowerCase())
       )
     : listings;
 
   /* ------------------------------------------
      💳 Handle Book Now
-  ------------------------------------------- */
-  const handleBookNow = async (listing: Listing) => {
-    if (!user) {
-      alert("Please login to continue booking.");
-      router.push("/login");
-      return;
-    }
+------------------------------------------- */
+  const handleBookNow = useCallback(
+    async (listing: Listing) => {
+      if (!user) {
+        setPendingListing(listing);
+        setShowLoginModal(true);
+        return;
+      }
 
-    try {
-      // ✅ Create Razorpay order first
-      const res = await fetch("/api/payments/create-order", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          amount: listing.price,
-          listingId: listing.id,
-          userId: user.uid,
-        }),
-      });
+      try {
+        const res = await fetch("/api/payments/create-order", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount: listing.price,
+            listingId: listing.id,
+            userId: user.uid,
+          }),
+        });
 
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Failed to create order");
+        const data = await res.json();
+        if (!data.success) throw new Error(data.error || "Failed to create order");
 
-      // ✅ Proceed to Razorpay checkout
-      openRazorpayCheckout({
-        amount: listing.price!,
-        orderId: data.id, // ✅ FIXED: Added this line
-        name: listing.name,
-        email: user.email,
-        phone: user.phoneNumber || "9999999999",
-        onSuccess: () => alert("✅ Payment Successful!"),
-        onFailure: () => alert("❌ Payment Failed"),
-      });
-    } catch (err) {
-      console.error("Booking error:", err);
-      alert("Failed to start payment.");
-    }
-  };
+        openRazorpayCheckout({
+          amount: listing.price!,
+          orderId: data.id,
+          name: listing.name,
+          email: user.email,
+          phone: user.phoneNumber || "9999999999",
+          onSuccess: () => alert("✅ Payment Successful!"),
+          onFailure: () => alert("❌ Payment Failed"),
+        });
+      } catch (err) {
+        console.error("Booking error:", err);
+        alert("Failed to start payment.");
+      }
+    },
+    [user]
+  );
 
   /* ------------------------------------------
      🎡 Manual Scroll Buttons
-  ------------------------------------------- */
-  const scrollLeft = () => {
-    scrollRef.current?.scrollBy({ left: -350, behavior: "smooth" });
-  };
-  const scrollRight = () => {
-    scrollRef.current?.scrollBy({ left: 350, behavior: "smooth" });
-  };
+------------------------------------------- */
+  const scrollLeft = () => scrollRef.current?.scrollBy({ left: -350, behavior: "smooth" });
+  const scrollRight = () => scrollRef.current?.scrollBy({ left: 350, behavior: "smooth" });
 
   /* ------------------------------------------
      🚗 Auto Scroll (pause on hover)
-  ------------------------------------------- */
+------------------------------------------- */
   useEffect(() => {
     if (!scrollRef.current) return;
-
     const el = scrollRef.current;
-    let animationFrame: number;
-    const scrollSpeed = 0.6; // px per frame
+    let frame: number;
+    const speed = 0.6;
 
-    const autoScroll = () => {
+    const scroll = () => {
       if (!isHovered) {
         if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 2) {
           el.scrollTo({ left: 0 });
         } else {
-          el.scrollLeft += scrollSpeed;
+          el.scrollLeft += speed;
         }
       }
-      animationFrame = requestAnimationFrame(autoScroll);
+      frame = requestAnimationFrame(scroll);
     };
 
-    animationFrame = requestAnimationFrame(autoScroll);
-    return () => cancelAnimationFrame(animationFrame);
+    frame = requestAnimationFrame(scroll);
+    return () => cancelAnimationFrame(frame);
   }, [isHovered]);
 
   /* ------------------------------------------
-     🧠 Loading State
-  ------------------------------------------- */
+     🧠 Loading + Empty
+------------------------------------------- */
   if (loading) {
     return (
       <section className="py-10 px-4 text-center text-gray-500 animate-pulse">
@@ -195,9 +211,11 @@ export default function FeaturedListings() {
     );
   }
 
+  if (filtered.length === 0) return null; // 🧹 Hide if no featured listings
+
   /* ------------------------------------------
-     🎨 Render UI
-  ------------------------------------------- */
+     🎨 Render
+------------------------------------------- */
   return (
     <section className="py-12 px-6 bg-gray-50 relative">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -205,13 +223,21 @@ export default function FeaturedListings() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <h2 className="text-2xl font-bold text-gray-800">🌟 Featured Listings</h2>
 
-          <input
-            type="text"
-            placeholder="Search by name or location..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-2 w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-yellow-500"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Search by name or location..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 w-full sm:w-72 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+            />
+            <Button
+              onClick={() => router.push("/listings")}
+              className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2"
+            >
+              View All
+            </Button>
+          </div>
         </div>
 
         {/* Carousel */}
@@ -264,7 +290,9 @@ export default function FeaturedListings() {
                   <h3 className="text-lg font-semibold text-gray-800 truncate">
                     {listing.name}
                   </h3>
-                  <p className="text-gray-600 text-sm">{listing.location}</p>
+                  <p className="text-gray-600 text-sm truncate">
+                    {listing.location}
+                  </p>
                   <div className="flex justify-between items-center">
                     <span className="text-blue-600 font-bold">
                       ₹{listing.price}
@@ -274,7 +302,6 @@ export default function FeaturedListings() {
                     </span>
                   </div>
 
-                  {/* Buttons */}
                   <div className="flex gap-2 mt-4">
                     <Button
                       onClick={() => router.push(`/listing/${listing.id}`)}
@@ -295,6 +322,13 @@ export default function FeaturedListings() {
           </div>
         </div>
       </div>
+
+      {/* 🧩 Login Modal */}
+      <LoginModal
+        isOpen={showLoginModal}
+        onClose={() => setShowLoginModal(false)}
+        onSuccess={() => setUser(auth.currentUser)}
+      />
     </section>
   );
 }

@@ -54,9 +54,9 @@ export default function VerifyPage() {
       if (!recaptchaVerifierRef.current && recaptchaDivRef.current) {
         try {
           recaptchaVerifierRef.current = new RecaptchaVerifier(
-            auth,                      // ✅ first argument
-            recaptchaDivRef.current,   // ✅ second: container element
-            { size: "invisible" }      // ✅ third: config
+            auth,                      // ✅ correct order
+            recaptchaDivRef.current,   // ✅ container element
+            { size: "invisible" }      // ✅ config
           );
           recaptchaVerifierRef.current.render();
           console.log("✅ reCAPTCHA initialized successfully");
@@ -70,7 +70,7 @@ export default function VerifyPage() {
   }, []);
 
   /* ----------------------------------------------------------
-     ✉️ SEND EMAIL VERIFICATION (Safe check)
+     ✉️ SEND EMAIL VERIFICATION
   ---------------------------------------------------------- */
   const handleSendVerification = async () => {
     const currentUser = auth.currentUser;
@@ -135,10 +135,11 @@ export default function VerifyPage() {
         await recaptchaVerifierRef.current.render();
       }
 
+      // ✅ FIXED TYPE ERROR — ensured non-null
       confirmationResultRef.current = await signInWithPhoneNumber(
         auth,
         phone.trim(),
-        recaptchaVerifierRef.current
+        recaptchaVerifierRef.current! // ✅ non-null assertion
       );
 
       setMsg("📲 OTP sent to your phone successfully!");

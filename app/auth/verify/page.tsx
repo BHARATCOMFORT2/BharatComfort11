@@ -6,41 +6,58 @@ import {
   onAuthStateChanged,
   sendEmailVerification,
   RecaptchaVerifier,
-  signInWithPhoneNumber,
+  linkWithPhoneNumber,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { useRouter } from "next/navigation";
 
 export default function VerifyPage() {
   const router = useRouter();
-
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
-
-  // countdowns
   const [emailCountdown, setEmailCountdown] = useState(0);
   const [otpCountdown, setOtpCountdown] = useState(0);
 
   const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
+  const confirmationResultRef = useRef<any>(null);
+
+  // Hardcoded Admin & Staff accounts
+  const adminEmails = ["shrrajbhar12340@gmail.com", "founder@bharatcomfort.in"];
+  const staffEmails = ["staff@bharatcomfort.in", "support@bharatcomfort.in"];
 
   /* ----------------------------------------------------------
-     🔐 Load user + profile
+     🔐 Load user + Firestore profile
   ---------------------------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        const snap = await getDoc(doc(db, "users", u.uid));
+        const ref = doc(db, "users", u.uid);
+        const snap = await getDoc(ref);
         if (snap.exists()) {
           const data = snap.data();
           setProfile(data);
           setPhone(data.phone || u.phoneNumber || "");
+
+          // ✅ Auto-verify Admin
+          if (adminEmails.includes(u.email!)) {
+            await updateDoc(ref, { emailVerified: true, phoneVerified: true, role: "admin" });
+            setMsg("🔐 Admin verified automatically.");
+            router.push("/(dashboard)/admin");
+            return;
+          }
+
+          // ⚙️ Force staff password reset
+          if (staffEmails.includes(u.email!)) {
+            await sendPasswordResetEmail(auth, u.email!);
+            setMsg("⚙️ Staff detected. Password reset email sent. Please reset before proceeding.");
+          }
         }
       }
     });
@@ -52,20 +69,15 @@ export default function VerifyPage() {
   ---------------------------------------------------------- */
   useEffect(() => {
     if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaDivRef.current) {
-      try {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
-          size: "invisible",
-        });
-        recaptchaVerifierRef.current.render();
-        console.log("✅ reCAPTCHA initialized");
-      } catch {
-        console.warn("⚠️ reCAPTCHA already initialized");
-      }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
+        size: "invisible",
+      });
+      recaptchaVerifierRef.current.render();
     }
   }, []);
 
   /* ----------------------------------------------------------
-     ⏱️ Countdown timer hooks
+     ⏱️ Countdown timers
   ---------------------------------------------------------- */
   useEffect(() => {
     if (emailCountdown <= 0) return;
@@ -80,26 +92,22 @@ export default function VerifyPage() {
   }, [otpCountdown]);
 
   /* ----------------------------------------------------------
-     ✉️ Send Email Verification (with cooldown)
+     ✉️ Send Email Verification
   ---------------------------------------------------------- */
   const handleSendVerification = async () => {
     if (!auth.currentUser) return;
     if (emailCountdown > 0) return setMsg("Please wait before resending.");
-
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
-
-      // reset expiry + cooldown
       await updateDoc(doc(db, "users", auth.currentUser.uid), {
         emailExpiry: Date.now() + 10 * 60 * 1000,
       });
-
-      setEmailCountdown(60); // 60-second cooldown
-      setMsg("📩 Verification email sent! Check your inbox.");
+      setEmailCountdown(60);
+      setMsg("📩 Verification email sent!");
     } catch (err: any) {
-      console.error("Email verification error:", err);
-      setMsg(err.message || "Failed to send verification email.");
+      console.error(err);
+      setMsg("Failed to send verification email.");
     }
   };
 
@@ -111,117 +119,103 @@ export default function VerifyPage() {
       await auth.currentUser?.reload();
       const updatedUser = auth.currentUser;
       if (!updatedUser) return;
-
-      const snap = await getDoc(doc(db, "users", updatedUser.uid));
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.emailExpiry && Date.now() > data.emailExpiry) {
-          setMsg("⏳ Email verification link expired. Please resend.");
-          return;
-        }
-      }
-
       if (updatedUser.emailVerified) {
         await updateDoc(doc(db, "users", updatedUser.uid), { emailVerified: true });
+        setProfile((prev: any) => ({ ...prev, emailVerified: true }));
         setMsg("✅ Email verified successfully!");
-      } else {
-        setMsg("⏳ Still not verified. Check your inbox.");
-      }
-
-      setUser(updatedUser);
-      setProfile((prev: any) => ({ ...prev, emailVerified: updatedUser.emailVerified }));
+      } else setMsg("⏳ Still not verified. Check your inbox.");
     } catch (err: any) {
-      console.error("Refresh error:", err);
-      setMsg(err.message || "Failed to refresh verification status.");
+      console.error(err);
+      setMsg("Failed to refresh status.");
     }
   };
 
   /* ----------------------------------------------------------
-     📱 Send OTP (with cooldown)
+     📱 Send OTP
   ---------------------------------------------------------- */
   const handleSendOtp = async () => {
-    if (otpCountdown > 0) return setMsg("Please wait before resending OTP.");
     if (!auth.currentUser) return setMsg("Please login again.");
-    if (!/^\+?\d{10,15}$/.test(phone))
-      return setMsg("Enter valid phone number (e.g. +919876543210)");
-
+    if (!/^\+?\d{10,15}$/.test(phone)) return setMsg("Enter valid phone number.");
+    if (otpCountdown > 0) return setMsg("Wait before resending OTP.");
     setLoading(true);
     try {
-      await updateDoc(doc(db, "users", auth.currentUser.uid), {
-        otpExpiry: Date.now() + 10 * 60 * 1000,
-      });
-
-      confirmationResultRef.current = await signInWithPhoneNumber(
-        auth,
+      confirmationResultRef.current = await linkWithPhoneNumber(
+        auth.currentUser!,
         phone.trim(),
         recaptchaVerifierRef.current!
       );
-
-      setOtpCountdown(30); // 30-second resend cooldown
-      setMsg("📲 OTP sent successfully! Valid for 10 minutes.");
+      await updateDoc(doc(db, "users", auth.currentUser.uid), {
+        otpExpiry: Date.now() + 10 * 60 * 1000,
+      });
+      setOtpCountdown(30);
+      setMsg("📲 OTP sent successfully!");
     } catch (err: any) {
       console.error("Send OTP error:", err);
-      setMsg(err.message || "Failed to send OTP.");
+      setMsg("Failed to send OTP.");
     } finally {
       setLoading(false);
     }
   };
 
   /* ----------------------------------------------------------
-     ✅ Verify OTP (check expiry)
+     ✅ Verify OTP
   ---------------------------------------------------------- */
   const handleVerifyOtp = async () => {
     if (!otp.trim()) return setMsg("Enter OTP first.");
-    if (!confirmationResultRef.current) return setMsg("OTP session expired.");
-
+    if (!confirmationResultRef.current) return setMsg("OTP expired. Resend.");
     setLoading(true);
     try {
-      const userRef = doc(db, "users", auth.currentUser!.uid);
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const data = snap.data();
-        if (data.otpExpiry && Date.now() > data.otpExpiry) {
-          setMsg("⏳ OTP expired. Please resend.");
+      const result = await confirmationResultRef.current.confirm(otp.trim());
+      await updateDoc(doc(db, "users", result.user.uid), { phoneVerified: true, phone });
+      setProfile((p: any) => ({ ...p, phoneVerified: true }));
+      setMsg("✅ Phone verified successfully!");
+    } catch (err: any) {
+      console.error("OTP verify error:", err);
+      setMsg("Invalid or expired OTP.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ----------------------------------------------------------
+     🚀 Auto Redirect based on Role
+  ---------------------------------------------------------- */
+  useEffect(() => {
+    if (!user || !profile) return;
+
+    if (profile.emailVerified && profile.phoneVerified) {
+      // Partner logic — wait for KYC approval
+      if (profile.role === "partner") {
+        if (profile.kyc?.status === "approved" || profile.status === "approved") {
+          router.push("/(dashboard)/partner");
+        } else {
+          setMsg("⏳ KYC verification pending. Please complete or wait for approval.");
           return;
         }
       }
 
-      await confirmationResultRef.current.confirm(otp.trim());
-      await updateDoc(userRef, { phoneVerified: true, phone });
-      setMsg("✅ Phone verified successfully!");
-      setProfile((prev: any) => ({ ...prev, phoneVerified: true }));
-    } catch (err: any) {
-      console.error("OTP verify error:", err);
-      setMsg("Invalid or expired OTP. Try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ----------------------------------------------------------
-     🚀 Auto Redirect
-  ---------------------------------------------------------- */
-  useEffect(() => {
-    if (user && profile?.emailVerified && profile?.phoneVerified) {
-      const timer = setTimeout(() => router.push("/(dashboard)/user"), 1500);
-      return () => clearTimeout(timer);
+      // Staff redirect
+      if (profile.role === "staff") router.push("/(dashboard)/staff");
+      // Admin redirect
+      if (profile.role === "admin") router.push("/(dashboard)/admin");
+      // User redirect
+      if (profile.role === "user" || !profile.role) router.push("/(dashboard)/user");
     }
   }, [user, profile]);
 
   /* ----------------------------------------------------------
-     🚫 Not logged in
+     🚫 Not Logged In
   ---------------------------------------------------------- */
-  if (!user) {
+  if (!user)
     return (
-      <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow">
+      <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow text-center">
         <h1 className="text-xl font-bold text-gray-800 mb-2">Not Logged In</h1>
         <p className="text-gray-600">Please log in or register first.</p>
       </div>
     );
-  }
 
   const emailVerified = profile?.emailVerified || user.emailVerified;
-  const phoneVerified = Boolean(profile?.phoneVerified || user.phoneNumber);
+  const phoneVerified = profile?.phoneVerified || user.phoneNumber;
 
   /* ----------------------------------------------------------
      🧠 UI
@@ -232,7 +226,7 @@ export default function VerifyPage() {
         Verify Your Account
       </h1>
 
-      {/* EMAIL */}
+      {/* EMAIL SECTION */}
       {!emailVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-2">
           <p>Your email <b>{user.email}</b> is not verified yet.</p>
@@ -246,11 +240,8 @@ export default function VerifyPage() {
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {emailCountdown > 0
-                ? `Resend in ${emailCountdown}s`
-                : "Resend Verification Email"}
+              {emailCountdown > 0 ? `Resend in ${emailCountdown}s` : "Send Email"}
             </button>
-
             <button
               onClick={handleRefreshStatus}
               className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90 transition"
@@ -263,18 +254,16 @@ export default function VerifyPage() {
         <div className="p-4 border rounded bg-green-50">✅ Email verified.</div>
       )}
 
-      {/* PHONE */}
+      {/* PHONE SECTION */}
       {!phoneVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-3">
           <p className="font-medium text-gray-800">Verify your phone number:</p>
-
           <input
             className="w-full border rounded p-2"
             placeholder="+919876543210"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
           />
-
           <div className="flex flex-col sm:flex-row gap-2">
             <button
               onClick={handleSendOtp}
@@ -287,14 +276,12 @@ export default function VerifyPage() {
             >
               {otpCountdown > 0 ? `Resend in ${otpCountdown}s` : "Send OTP"}
             </button>
-
             <input
               className="flex-1 border rounded p-2"
               placeholder="Enter OTP"
               value={otp}
               onChange={(e) => setOtp(e.target.value)}
             />
-
             <button
               onClick={handleVerifyOtp}
               disabled={loading}
@@ -303,7 +290,6 @@ export default function VerifyPage() {
               {loading ? "Verifying..." : "Verify"}
             </button>
           </div>
-
           <div ref={recaptchaDivRef} />
         </div>
       ) : (

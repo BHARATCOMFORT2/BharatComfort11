@@ -4,6 +4,7 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 /**
  * POST → Create or refresh a session cookie
  * GET  → Validate session and auto-refresh if needed
+ * DELETE → Logout / Clear session cookie
  */
 export async function POST(req: Request) {
   try {
@@ -16,10 +17,13 @@ export async function POST(req: Request) {
 
     // Session valid for 7 days
     const expiresIn = 7 * 24 * 60 * 60 * 1000;
+
     const sessionCookie = await adminAuth.createSessionCookie(token, { expiresIn });
 
     const res = NextResponse.json({ success: true });
-    res.cookies.set("session", sessionCookie, {
+    res.cookies.set({
+      name: "session",
+      value: sessionCookie,
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
@@ -30,7 +34,10 @@ export async function POST(req: Request) {
     return res;
   } catch (error: any) {
     console.error("🔥 Session creation error:", error);
-    return NextResponse.json({ error: error.message || "Internal error" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -56,14 +63,19 @@ export async function GET(req: Request) {
     } catch (err) {
       console.warn("⚠️ Expired or invalid session:", (err as any).message);
       const res = NextResponse.json({ authenticated: false }, { status: 401 });
-      res.cookies.set("session", "", { path: "/", maxAge: 0 });
+      res.cookies.set({
+        name: "session",
+        value: "",
+        path: "/",
+        maxAge: 0,
+      });
       return res;
     }
 
     // 🔁 Auto-refresh session cookie if close to expiry (within 24h)
-    const now = Date.now() / 1000; // seconds
+    const now = Math.floor(Date.now() / 1000); // in seconds
     const timeToExpire = decoded.exp - now;
-    const oneDay = 24 * 60 * 60; // 1 day in seconds
+    const oneDay = 24 * 60 * 60;
 
     const res = NextResponse.json({
       authenticated: true,
@@ -72,13 +84,15 @@ export async function GET(req: Request) {
       email: decoded.email,
     });
 
+    // ⚙️ If less than 1 day left, refresh cookie
     if (timeToExpire < oneDay) {
       try {
-        const newToken = await adminAuth.createSessionCookie(
-          sessionCookie,
-          { expiresIn: 7 * 24 * 60 * 60 * 1000 } // renew for 7 days
-        );
-        res.cookies.set("session", newToken, {
+        const newToken = await adminAuth.createSessionCookie(sessionCookie, {
+          expiresIn: 7 * 24 * 60 * 60 * 1000,
+        });
+        res.cookies.set({
+          name: "session",
+          value: newToken,
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           path: "/",
@@ -95,17 +109,27 @@ export async function GET(req: Request) {
   } catch (error: any) {
     console.error("🔥 Session validation error:", error);
     const res = NextResponse.json({ authenticated: false }, { status: 401 });
-    res.cookies.set("session", "", { path: "/", maxAge: 0 });
+    res.cookies.set({
+      name: "session",
+      value: "",
+      path: "/",
+      maxAge: 0,
+    });
     return res;
   }
 }
 
 /* -----------------------------------------------------------
-   ⚙️ Optional DELETE → Log out & clear session
+   🧹 DELETE → Logout & clear session cookie
 ----------------------------------------------------------- */
 export async function DELETE() {
-  const res = NextResponse.json({ success: true, message: "Session cleared" });
-  res.cookies.set("session", "", {
+  const res = NextResponse.json({
+    success: true,
+    message: "Session cleared",
+  });
+  res.cookies.set({
+    name: "session",
+    value: "",
     httpOnly: true,
     path: "/",
     maxAge: 0,

@@ -9,9 +9,16 @@ import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 
+/* ------------------------------------------------------------
+   👑 Admin Whitelist — Declared directly in Firebase
+------------------------------------------------------------ */
+const ADMIN_EMAILS = [
+  "founder@bharatcomfort.in",
+  "shrrajbhar12340@gmail.com",
+];
+
 export default function LoginPage() {
   const router = useRouter();
-
   const [redirectTo, setRedirectTo] = useState("/(dashboard)/user");
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -42,11 +49,33 @@ export default function LoginPage() {
 
     try {
       // 1️⃣ Firebase sign-in
-      const cred = await signInWithEmailAndPassword(auth, form.email.trim(), form.password);
+      const cred = await signInWithEmailAndPassword(
+        auth,
+        form.email.trim(),
+        form.password
+      );
       const user = cred.user;
       await user.reload();
 
-      // 2️⃣ Firestore profile lookup
+      // 2️⃣ Detect admin instantly
+      if (ADMIN_EMAILS.includes(user.email || "")) {
+        console.log("👑 Admin login detected:", user.email);
+
+        // Create session for admin
+        const token = await getIdToken(user);
+        const res = await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+
+        if (!res.ok) throw new Error("Session setup failed for admin.");
+
+        router.push("/admin/dashboard");
+        return;
+      }
+
+      // 3️⃣ Regular user / partner flow
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
 
@@ -61,21 +90,20 @@ export default function LoginPage() {
       const emailVerified = user.emailVerified || userData.emailVerified;
       const phoneVerified = userData.phoneVerified || false;
 
-      // 3️⃣ Email Verification Check
+      // 4️⃣ Verification checks for non-admin users
       if (!emailVerified) {
         setError("📧 Please verify your email first.");
-        router.push("/auth/verify-email");
+        router.push("/auth/verify");
         return;
       }
 
-      // 4️⃣ Phone Verification Check
       if (!phoneVerified) {
         setError("📱 Please verify your phone number first.");
-        router.push("/auth/verify-phone");
+        router.push("/auth/verify");
         return;
       }
 
-      // 5️⃣ Update Firestore flags if needed
+      // 5️⃣ Update Firestore flags if not synced
       if (!userData.emailVerified || !userData.phoneVerified || !userData.verified) {
         await updateDoc(userRef, {
           emailVerified: true,
@@ -84,7 +112,7 @@ export default function LoginPage() {
         });
       }
 
-      // 6️⃣ Create session (for middleware verification)
+      // 6️⃣ Create session cookie
       const token = await getIdToken(user);
       const res = await fetch("/api/auth/session", {
         method: "POST",
@@ -92,7 +120,7 @@ export default function LoginPage() {
         body: JSON.stringify({ token }),
       });
 
-      if (!res.ok) throw new Error("Session setup failed. Try again.");
+      if (!res.ok) throw new Error("Session setup failed.");
 
       // 7️⃣ Redirect Logic
       if (redirectTo && redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
@@ -100,10 +128,7 @@ export default function LoginPage() {
         return;
       }
 
-     switch (role) {
-  case "admin":
-    router.push("/admin/dashboard");
-    break;
+      switch (role) {
         case "partner":
           if (userData.status === "pending") {
             alert("⚠️ Your partner account is pending admin approval.");
@@ -134,7 +159,9 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
+          Login
+        </h1>
 
         {error && (
           <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm text-center">
@@ -154,7 +181,9 @@ export default function LoginPage() {
           />
 
           <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
             <input
               name="password"
               type={showPassword ? "text" : "password"}
@@ -182,13 +211,19 @@ export default function LoginPage() {
         <div className="mt-4 text-center text-gray-500 text-sm space-y-1">
           <p>
             Forgot your password?{" "}
-            <a href="/auth/forgot-password" className="text-blue-600 font-medium hover:underline">
+            <a
+              href="/auth/forgot-password"
+              className="text-blue-600 font-medium hover:underline"
+            >
               Reset here
             </a>
           </p>
           <p>
             Don’t have an account?{" "}
-            <a href="/auth/register" className="text-blue-600 font-medium hover:underline">
+            <a
+              href="/auth/register"
+              className="text-blue-600 font-medium hover:underline"
+            >
               Register
             </a>
           </p>

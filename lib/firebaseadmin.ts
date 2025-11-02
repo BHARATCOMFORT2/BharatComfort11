@@ -1,45 +1,47 @@
-// lib/firebaseadmin.ts
 import * as admin from "firebase-admin";
 
-/* ============================================================
-   🧠 FIREBASE ADMIN SINGLETON (Safe for Netlify / Vercel)
-============================================================ */
+/**
+ * ✅ Firebase Admin Singleton (Netlify + Next.js Safe)
+ * Prevents duplicate initialization across serverless functions or build steps.
+ */
+
 declare global {
-  // Prevent TypeScript from re-declaring this in hot reloads
   // eslint-disable-next-line no-var
-  var _adminApp: admin.app.App | undefined;
+  var _firebaseAdminApp: admin.app.App | undefined;
 }
 
 /* ============================================================
-   🔐 PRIVATE KEY HANDLER — Safe for both Local & Netlify
+   🔐 PRIVATE KEY HANDLER
 ============================================================ */
-function resolvePrivateKey(): string {
+function getPrivateKey(): string {
   const key = process.env.FIREBASE_PRIVATE_KEY;
-  if (!key) {
-    throw new Error("❌ Missing FIREBASE_PRIVATE_KEY in environment variables.");
-  }
-
-  // Fix escaped newline format used in Netlify/Render/etc.
+  if (!key) throw new Error("❌ Missing FIREBASE_PRIVATE_KEY in env vars.");
   return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
 }
 
 /* ============================================================
-   ⚙️ ENVIRONMENT VALIDATION
+   ⚙️ ENV VALIDATION
 ============================================================ */
 const projectId = process.env.FIREBASE_PROJECT_ID;
 const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-const privateKey = resolvePrivateKey();
+const privateKey = getPrivateKey();
 
 if (!projectId || !clientEmail || !privateKey) {
-  throw new Error("❌ Missing Firebase Admin environment configuration.");
+  throw new Error("❌ Missing Firebase Admin credentials in environment variables.");
 }
 
 /* ============================================================
-   🚀 INITIALIZE (Once Only)
+   🚀 INITIALIZE ADMIN (Once per Function Scope)
 ============================================================ */
-export const adminApp =
-  global._adminApp ??
-  admin.initializeApp({
+let app: admin.app.App;
+
+if (admin.apps.length) {
+  // Reuse existing app (safe reload)
+  app = admin.app();
+  console.log("♻️ Firebase Admin reused existing instance");
+} else {
+  // Initialize new app (first time only)
+  app = admin.initializeApp({
     credential: admin.credential.cert({
       projectId,
       clientEmail,
@@ -47,32 +49,32 @@ export const adminApp =
     }),
     storageBucket: `${projectId}.appspot.com`,
   });
-
-// ✅ Always cache instance globally — including production!
-global._adminApp = adminApp;
+  console.log("✅ Firebase Admin initialized");
+}
 
 /* ============================================================
-   🔥 ADMIN SERVICES — Use only server-side
+   🔥 SERVICES
 ============================================================ */
-export const adminAuth = admin.auth(adminApp);
-export const adminDb = admin.firestore(adminApp);
-export const adminStorage = admin.storage(adminApp);
+export const adminApp = app;
+export const adminAuth = admin.auth(app);
+export const adminDb = admin.firestore(app);
+export const adminStorage = admin.storage(app);
 
 /* ============================================================
-   🧩 EXPORT UNIFIED ACCESSOR
+   🧩 ACCESSOR FUNCTION
 ============================================================ */
 export function getFirebaseAdmin() {
   return { admin, adminApp, adminAuth, adminDb, adminStorage };
 }
 
 /* ============================================================
-   🧠 CONNECTION TEST (Dev Only)
+   🧠 DEV CONNECTION CHECK
 ============================================================ */
 if (process.env.NODE_ENV !== "production") {
   (async () => {
     try {
       await adminDb.listCollections();
-      console.log("✅ Firestore Admin connection verified (dev)");
+      console.log("✅ Firestore Admin connected (dev check)");
     } catch (err: any) {
       console.error("⚠️ Firestore Admin connection issue:", err.message);
     }

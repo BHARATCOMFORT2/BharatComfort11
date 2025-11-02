@@ -100,10 +100,10 @@ export default function LoginPage() {
         return;
       }
 
-      switch (role) {
-        case "admin":
-          router.push("/(dashboard)/admin");
-          break;
+     switch (role) {
+  case "admin":
+    router.push("/admin/dashboard");
+    break;
         case "partner":
           if (userData.status === "pending") {
             alert("⚠️ Your partner account is pending admin approval.");

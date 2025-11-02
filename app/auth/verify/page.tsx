@@ -50,7 +50,7 @@ export default function VerifyPage() {
           role: "admin",
         });
         setMsg("🔐 Admin verified automatically.");
-        router.push("/(dashboard)/admin");
+        router.push("/dashboard/admin");
         return;
       }
 

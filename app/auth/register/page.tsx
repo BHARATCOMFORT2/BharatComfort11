@@ -10,7 +10,6 @@ import {
 import {
   doc,
   setDoc,
-  updateDoc,
   getDocs,
   query,
   where,
@@ -20,7 +19,13 @@ import {
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { nanoid } from "nanoid";
-import { sendOtp, verifyOtp, initRecaptcha, resendOtp, clearOtpSession } from "@/lib/otp";
+import {
+  sendOtp,
+  verifyOtp,
+  initRecaptcha,
+  resendOtp,
+  clearOtpSession,
+} from "@/lib/otp";
 
 /* =====================================================
    🌍 Country Codes
@@ -36,12 +41,12 @@ const countryCodes = [
 ];
 
 /* =====================================================
-   ✨ Register Page (Final with OTP + Referral)
+   ✨ Register Page (Verified First Flow)
 ===================================================== */
 export default function RegisterPage() {
   const router = useRouter();
-
   const [step, setStep] = useState<"register" | "otp">("register");
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -60,6 +65,7 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [otpSentAt, setOtpSentAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
+  const [tempUid, setTempUid] = useState<string | null>(null);
 
   /* ---------------------------------------------------
      🔐 Initialize reCAPTCHA Once
@@ -91,7 +97,7 @@ export default function RegisterPage() {
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   /* ---------------------------------------------------
-     🧩 STEP 1: Register + Send Email + OTP
+     🧩 STEP 1: Register Auth User + Send OTP
   --------------------------------------------------- */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,11 +114,52 @@ export default function RegisterPage() {
     setLoading(true);
 
     try {
-      // 🔹 1. Create Firebase user
+      // 🔹 1. Create Firebase Auth user (no Firestore yet)
       const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
       const user = cred.user;
+      setTempUid(user.uid);
 
-      // 🔹 2. Validate Referral Code
+      // 🔹 2. Send Email Verification
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
+      await sendEmailVerification(user, { url: `${appUrl}/auth/verify-email` });
+
+      // 🔹 3. Send OTP
+      await sendOtp(phoneNumber);
+      setOtpSentAt(Date.now());
+      setTimeLeft(600);
+      setStep("otp");
+
+      alert("📩 Email verification link and OTP sent!");
+    } catch (err: any) {
+      console.error("Register error:", err);
+      if (err.code === "auth/email-already-in-use") setError("Email already in use.");
+      else setError("Registration failed. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ---------------------------------------------------
+     🧩 STEP 2: Verify OTP + Save Verified User to Firestore
+  --------------------------------------------------- */
+  const handleVerifyOtp = async () => {
+    if (!otp.trim()) return setError("Enter OTP first.");
+    if (!tempUid) return setError("Session expired. Please re-register.");
+
+    setLoading(true);
+    try {
+      const resultUser = await verifyOtp(otp);
+      if (!resultUser?.uid) throw new Error("Invalid OTP.");
+
+      // Wait until email verified
+      await resultUser.reload();
+      if (!resultUser.emailVerified) {
+        alert("📧 Please verify your email first, then continue.");
+        setLoading(false);
+        return;
+      }
+
+      // ✅ Safe to write user data to Firestore
       let referredBy: string | null = null;
       if (form.referral.trim()) {
         const refQuery = query(collection(db, "users"), where("referralCode", "==", form.referral.trim()));
@@ -121,65 +168,28 @@ export default function RegisterPage() {
         else alert("⚠️ Invalid referral code, continuing without referral.");
       }
 
-      // 🔹 3. Generate unique referralCode
       const referralCode = form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
 
-      // 🔹 4. Save to Firestore
-      await setDoc(doc(db, "users", user.uid), {
-        uid: user.uid,
+      await setDoc(doc(db, "users", resultUser.uid), {
+        uid: resultUser.uid,
         name: form.name,
         email: form.email,
-        phone: phoneNumber,
+        phone: `${countryCode}${form.phone}`,
         role: form.role,
         status: form.role === "partner" ? "pending" : "active",
-        emailVerified: false,
-        phoneVerified: false,
-        verified: false,
+        emailVerified: true,
+        phoneVerified: true,
+        verified: true,
         referralCode,
         referredBy,
         createdAt: serverTimestamp(),
       });
 
-      // 🔹 5. Send Email Verification
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      await sendEmailVerification(user, { url: `${appUrl}/auth/verify-email` });
-
-      // 🔹 6. Send OTP using module
-      await sendOtp(phoneNumber);
-      setOtpSentAt(Date.now());
-      setTimeLeft(600);
-      setStep("otp");
-
-      alert("📩 Verification email sent and OTP sent to your phone!");
+      clearOtpSession();
+      alert("🎉 Account created successfully! You can now log in.");
+      router.push("/auth/login");
     } catch (err: any) {
-      console.error("Register error:", err);
-      if (err.code === "auth/email-already-in-use") setError("Email already in use.");
-      else if (err.code === "auth/invalid-phone-number") setError("Invalid phone number.");
-      else setError("Registration failed. Try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ---------------------------------------------------
-     🧩 STEP 2: Verify OTP
-  --------------------------------------------------- */
-  const handleVerifyOtp = async () => {
-    if (!otp.trim()) return setError("Enter OTP first.");
-
-    setLoading(true);
-    try {
-      const resultUser = await verifyOtp(otp);
-      if (resultUser?.uid) {
-        await updateDoc(doc(db, "users", resultUser.uid), { phoneVerified: true });
-        clearOtpSession();
-        alert("✅ Phone verified successfully! Continue to verify your email.");
-        router.push("/auth/verify-email");
-      } else {
-        setError("Verification failed. Try again.");
-      }
-    } catch (err: any) {
-      console.error("OTP verify error:", err);
+      console.error("OTP verification error:", err);
       setError(err.message || "OTP verification failed.");
     } finally {
       setLoading(false);
@@ -192,7 +202,6 @@ export default function RegisterPage() {
   const handleResendOtp = async () => {
     setError("");
     const phoneNumber = `${countryCode}${form.phone.trim().replace(/\s+/g, "")}`;
-
     try {
       await resendOtp(phoneNumber);
       setOtpSentAt(Date.now());
@@ -222,103 +231,37 @@ export default function RegisterPage() {
             {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
 
             <form onSubmit={handleRegister} className="space-y-4">
-              <input
-                name="name"
-                type="text"
-                placeholder="Full Name"
-                value={form.name}
-                onChange={handleChange}
-                className="w-full border rounded-lg p-3"
-                required
-              />
-
-              <input
-                name="email"
-                type="email"
-                placeholder="Email Address"
-                value={form.email}
-                onChange={handleChange}
-                className="w-full border rounded-lg p-3"
-                required
-              />
+              <input name="name" placeholder="Full Name" value={form.name} onChange={handleChange} className="w-full border rounded-lg p-3" required />
+              <input name="email" type="email" placeholder="Email Address" value={form.email} onChange={handleChange} className="w-full border rounded-lg p-3" required />
 
               <div className="flex gap-2">
-                <select
-                  className="border rounded-lg p-2 bg-white w-28"
-                  value={countryCode}
-                  onChange={(e) => setCountryCode(e.target.value)}
-                >
+                <select className="border rounded-lg p-2 bg-white w-28" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
                   {countryCodes.map((c) => (
                     <option key={c.code} value={c.code}>
                       {c.name} ({c.code})
                     </option>
                   ))}
                 </select>
-                <input
-                  name="phone"
-                  type="tel"
-                  placeholder="9876543210"
-                  value={form.phone}
-                  onChange={handleChange}
-                  className="flex-1 border rounded-lg p-3"
-                  required
-                />
+                <input name="phone" type="tel" placeholder="9876543210" value={form.phone} onChange={handleChange} className="flex-1 border rounded-lg p-3" required />
               </div>
 
-              {/* 👇 Referral Field */}
-              <input
-                name="referral"
-                type="text"
-                placeholder="Referral Code (optional)"
-                value={form.referral}
-                onChange={handleChange}
-                className="w-full border rounded-lg p-3"
-              />
+              <input name="referral" placeholder="Referral Code (optional)" value={form.referral} onChange={handleChange} className="w-full border rounded-lg p-3" />
 
               <div className="relative">
-                <input
-                  name="password"
-                  type={showPassword ? "text" : "password"}
-                  placeholder="Password"
-                  value={form.password}
-                  onChange={handleChange}
-                  className="w-full border rounded-lg p-3 pr-10"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword((s) => !s)}
-                  className="absolute right-3 top-3 text-gray-500"
-                >
+                <input name="password" type={showPassword ? "text" : "password"} placeholder="Password" value={form.password} onChange={handleChange} className="w-full border rounded-lg p-3 pr-10" required />
+                <button type="button" onClick={() => setShowPassword((s) => !s)} className="absolute right-3 top-3 text-gray-500">
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
               <div className="relative">
-                <input
-                  name="confirmPassword"
-                  type={showConfirm ? "text" : "password"}
-                  placeholder="Confirm Password"
-                  value={form.confirmPassword}
-                  onChange={handleChange}
-                  className="w-full border rounded-lg p-3 pr-10"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirm((s) => !s)}
-                  className="absolute right-3 top-3 text-gray-500"
-                >
+                <input name="confirmPassword" type={showConfirm ? "text" : "password"} placeholder="Confirm Password" value={form.confirmPassword} onChange={handleChange} className="w-full border rounded-lg p-3 pr-10" required />
+                <button type="button" onClick={() => setShowConfirm((s) => !s)} className="absolute right-3 top-3 text-gray-500">
                   {showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
-              <select
-                name="role"
-                value={form.role}
-                onChange={handleChange}
-                className="w-full border rounded-lg p-3"
-              >
+              <select name="role" value={form.role} onChange={handleChange} className="w-full border rounded-lg p-3">
                 <option value="user">User</option>
                 <option value="partner">Partner</option>
               </select>
@@ -343,13 +286,7 @@ export default function RegisterPage() {
             {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
 
             <div className="flex gap-2 mt-4">
-              <input
-                type="text"
-                value={otp}
-                onChange={(e) => setOtp(e.target.value)}
-                placeholder="Enter OTP"
-                className="flex-1 border rounded-lg p-3"
-              />
+              <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter OTP" className="flex-1 border rounded-lg p-3" />
               <Button onClick={handleVerifyOtp} disabled={loading}>
                 {loading ? "Verifying..." : "Verify"}
               </Button>

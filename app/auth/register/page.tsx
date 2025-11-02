@@ -1,17 +1,26 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
-  RecaptchaVerifier,
-  signInWithPhoneNumber,
 } from "firebase/auth";
-import { doc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
+import {
+  doc,
+  setDoc,
+  updateDoc,
+  getDocs,
+  query,
+  where,
+  collection,
+  serverTimestamp,
+} from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { nanoid } from "nanoid";
+import { sendOtp, verifyOtp, initRecaptcha, resendOtp, clearOtpSession } from "@/lib/otp";
 
 /* =====================================================
    🌍 Country Codes
@@ -27,10 +36,11 @@ const countryCodes = [
 ];
 
 /* =====================================================
-   ✨ Register Page
+   ✨ Register Page (Final with OTP + Referral)
 ===================================================== */
 export default function RegisterPage() {
   const router = useRouter();
+
   const [step, setStep] = useState<"register" | "otp">("register");
   const [form, setForm] = useState({
     name: "",
@@ -39,7 +49,9 @@ export default function RegisterPage() {
     password: "",
     confirmPassword: "",
     role: "user",
+    referral: "",
   });
+
   const [countryCode, setCountryCode] = useState("+91");
   const [otp, setOtp] = useState("");
   const [error, setError] = useState("");
@@ -49,32 +61,11 @@ export default function RegisterPage() {
   const [otpSentAt, setOtpSentAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
 
-  const recaptchaRef = useRef<HTMLDivElement | null>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const confirmationResultRef = useRef<import("firebase/auth").ConfirmationResult | null>(null);
-
   /* ---------------------------------------------------
-     🔐 Init reCAPTCHA (Invisible)
+     🔐 Initialize reCAPTCHA Once
   --------------------------------------------------- */
-  const initializeRecaptcha = () => {
-    if (typeof window === "undefined") return;
-    if (!recaptchaRef.current) return;
-
-    try {
-      recaptchaVerifierRef.current = new RecaptchaVerifier(
-        auth,
-        recaptchaRef.current,
-        { size: "invisible" }
-      );
-      recaptchaVerifierRef.current.render();
-      console.log("✅ reCAPTCHA initialized");
-    } catch (err) {
-      console.warn("⚠️ reCAPTCHA already exists or failed:", err);
-    }
-  };
-
   useEffect(() => {
-    initializeRecaptcha();
+    initRecaptcha("recaptcha-container");
   }, []);
 
   /* ---------------------------------------------------
@@ -82,12 +73,10 @@ export default function RegisterPage() {
   --------------------------------------------------- */
   useEffect(() => {
     if (step !== "otp" || !otpSentAt) return;
-
     const interval = setInterval(() => {
       const diff = 600 - Math.floor((Date.now() - otpSentAt) / 1000);
       setTimeLeft(diff > 0 ? diff : 0);
     }, 1000);
-
     return () => clearInterval(interval);
   }, [otpSentAt, step]);
 
@@ -96,31 +85,46 @@ export default function RegisterPage() {
     .padStart(2, "0")}:${(timeLeft % 60).toString().padStart(2, "0")}`;
 
   /* ---------------------------------------------------
-     ✍️ Handle Input Change
+     ✍️ Handle Input
   --------------------------------------------------- */
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((prev) => ({ ...prev, [e.target.name]: e.target.value }));
 
   /* ---------------------------------------------------
-     🧩 STEP 1: Register User and Send OTP
+     🧩 STEP 1: Register + Send Email + OTP
   --------------------------------------------------- */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (!form.name.trim()) return setError("Enter your name.");
-    if (form.password !== form.confirmPassword) return setError("Passwords do not match.");
+    if (form.password !== form.confirmPassword)
+      return setError("Passwords do not match.");
 
     const phoneNumber = `${countryCode}${form.phone.trim().replace(/\s+/g, "")}`;
-    if (!/^\+[1-9]\d{9,14}$/.test(phoneNumber)) return setError("Enter a valid phone number.");
+    if (!/^\+[1-9]\d{9,14}$/.test(phoneNumber))
+      return setError("Enter a valid phone number.");
 
     setLoading(true);
+
     try {
-      // 🔹 1. Create user in Auth
+      // 🔹 1. Create Firebase user
       const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
       const user = cred.user;
 
-      // 🔹 2. Save to Firestore
+      // 🔹 2. Validate Referral Code
+      let referredBy: string | null = null;
+      if (form.referral.trim()) {
+        const refQuery = query(collection(db, "users"), where("referralCode", "==", form.referral.trim()));
+        const snapshot = await getDocs(refQuery);
+        if (!snapshot.empty) referredBy = snapshot.docs[0].id;
+        else alert("⚠️ Invalid referral code, continuing without referral.");
+      }
+
+      // 🔹 3. Generate unique referralCode
+      const referralCode = form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
+
+      // 🔹 4. Save to Firestore
       await setDoc(doc(db, "users", user.uid), {
         uid: user.uid,
         name: form.name,
@@ -130,29 +134,27 @@ export default function RegisterPage() {
         status: form.role === "partner" ? "pending" : "active",
         emailVerified: false,
         phoneVerified: false,
+        verified: false,
+        referralCode,
+        referredBy,
         createdAt: serverTimestamp(),
       });
 
-      // 🔹 3. Send email verification link
+      // 🔹 5. Send Email Verification
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       await sendEmailVerification(user, { url: `${appUrl}/auth/verify-email` });
 
-      // 🔹 4. Send OTP to phone
-      await recaptchaVerifierRef.current?.render();
-      confirmationResultRef.current = await signInWithPhoneNumber(
-        auth,
-        phoneNumber,
-        recaptchaVerifierRef.current!
-      );
-
+      // 🔹 6. Send OTP using module
+      await sendOtp(phoneNumber);
       setOtpSentAt(Date.now());
       setTimeLeft(600);
       setStep("otp");
+
       alert("📩 Verification email sent and OTP sent to your phone!");
     } catch (err: any) {
       console.error("Register error:", err);
       if (err.code === "auth/email-already-in-use") setError("Email already in use.");
-      else if (err.code === "auth/invalid-phone-number") setError("Invalid phone number format.");
+      else if (err.code === "auth/invalid-phone-number") setError("Invalid phone number.");
       else setError("Registration failed. Try again.");
     } finally {
       setLoading(false);
@@ -164,38 +166,35 @@ export default function RegisterPage() {
   --------------------------------------------------- */
   const handleVerifyOtp = async () => {
     if (!otp.trim()) return setError("Enter OTP first.");
-    if (!confirmationResultRef.current) return setError("OTP session expired. Please resend.");
-    if (otpSentAt && Date.now() - otpSentAt > 10 * 60 * 1000)
-      return setError("⏳ OTP expired. Please resend.");
 
     setLoading(true);
     try {
-      const result = await confirmationResultRef.current.confirm(otp.trim());
-      await updateDoc(doc(db, "users", result.user.uid), { phoneVerified: true });
-      alert("✅ Phone verified successfully! Continue to verify your email.");
-      router.push("/auth/verify-email");
+      const resultUser = await verifyOtp(otp);
+      if (resultUser?.uid) {
+        await updateDoc(doc(db, "users", resultUser.uid), { phoneVerified: true });
+        clearOtpSession();
+        alert("✅ Phone verified successfully! Continue to verify your email.");
+        router.push("/auth/verify-email");
+      } else {
+        setError("Verification failed. Try again.");
+      }
     } catch (err: any) {
       console.error("OTP verify error:", err);
-      setError("Invalid OTP. Try again.");
+      setError(err.message || "OTP verification failed.");
     } finally {
       setLoading(false);
     }
   };
 
   /* ---------------------------------------------------
-     🔁 RESEND OTP (after expiry)
+     🔁 Resend OTP
   --------------------------------------------------- */
   const handleResendOtp = async () => {
     setError("");
     const phoneNumber = `${countryCode}${form.phone.trim().replace(/\s+/g, "")}`;
-    if (!recaptchaVerifierRef.current) initializeRecaptcha();
 
     try {
-      confirmationResultRef.current = await signInWithPhoneNumber(
-        auth,
-        phoneNumber,
-        recaptchaVerifierRef.current!
-      );
+      await resendOtp(phoneNumber);
       setOtpSentAt(Date.now());
       setTimeLeft(600);
       alert("📲 New OTP sent!");
@@ -266,6 +265,16 @@ export default function RegisterPage() {
                 />
               </div>
 
+              {/* 👇 Referral Field */}
+              <input
+                name="referral"
+                type="text"
+                placeholder="Referral Code (optional)"
+                value={form.referral}
+                onChange={handleChange}
+                className="w-full border rounded-lg p-3"
+              />
+
               <div className="relative">
                 <input
                   name="password"
@@ -319,7 +328,7 @@ export default function RegisterPage() {
               </Button>
             </form>
 
-            <div ref={recaptchaRef} />
+            <div id="recaptcha-container" />
           </>
         )}
 

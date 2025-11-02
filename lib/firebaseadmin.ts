@@ -1,3 +1,4 @@
+// lib/firebaseadmin.ts
 import * as admin from "firebase-admin";
 
 /* ============================================================
@@ -36,7 +37,7 @@ if (!projectId || !clientEmail || !privateKey) {
 /* ============================================================
    🚀 INITIALIZE (Once Only)
 ============================================================ */
-const app =
+export const adminApp =
   global._adminApp ??
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -47,21 +48,21 @@ const app =
     storageBucket: `${projectId}.appspot.com`,
   });
 
-// Mark it globally to prevent multiple instances in dev / serverless reload
-if (process.env.NODE_ENV !== "production") global._adminApp = app;
+// ✅ Always cache instance globally — including production!
+global._adminApp = adminApp;
 
 /* ============================================================
    🔥 ADMIN SERVICES — Use only server-side
 ============================================================ */
-const adminAuth = admin.auth();
-const adminDb = admin.firestore();
-const adminStorage = admin.storage();
+export const adminAuth = admin.auth(adminApp);
+export const adminDb = admin.firestore(adminApp);
+export const adminStorage = admin.storage(adminApp);
 
 /* ============================================================
    🧩 EXPORT UNIFIED ACCESSOR
 ============================================================ */
 export function getFirebaseAdmin() {
-  return { admin, app, adminAuth, adminDb, adminStorage };
+  return { admin, adminApp, adminAuth, adminDb, adminStorage };
 }
 
 /* ============================================================

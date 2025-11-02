@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import {
   createUserWithEmailAndPassword,
-  sendEmailVerification,
 } from "firebase/auth";
 import {
   doc,
@@ -19,9 +18,15 @@ import {
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { nanoid } from "nanoid";
-import { sendOtp, verifyOtp, initRecaptcha, resendOtp, clearOtpSession } from "@/lib/otp";
+import {
+  sendOtp,
+  verifyOtp,
+  initRecaptcha,
+  resendOtp,
+  clearOtpSession,
+} from "@/lib/otp";
 
-/* 🌍 Country codes */
+/* 🌍 Country Codes */
 const countryCodes = [
   { code: "+91", name: "India 🇮🇳" },
   { code: "+1", name: "USA 🇺🇸" },
@@ -32,13 +37,10 @@ const countryCodes = [
   { code: "+81", name: "Japan 🇯🇵" },
 ];
 
-/* ✨ Admins that skip verification */
-const ADMIN_EMAILS = ["shrrajbhar12340@gmail.com", "founder@bharatcomfort.in"];
-
 export default function RegisterPage() {
   const router = useRouter();
 
-  const [step, setStep] = useState<"register" | "otp">("register");
+  const [step, setStep] = useState<"register" | "phone" | "email">("register");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -51,27 +53,30 @@ export default function RegisterPage() {
 
   const [countryCode, setCountryCode] = useState("+91");
   const [otp, setOtp] = useState("");
+  const [emailOtp, setEmailOtp] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [otpSentAt, setOtpSentAt] = useState<number | null>(null);
+  const [emailOtpSent, setEmailOtpSent] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
   const [tempUid, setTempUid] = useState<string | null>(null);
 
-  /* 🔐 reCAPTCHA once */
+  /* 🔐 Initialize reCAPTCHA */
   useEffect(() => {
-    initRecaptcha("recaptcha-container");
+    const id = setTimeout(() => initRecaptcha("recaptcha-container"), 0);
+    return () => clearTimeout(id);
   }, []);
 
-  /* ⏱️ Countdown */
+  /* ⏱️ Countdown Timer for phone OTP */
   useEffect(() => {
-    if (step !== "otp" || !otpSentAt) return;
-    const interval = setInterval(() => {
+    if (step !== "phone" || !otpSentAt) return;
+    const t = setInterval(() => {
       const diff = 600 - Math.floor((Date.now() - otpSentAt) / 1000);
       setTimeLeft(diff > 0 ? diff : 0);
     }, 1000);
-    return () => clearInterval(interval);
+    return () => clearInterval(t);
   }, [otpSentAt, step]);
 
   const formattedTime = `${Math.floor(timeLeft / 60)
@@ -81,22 +86,18 @@ export default function RegisterPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
-  /* 🧩 STEP 1: Create Auth user + send email + OTP */
+  /* 🧩 STEP 1: Register user (no Firestore yet) + Send Phone OTP */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (!form.name.trim()) return setError("Enter your name.");
-    if (form.password !== form.confirmPassword) return setError("Passwords do not match.");
+    if (form.password !== form.confirmPassword)
+      return setError("Passwords do not match.");
 
     const phoneNumber = `${countryCode}${form.phone.trim().replace(/\s+/g, "")}`;
-    if (!/^\+[1-9]\d{9,14}$/.test(phoneNumber)) return setError("Enter a valid phone number.");
-
-    // 🔒 Admin skip verification
-    if (ADMIN_EMAILS.includes(form.email.trim().toLowerCase())) {
-      router.push("/(dashboard)/admin");
-      return;
-    }
+    if (!/^\+[1-9]\d{9,14}$/.test(phoneNumber))
+      return setError("Enter a valid phone number.");
 
     setLoading(true);
     try {
@@ -104,29 +105,26 @@ export default function RegisterPage() {
       const user = cred.user;
       setTempUid(user.uid);
 
-      // Send verification mail
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      await sendEmailVerification(user, { url: `${appUrl}/auth/verify-email` });
-
-      // Send OTP
       await sendOtp(phoneNumber);
       setOtpSentAt(Date.now());
       setTimeLeft(600);
-      setStep("otp");
+      setStep("phone");
 
-      alert("📩 Email verification link and OTP sent!");
+      alert("📲 OTP sent to your phone!");
     } catch (err: any) {
       console.error("Register error:", err);
-      if (err.code === "auth/email-already-in-use")
-        setError("Email already in use. Try logging in instead.");
-      else setError("Registration failed. Try again.");
+      setError(
+        err.code === "auth/email-already-in-use"
+          ? "Email already in use."
+          : "Registration failed. Try again."
+      );
     } finally {
       setLoading(false);
     }
   };
 
-  /* 🧩 STEP 2: Verify OTP, then write Firestore */
-  const handleVerifyOtp = async () => {
+  /* 🧩 STEP 2: Verify Phone OTP */
+  const handleVerifyPhoneOtp = async () => {
     if (!otp.trim()) return setError("Enter OTP first.");
     if (!tempUid) return setError("Session expired. Please re-register.");
 
@@ -135,16 +133,54 @@ export default function RegisterPage() {
       const resultUser = await verifyOtp(otp);
       if (!resultUser?.uid) throw new Error("Invalid OTP.");
 
-      await resultUser.reload();
+      clearOtpSession();
+      setStep("email");
 
-      // Wait until email verified
-      if (!resultUser.emailVerified) {
-        alert("📧 Please verify your email first, then continue.");
-        setLoading(false);
-        return;
-      }
+      // Send Email OTP via API
+      const res = await fetch("/api/auth/send-email-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      setEmailOtpSent(true);
+      alert("📧 OTP sent to your email!");
+    } catch (err: any) {
+      console.error("Phone OTP verify error:", err);
+      setError(err.message || "OTP verification failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-      // ✅ Safe to store verified user in Firestore
+  const handleResendOtp = async () => {
+    const phoneNumber = `${countryCode}${form.phone.trim().replace(/\s+/g, "")}`;
+    try {
+      await resendOtp(phoneNumber);
+      setOtpSentAt(Date.now());
+      setTimeLeft(600);
+      alert("📲 New OTP sent!");
+    } catch {
+      setError("Failed to resend OTP.");
+    }
+  };
+
+  /* 🧩 STEP 3: Verify Email OTP */
+  const handleVerifyEmailOtp = async () => {
+    if (!emailOtp.trim()) return setError("Enter Email OTP first.");
+    if (!tempUid) return setError("Session expired. Please re-register.");
+
+    setLoading(true);
+    try {
+      const res = await fetch("/api/auth/verify-email-otp", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: form.email, otp: emailOtp }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+
       let referredBy: string | null = null;
       if (form.referral.trim()) {
         const refQuery = query(collection(db, "users"), where("referralCode", "==", form.referral.trim()));
@@ -155,8 +191,8 @@ export default function RegisterPage() {
       const referralCode =
         form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
 
-      await setDoc(doc(db, "users", resultUser.uid), {
-        uid: resultUser.uid,
+      await setDoc(doc(db, "users", tempUid!), {
+        uid: tempUid,
         name: form.name,
         email: form.email,
         phone: `${countryCode}${form.phone}`,
@@ -170,28 +206,13 @@ export default function RegisterPage() {
         createdAt: serverTimestamp(),
       });
 
-      clearOtpSession();
       alert("🎉 Account created successfully! You can now log in.");
       router.push("/auth/login");
     } catch (err: any) {
-      console.error("OTP verify error:", err);
-      setError(err.message || "OTP verification failed.");
+      console.error("Email OTP verify error:", err);
+      setError(err.message || "Email OTP verification failed.");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleResendOtp = async () => {
-    setError("");
-    const phoneNumber = `${countryCode}${form.phone.trim().replace(/\s+/g, "")}`;
-    try {
-      await resendOtp(phoneNumber);
-      setOtpSentAt(Date.now());
-      setTimeLeft(600);
-      alert("📲 New OTP sent!");
-    } catch (err: any) {
-      console.error("Resend OTP error:", err);
-      setError("Failed to resend OTP. Try again.");
     }
   };
 
@@ -199,10 +220,12 @@ export default function RegisterPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 space-y-6">
+
+        {/* Step 1: Register */}
         {step === "register" && (
           <>
             <h1 className="text-3xl font-bold text-center text-gray-800 mb-2">Create Account</h1>
-            <p className="text-center text-gray-500 mb-4">Step 1 of 2 – Register your account</p>
+            <p className="text-center text-gray-500 mb-4">Step 1 of 3 – Register your account</p>
 
             {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
 
@@ -239,31 +262,41 @@ export default function RegisterPage() {
               <Button type="submit" disabled={loading}>{loading ? "Registering..." : "Register"}</Button>
             </form>
 
-            {/* reCAPTCHA container (invisible) */}
             <div id="recaptcha-container" className="hidden" />
           </>
         )}
 
-        {step === "otp" && (
+        {/* Step 2: Phone OTP */}
+        {step === "phone" && (
           <>
             <h1 className="text-2xl font-semibold text-center text-gray-800">Verify Phone Number</h1>
-            <p className="text-center text-gray-500 mb-2">Step 2 of 2 – OTP sent to {countryCode} {form.phone}</p>
+            <p className="text-center text-gray-500 mb-2">Step 2 of 3 – OTP sent to {countryCode} {form.phone}</p>
             {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
 
             <div className="flex gap-2 mt-4">
               <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter OTP" className="flex-1 border rounded-lg p-3" />
-              <Button onClick={handleVerifyOtp} disabled={loading}>{loading ? "Verifying..." : "Verify"}</Button>
+              <Button onClick={handleVerifyPhoneOtp} disabled={loading}>{loading ? "Verifying..." : "Verify"}</Button>
             </div>
 
-            <p className="text-sm text-gray-600 text-center mt-3">
-              OTP expires in <b>{formattedTime}</b>
-            </p>
+            <div className="text-center mt-3">
+              <Button onClick={handleResendOtp} disabled={loading || timeLeft > 0}>
+                {timeLeft > 0 ? `Resend in ${formattedTime}` : "Resend OTP"}
+              </Button>
+            </div>
+          </>
+        )}
 
-            {timeLeft === 0 && (
-              <div className="text-center mt-3">
-                <Button onClick={handleResendOtp}>Resend OTP</Button>
-              </div>
-            )}
+        {/* Step 3: Email OTP */}
+        {step === "email" && (
+          <>
+            <h1 className="text-2xl font-semibold text-center text-gray-800">Verify Email</h1>
+            <p className="text-center text-gray-500 mb-2">Step 3 of 3 – OTP sent to {form.email}</p>
+            {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
+
+            <div className="flex gap-2 mt-4">
+              <input type="text" value={emailOtp} onChange={(e) => setEmailOtp(e.target.value)} placeholder="Enter Email OTP" className="flex-1 border rounded-lg p-3" />
+              <Button onClick={handleVerifyEmailOtp} disabled={loading}>{loading ? "Verifying..." : "Verify"}</Button>
+            </div>
           </>
         )}
       </div>

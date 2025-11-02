@@ -1,7 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { sendPasswordResetEmail, fetchSignInMethodsForEmail } from "firebase/auth";
+import {
+  sendPasswordResetEmail,
+  fetchSignInMethodsForEmail,
+} from "firebase/auth";
 import { auth, db } from "@/lib/firebase";
 import { getDocs, collection, query, where } from "firebase/firestore";
 
@@ -24,9 +27,8 @@ export default function ForgotPasswordPage() {
       const trimmedEmail = email.trim().toLowerCase();
       if (!trimmedEmail) throw new Error("Please enter your email address.");
 
-      // 🔍 Check Firestore user
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("email", "==", trimmedEmail));
+      // 🔍 Check Firestore user exists
+      const q = query(collection(db, "users"), where("email", "==", trimmedEmail));
       const snap = await getDocs(q);
 
       if (snap.empty) {
@@ -36,13 +38,13 @@ export default function ForgotPasswordPage() {
 
       const userData = snap.docs[0].data();
 
-      // 🔒 Require verified email in Firestore
+      // 🧩 Require verified email
       if (!userData.emailVerified) {
         setError("⚠️ Your email is not verified yet. Please verify your account first.");
         return;
       }
 
-      // 🧩 Extra validation with Firebase Auth
+      // 🧩 Double-check via Firebase Auth
       const methods = await fetchSignInMethodsForEmail(auth, trimmedEmail);
       if (methods.length === 0) {
         setError("❌ No valid sign-in method found for this email.");
@@ -62,6 +64,8 @@ export default function ForgotPasswordPage() {
       let msg = "Failed to send reset email.";
       if (err.code === "auth/invalid-email") msg = "Invalid email address.";
       if (err.code === "auth/user-not-found") msg = "No user found with this email.";
+      if (err.code === "auth/too-many-requests")
+        msg = "Too many attempts. Please try again later.";
       setError(msg);
     } finally {
       setLoading(false);
@@ -85,7 +89,7 @@ export default function ForgotPasswordPage() {
             placeholder="Enter your verified email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full p-3 border rounded"
+            className="w-full p-3 border rounded focus:ring focus:ring-blue-100"
             required
           />
 

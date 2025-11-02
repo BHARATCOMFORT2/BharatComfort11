@@ -1,16 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { auth, db } from "@/lib/firebase";
 import {
   onAuthStateChanged,
   sendEmailVerification,
-  RecaptchaVerifier,
-  linkWithPhoneNumber,
   sendPasswordResetEmail,
 } from "firebase/auth";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { useRouter } from "next/navigation";
+import { sendOtp, verifyOtp, resendOtp, clearOtpSession, initRecaptcha } from "@/lib/otp";
 
 export default function VerifyPage() {
   const router = useRouter();
@@ -23,189 +22,177 @@ export default function VerifyPage() {
   const [emailCountdown, setEmailCountdown] = useState(0);
   const [otpCountdown, setOtpCountdown] = useState(0);
 
-  const recaptchaDivRef = useRef<HTMLDivElement | null>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const confirmationResultRef = useRef<any>(null);
-
-  // Hardcoded Admin & Staff accounts
   const adminEmails = ["shrrajbhar12340@gmail.com", "founder@bharatcomfort.in"];
   const staffEmails = ["staff@bharatcomfort.in", "support@bharatcomfort.in"];
 
-  /* ----------------------------------------------------------
-     🔐 Load user + Firestore profile
-  ---------------------------------------------------------- */
+  /* --------------------------------------------------
+     🔐 Watch Auth State & Load Profile
+  -------------------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) return setUser(null);
       setUser(u);
-      if (u) {
-        const ref = doc(db, "users", u.uid);
-        const snap = await getDoc(ref);
-        if (snap.exists()) {
-          const data = snap.data();
-          setProfile(data);
-          setPhone(data.phone || u.phoneNumber || "");
 
-          // ✅ Auto-verify Admin
-          if (adminEmails.includes(u.email!)) {
-            await updateDoc(ref, { emailVerified: true, phoneVerified: true, role: "admin" });
-            setMsg("🔐 Admin verified automatically.");
-            router.push("/(dashboard)/admin");
-            return;
-          }
+      const ref = doc(db, "users", u.uid);
+      const snap = await getDoc(ref);
+      if (!snap.exists()) return;
 
-          // ⚙️ Force staff password reset
-          if (staffEmails.includes(u.email!)) {
-            await sendPasswordResetEmail(auth, u.email!);
-            setMsg("⚙️ Staff detected. Password reset email sent. Please reset before proceeding.");
-          }
-        }
+      const data = snap.data();
+      setProfile(data);
+      setPhone(data.phone || u.phoneNumber || "");
+
+      // Auto-verify admin
+      if (adminEmails.includes(u.email!)) {
+        await updateDoc(ref, {
+          emailVerified: true,
+          phoneVerified: true,
+          verified: true,
+          role: "admin",
+        });
+        setMsg("🔐 Admin verified automatically.");
+        router.push("/(dashboard)/admin");
+        return;
+      }
+
+      // Staff: force password reset
+      if (staffEmails.includes(u.email!)) {
+        await sendPasswordResetEmail(auth, u.email!);
+        setMsg("⚙️ Staff detected. Password reset email sent.");
       }
     });
     return () => unsub();
   }, []);
 
-  /* ----------------------------------------------------------
-     ✅ Initialize reCAPTCHA
-  ---------------------------------------------------------- */
+  /* --------------------------------------------------
+     🧩 Init reCAPTCHA for OTP
+  -------------------------------------------------- */
   useEffect(() => {
-    if (typeof window !== "undefined" && !recaptchaVerifierRef.current && recaptchaDivRef.current) {
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, recaptchaDivRef.current, {
-        size: "invisible",
-      });
-      recaptchaVerifierRef.current.render();
-    }
+    initRecaptcha("recaptcha-container");
   }, []);
 
-  /* ----------------------------------------------------------
+  /* --------------------------------------------------
      ⏱️ Countdown timers
-  ---------------------------------------------------------- */
+  -------------------------------------------------- */
   useEffect(() => {
     if (emailCountdown <= 0) return;
-    const interval = setInterval(() => setEmailCountdown((t) => t - 1), 1000);
-    return () => clearInterval(interval);
+    const t = setInterval(() => setEmailCountdown((x) => x - 1), 1000);
+    return () => clearInterval(t);
   }, [emailCountdown]);
 
   useEffect(() => {
     if (otpCountdown <= 0) return;
-    const interval = setInterval(() => setOtpCountdown((t) => t - 1), 1000);
-    return () => clearInterval(interval);
+    const t = setInterval(() => setOtpCountdown((x) => x - 1), 1000);
+    return () => clearInterval(t);
   }, [otpCountdown]);
 
-  /* ----------------------------------------------------------
-     ✉️ Send Email Verification
-  ---------------------------------------------------------- */
+  /* --------------------------------------------------
+     ✉️ Email Verification
+  -------------------------------------------------- */
   const handleSendVerification = async () => {
     if (!auth.currentUser) return;
-    if (emailCountdown > 0) return setMsg("Please wait before resending.");
+    if (emailCountdown > 0) return setMsg("Wait before resending.");
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
       await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
-      await updateDoc(doc(db, "users", auth.currentUser.uid), {
-        emailExpiry: Date.now() + 10 * 60 * 1000,
-      });
       setEmailCountdown(60);
       setMsg("📩 Verification email sent!");
-    } catch (err: any) {
-      console.error(err);
+    } catch {
       setMsg("Failed to send verification email.");
     }
   };
 
-  /* ----------------------------------------------------------
-     🔁 Refresh Email Verification
-  ---------------------------------------------------------- */
   const handleRefreshStatus = async () => {
     try {
       await auth.currentUser?.reload();
-      const updatedUser = auth.currentUser;
-      if (!updatedUser) return;
-      if (updatedUser.emailVerified) {
-        await updateDoc(doc(db, "users", updatedUser.uid), { emailVerified: true });
-        setProfile((prev: any) => ({ ...prev, emailVerified: true }));
+      const u = auth.currentUser;
+      if (!u) return;
+      if (u.emailVerified) {
+        await updateDoc(doc(db, "users", u.uid), { emailVerified: true });
+        setProfile((p: any) => ({ ...p, emailVerified: true }));
         setMsg("✅ Email verified successfully!");
       } else setMsg("⏳ Still not verified. Check your inbox.");
-    } catch (err: any) {
-      console.error(err);
+    } catch {
       setMsg("Failed to refresh status.");
     }
   };
 
-  /* ----------------------------------------------------------
-     📱 Send OTP
-  ---------------------------------------------------------- */
+  /* --------------------------------------------------
+     📱 Phone OTP using shared module
+  -------------------------------------------------- */
   const handleSendOtp = async () => {
     if (!auth.currentUser) return setMsg("Please login again.");
     if (!/^\+?\d{10,15}$/.test(phone)) return setMsg("Enter valid phone number.");
     if (otpCountdown > 0) return setMsg("Wait before resending OTP.");
     setLoading(true);
     try {
-      confirmationResultRef.current = await linkWithPhoneNumber(
-        auth.currentUser!,
-        phone.trim(),
-        recaptchaVerifierRef.current!
-      );
-      await updateDoc(doc(db, "users", auth.currentUser.uid), {
-        otpExpiry: Date.now() + 10 * 60 * 1000,
-      });
+      await sendOtp(phone.trim());
       setOtpCountdown(30);
       setMsg("📲 OTP sent successfully!");
     } catch (err: any) {
       console.error("Send OTP error:", err);
-      setMsg("Failed to send OTP.");
+      setMsg(err.message || "Failed to send OTP.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------------------------------------------
-     ✅ Verify OTP
-  ---------------------------------------------------------- */
   const handleVerifyOtp = async () => {
     if (!otp.trim()) return setMsg("Enter OTP first.");
-    if (!confirmationResultRef.current) return setMsg("OTP expired. Resend.");
     setLoading(true);
     try {
-      const result = await confirmationResultRef.current.confirm(otp.trim());
-      await updateDoc(doc(db, "users", result.user.uid), { phoneVerified: true, phone });
-      setProfile((p: any) => ({ ...p, phoneVerified: true }));
-      setMsg("✅ Phone verified successfully!");
+      const verifiedUser = await verifyOtp(otp.trim());
+      if (verifiedUser?.uid) {
+        await updateDoc(doc(db, "users", verifiedUser.uid), {
+          phoneVerified: true,
+          verified: true,
+          phone,
+        });
+        clearOtpSession();
+        setProfile((p: any) => ({ ...p, phoneVerified: true }));
+        setMsg("✅ Phone verified successfully!");
+      }
     } catch (err: any) {
       console.error("OTP verify error:", err);
-      setMsg("Invalid or expired OTP.");
+      setMsg(err.message || "Invalid or expired OTP.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------------------------------------------
-     🚀 Auto Redirect based on Role
-  ---------------------------------------------------------- */
+  const handleResendOtp = async () => {
+    try {
+      await resendOtp(phone.trim());
+      setOtpCountdown(30);
+      setMsg("📲 New OTP sent!");
+    } catch {
+      setMsg("Failed to resend OTP.");
+    }
+  };
+
+  /* --------------------------------------------------
+     🚀 Redirect when verified
+  -------------------------------------------------- */
   useEffect(() => {
     if (!user || !profile) return;
-
     if (profile.emailVerified && profile.phoneVerified) {
-      // Partner logic — wait for KYC approval
-      if (profile.role === "partner") {
-        if (profile.kyc?.status === "approved" || profile.status === "approved") {
-          router.push("/(dashboard)/partner");
-        } else {
-          setMsg("⏳ KYC verification pending. Please complete or wait for approval.");
-          return;
-        }
+      switch (profile.role) {
+        case "admin":
+          router.push("/(dashboard)/admin");
+          break;
+        case "partner":
+          if (profile.status === "approved" || profile.kyc?.status === "approved")
+            router.push("/(dashboard)/partner");
+          else setMsg("⏳ KYC pending approval.");
+          break;
+        case "staff":
+          router.push("/(dashboard)/staff");
+          break;
+        default:
+          router.push("/(dashboard)/user");
       }
-
-      // Staff redirect
-      if (profile.role === "staff") router.push("/(dashboard)/staff");
-      // Admin redirect
-      if (profile.role === "admin") router.push("/(dashboard)/admin");
-      // User redirect
-      if (profile.role === "user" || !profile.role) router.push("/(dashboard)/user");
     }
-  }, [user, profile]);
+  }, [profile]);
 
-  /* ----------------------------------------------------------
-     🚫 Not Logged In
-  ---------------------------------------------------------- */
   if (!user)
     return (
       <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow text-center">
@@ -215,11 +202,11 @@ export default function VerifyPage() {
     );
 
   const emailVerified = profile?.emailVerified || user.emailVerified;
-  const phoneVerified = profile?.phoneVerified || user.phoneNumber;
+  const phoneVerified = profile?.phoneVerified || !!user.phoneNumber;
 
-  /* ----------------------------------------------------------
-     🧠 UI
-  ---------------------------------------------------------- */
+  /* --------------------------------------------------
+     🖼️ UI
+  -------------------------------------------------- */
   return (
     <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-6">
       <h1 className="text-2xl font-bold text-center text-gray-800">
@@ -229,7 +216,7 @@ export default function VerifyPage() {
       {/* EMAIL SECTION */}
       {!emailVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-2">
-          <p>Your email <b>{user.email}</b> is not verified yet.</p>
+          <p>Your email <b>{user.email}</b> is not verified.</p>
           <div className="flex gap-2 flex-wrap">
             <button
               onClick={handleSendVerification}
@@ -240,11 +227,13 @@ export default function VerifyPage() {
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {emailCountdown > 0 ? `Resend in ${emailCountdown}s` : "Send Email"}
+              {emailCountdown > 0
+                ? `Resend in ${emailCountdown}s`
+                : "Send Verification Email"}
             </button>
             <button
               onClick={handleRefreshStatus}
-              className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90 transition"
+              className="bg-gray-800 text-white px-4 py-2 rounded hover:bg-black/90"
             >
               Refresh
             </button>
@@ -257,7 +246,7 @@ export default function VerifyPage() {
       {/* PHONE SECTION */}
       {!phoneVerified ? (
         <div className="p-4 border rounded bg-yellow-50 space-y-3">
-          <p className="font-medium text-gray-800">Verify your phone number:</p>
+          <p className="font-medium text-gray-800">Verify your phone:</p>
           <input
             className="w-full border rounded p-2"
             placeholder="+919876543210"
@@ -266,7 +255,7 @@ export default function VerifyPage() {
           />
           <div className="flex flex-col sm:flex-row gap-2">
             <button
-              onClick={handleSendOtp}
+              onClick={otpCountdown > 0 ? handleResendOtp : handleSendOtp}
               disabled={otpCountdown > 0 || loading}
               className={`px-4 py-2 rounded text-white ${
                 otpCountdown > 0
@@ -285,12 +274,12 @@ export default function VerifyPage() {
             <button
               onClick={handleVerifyOtp}
               disabled={loading}
-              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 transition"
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
             >
               {loading ? "Verifying..." : "Verify"}
             </button>
           </div>
-          <div ref={recaptchaDivRef} />
+          <div id="recaptcha-container" />
         </div>
       ) : (
         <div className="p-4 border rounded bg-green-50">

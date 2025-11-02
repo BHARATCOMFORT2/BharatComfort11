@@ -21,11 +21,11 @@ let confirmationResult: ConfirmationResult | null = null;
 /* =====================================================
    🔐 Initialize reCAPTCHA (only once per page load)
 ===================================================== */
-export const initRecaptcha = (containerId = "recaptcha-container") => {
+export const initRecaptcha = async (containerId = "recaptcha-container") => {
   if (typeof window === "undefined") return;
 
   try {
-    // Prevent reinitialization
+    // Prevent duplicate initialization
     if (recaptchaVerifier) {
       console.log("⚙️ reCAPTCHA already initialized.");
       return;
@@ -37,25 +37,21 @@ export const initRecaptcha = (containerId = "recaptcha-container") => {
       return;
     }
 
-    // ✅ Correct order (auth, container, options)
-    recaptchaVerifier = new RecaptchaVerifier(
-      auth,
-      container,
-      {
-        size: "invisible",
-        callback: () => console.log("✅ reCAPTCHA solved"),
-        "expired-callback": () => {
-          console.warn("⚠️ reCAPTCHA expired, reinitializing...");
-          recaptchaVerifier = null;
-          initRecaptcha(containerId);
-        },
-      }
-    );
+    recaptchaVerifier = new RecaptchaVerifier(auth, container, {
+      size: "invisible",
+      callback: () => console.log("✅ reCAPTCHA solved"),
+      "expired-callback": () => {
+        console.warn("⚠️ reCAPTCHA expired, reinitializing...");
+        clearOtpSession();
+        initRecaptcha(containerId);
+      },
+    });
 
-    recaptchaVerifier.render();
+    await recaptchaVerifier.render();
     console.log("✅ reCAPTCHA initialized successfully");
   } catch (err) {
     console.error("❌ reCAPTCHA initialization error:", err);
+    recaptchaVerifier = null;
   }
 };
 
@@ -66,14 +62,14 @@ export const sendOtp = async (phone: string): Promise<boolean> => {
   if (typeof window === "undefined") throw new Error("Cannot send OTP server-side.");
   if (!phone) throw new Error("Phone number is required.");
 
-  // Initialize reCAPTCHA if not present
-  if (!recaptchaVerifier) initRecaptcha();
-
   try {
+    // Ensure reCAPTCHA exists
+    if (!recaptchaVerifier) await initRecaptcha();
+
     console.log("📡 Sending OTP to:", phone);
     confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier!);
 
-    // Save session info (for recovery/resend)
+    // Save session info
     sessionStorage.setItem("otpPhone", phone);
     sessionStorage.setItem("otpSentAt", Date.now().toString());
 
@@ -81,12 +77,16 @@ export const sendOtp = async (phone: string): Promise<boolean> => {
     return true;
   } catch (err: any) {
     console.error("❌ OTP send error:", err);
+
     if (err.code === "auth/invalid-phone-number")
       throw new Error("Invalid phone number format.");
     if (err.code === "auth/too-many-requests")
       throw new Error("Too many attempts. Please wait and try again.");
     if (err.code === "auth/network-request-failed")
       throw new Error("Network error. Check your connection or domain settings.");
+    if (err.code === "auth/missing-phone-number")
+      throw new Error("Missing or invalid phone number.");
+
     throw new Error("Failed to send OTP. Please try again.");
   }
 };
@@ -114,9 +114,10 @@ export const verifyOtp = async (otp: string) => {
     return result.user;
   } catch (err: any) {
     console.error("❌ OTP verification error:", err);
-    if (err.code?.includes("expired") || err.message?.includes("expired")) {
+    if (err.code?.includes("expired") || err.message?.includes("expired"))
       throw new Error("OTP expired. Please resend.");
-    }
+    if (err.code?.includes("invalid-verification-code"))
+      throw new Error("Incorrect OTP. Please check and try again.");
     throw new Error("Invalid OTP. Please try again.");
   }
 };
@@ -132,9 +133,9 @@ export const resendOtp = async (phone?: string): Promise<boolean> => {
 
   console.log("♻️ Resending OTP to", storedPhone);
 
-  // Always reset old OTP session and re-init reCAPTCHA
+  // Always reset old session and re-init reCAPTCHA
   clearOtpSession();
-  initRecaptcha();
+  await initRecaptcha();
 
   try {
     confirmationResult = await signInWithPhoneNumber(auth, storedPhone, recaptchaVerifier!);

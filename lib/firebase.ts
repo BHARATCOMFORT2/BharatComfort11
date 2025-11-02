@@ -1,17 +1,17 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import {
   getAuth,
-  setPersistence,
-  browserLocalPersistence,
   initializeAuth,
   indexedDBLocalPersistence,
+  browserLocalPersistence,
+  setPersistence,
+  Auth,
 } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+import { getFirestore, Firestore } from "firebase/firestore";
+import { getStorage, FirebaseStorage } from "firebase/storage";
 
 /* ============================================================
    ⚙️ FIREBASE CLIENT CONFIG
-   All values are public-safe (NEXT_PUBLIC_*)
 ============================================================ */
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
@@ -23,35 +23,33 @@ const firebaseConfig = {
 };
 
 /* ============================================================
-   🚀 INITIALIZE APP (Singleton Safe)
+   🚀 Initialize App (Singleton Safe)
 ============================================================ */
 export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
 
 /* ============================================================
-   🔐 AUTH INITIALIZATION
-   ✅ Supports phone OTP + email auth + persistent login
+   🔐 AUTH INITIALIZATION (Safe Typed)
 ============================================================ */
-let auth;
+let authInstance: Auth;
+
 try {
-  // Use IndexedDB persistence (works better in Next.js/Edge)
-  auth = initializeAuth(app, {
+  authInstance = initializeAuth(app, {
     persistence: indexedDBLocalPersistence,
   });
 } catch {
-  // Fallback if already initialized
-  auth = getAuth(app);
+  authInstance = getAuth(app);
 }
 
-// Fallback for environments that don’t support IndexedDB (SSR safety)
+// Ensure persistent login
 if (typeof window !== "undefined") {
-  setPersistence(auth, browserLocalPersistence).catch(() => {
-    console.warn("⚠️ Browser persistence unavailable, using default session persistence.");
+  setPersistence(authInstance, browserLocalPersistence).catch(() => {
+    console.warn("⚠️ Browser persistence unavailable, fallback to session persistence.");
   });
 }
 
 /* ============================================================
-   🧠 FIRESTORE + STORAGE CLIENTS
+   🧩 FIRESTORE + STORAGE (Typed Exports)
 ============================================================ */
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-export { auth };
+export const auth: Auth = authInstance;
+export const db: Firestore = getFirestore(app);
+export const storage: FirebaseStorage = getStorage(app);

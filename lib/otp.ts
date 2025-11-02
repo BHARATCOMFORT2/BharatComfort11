@@ -1,4 +1,3 @@
-// lib/otp.ts
 import { auth } from "@/lib/firebase";
 import {
   RecaptchaVerifier,
@@ -27,15 +26,16 @@ export const initRecaptcha = (containerId = "recaptcha-container") => {
       return;
     }
 
+    // ✅ Correct argument order: (auth, container, parameters)
     recaptchaVerifier = new RecaptchaVerifier(
+      auth,
       container,
       {
         size: "invisible",
         callback: () => {
           console.log("✅ reCAPTCHA solved");
         },
-      },
-      auth
+      }
     );
 
     recaptchaVerifier.render();
@@ -47,25 +47,23 @@ export const initRecaptcha = (containerId = "recaptcha-container") => {
    📲 Send OTP
 ===================================================== */
 export const sendOtp = async (phone: string): Promise<boolean> => {
+  if (typeof window === "undefined") throw new Error("Cannot send OTP server-side.");
+
   if (!recaptchaVerifier) {
     initRecaptcha();
   }
 
   try {
-    confirmationResult = await signInWithPhoneNumber(
-      auth,
-      phone,
-      recaptchaVerifier!
-    );
+    confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier!);
 
-    // Persist OTP session
-    sessionStorage.setItem("otpConfirm", JSON.stringify(confirmationResult));
+    // Persist OTP session (browser only)
+    sessionStorage.setItem("otpConfirm", JSON.stringify({}));
     sessionStorage.setItem("otpPhone", phone);
     sessionStorage.setItem("otpSentAt", Date.now().toString());
 
     console.log("📲 OTP sent successfully to", phone);
     return true;
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ OTP send error:", err);
     throw new Error("Failed to send OTP. Please try again.");
   }
@@ -75,16 +73,10 @@ export const sendOtp = async (phone: string): Promise<boolean> => {
    ✅ Verify OTP
 ===================================================== */
 export const verifyOtp = async (otp: string) => {
+  if (typeof window === "undefined") throw new Error("Cannot verify OTP server-side.");
   if (!otp?.trim()) throw new Error("Enter OTP first.");
 
-  // Recover confirmation result from memory or storage
-  if (!confirmationResult) {
-    const stored = sessionStorage.getItem("otpConfirm");
-    if (stored) {
-      confirmationResult = JSON.parse(stored);
-    }
-  }
-
+  // Check in-memory confirmation first
   if (!confirmationResult) {
     throw new Error("OTP session expired. Please resend OTP.");
   }
@@ -98,6 +90,7 @@ export const verifyOtp = async (otp: string) => {
     const result = await confirmationResult.confirm(otp.trim());
     if (!result?.user) throw new Error("Invalid OTP response.");
     console.log("✅ OTP verified successfully for:", result.user.phoneNumber);
+    clearOtpSession();
     return result.user;
   } catch (err: any) {
     console.error("❌ OTP verify error:", err);
@@ -114,7 +107,6 @@ export const verifyOtp = async (otp: string) => {
 export const resendOtp = async (phone?: string): Promise<boolean> => {
   const storedPhone = phone || sessionStorage.getItem("otpPhone");
   if (!storedPhone) throw new Error("No phone number found for resend.");
-
   return await sendOtp(storedPhone);
 };
 

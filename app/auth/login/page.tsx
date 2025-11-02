@@ -11,6 +11,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+
   const [redirectTo, setRedirectTo] = useState("/(dashboard)/user");
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -18,7 +19,7 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
 
   /* ----------------------------------------------------
-     ✅ Capture redirect query if coming from "Book Now"
+     ✅ Capture redirect query if coming from Book Now
   ---------------------------------------------------- */
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -40,17 +41,17 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1️⃣ Sign in with Firebase Auth
+      // 1️⃣ Firebase sign-in
       const cred = await signInWithEmailAndPassword(auth, form.email.trim(), form.password);
       const user = cred.user;
       await user.reload();
 
-      // 2️⃣ Load user Firestore profile
+      // 2️⃣ Firestore profile lookup
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
 
       if (!snap.exists()) {
-        setError("⚠️ No user profile found. Please contact support.");
+        setError("⚠️ No profile found. Please contact support.");
         await auth.signOut();
         return;
       }
@@ -60,28 +61,30 @@ export default function LoginPage() {
       const emailVerified = user.emailVerified || userData.emailVerified;
       const phoneVerified = userData.phoneVerified || false;
 
-      // 3️⃣ Email verification check
+      // 3️⃣ Email Verification Check
       if (!emailVerified) {
-        setError("📧 Please verify your email before continuing.");
+        setError("📧 Please verify your email first.");
+        router.push("/auth/verify-email");
         return;
       }
 
-      // 4️⃣ Phone verification check
+      // 4️⃣ Phone Verification Check
       if (!phoneVerified) {
-        setError("📱 Please verify your phone number before continuing.");
-        router.push("/auth/verify");
+        setError("📱 Please verify your phone number first.");
+        router.push("/auth/verify-phone");
         return;
       }
 
-      // 5️⃣ Sync Firestore if not already updated
-      if (!userData.emailVerified || !userData.phoneVerified) {
+      // 5️⃣ Update Firestore flags if needed
+      if (!userData.emailVerified || !userData.phoneVerified || !userData.verified) {
         await updateDoc(userRef, {
           emailVerified: true,
           phoneVerified: true,
+          verified: true,
         });
       }
 
-      // 6️⃣ Create session token (server validation)
+      // 6️⃣ Create session (for middleware verification)
       const token = await getIdToken(user);
       const res = await fetch("/api/auth/session", {
         method: "POST",
@@ -89,12 +92,10 @@ export default function LoginPage() {
         body: JSON.stringify({ token }),
       });
 
-      if (!res.ok) {
-        throw new Error("Session setup failed. Try again.");
-      }
+      if (!res.ok) throw new Error("Session setup failed. Try again.");
 
-      // 7️⃣ Redirect logic
-      if (redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
+      // 7️⃣ Redirect Logic
+      if (redirectTo && redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
         router.push(redirectTo);
         return;
       }

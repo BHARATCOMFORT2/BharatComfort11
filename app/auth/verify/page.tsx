@@ -8,7 +8,7 @@ import {
   sendEmailVerification,
   sendPasswordResetEmail,
 } from "firebase/auth";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { sendOtp, verifyOtp, resendOtp, clearOtpSession, initRecaptcha } from "@/lib/otp";
 
 export default function VerifyPage() {
@@ -41,22 +41,14 @@ export default function VerifyPage() {
         setPhone(data.phone || u.phoneNumber || "");
       }
 
-      // 🧩 Auto verify admin
+      // 🧩 Admins skip verification (do not overwrite Firestore)
       if (adminEmails.includes(u.email!)) {
-        if (snap.exists()) {
-          await updateDoc(ref, {
-            emailVerified: true,
-            phoneVerified: true,
-            verified: true,
-            role: "admin",
-          });
-        }
-        setMsg("🔐 Admin verified automatically.");
+        setMsg("🔐 Admin auto-verified.");
         router.push("/dashboard/admin");
         return;
       }
 
-      // 🧩 Staff: force password reset
+      // 🧩 Staff accounts trigger password reset
       if (staffEmails.includes(u.email!)) {
         await sendPasswordResetEmail(auth, u.email!);
         setMsg("⚙️ Staff detected. Password reset email sent.");
@@ -127,6 +119,7 @@ export default function VerifyPage() {
     if (!auth.currentUser) return setMsg("Please login again.");
     if (!/^\+?\d{10,15}$/.test(phone)) return setMsg("Enter a valid phone number.");
     if (otpCountdown > 0) return setMsg("Wait before resending OTP.");
+
     setLoading(true);
     try {
       await sendOtp(phone.trim());
@@ -148,16 +141,29 @@ export default function VerifyPage() {
       if (verifiedUser?.uid) {
         const ref = doc(db, "users", verifiedUser.uid);
         const snap = await getDoc(ref);
-        if (snap.exists()) {
+
+        // ✅ If profile doesn't exist yet, create it
+        if (!snap.exists()) {
+          await setDoc(ref, {
+            uid: verifiedUser.uid,
+            email: verifiedUser.email,
+            phone,
+            phoneVerified: true,
+            verified: true,
+            createdAt: serverTimestamp(),
+          });
+        } else {
           await updateDoc(ref, {
             phoneVerified: true,
             verified: true,
             phone,
           });
         }
+
         clearOtpSession();
-        setProfile((p: any) => ({ ...p, phoneVerified: true }));
+        setOtp("");
         setMsg("✅ Phone verified successfully!");
+        setProfile((p: any) => ({ ...p, phoneVerified: true }));
       }
     } catch (err: any) {
       console.error("OTP verify error:", err);
@@ -168,11 +174,12 @@ export default function VerifyPage() {
   };
 
   /* --------------------------------------------------
-     🚀 Redirect after full verification
+     🚀 Redirect after verification
   -------------------------------------------------- */
   useEffect(() => {
     if (!user || !profile) return;
     if (profile.emailVerified && profile.phoneVerified) {
+      setMsg(null);
       switch (profile.role) {
         case "admin":
           router.push("/dashboard/admin");
@@ -207,9 +214,7 @@ export default function VerifyPage() {
   -------------------------------------------------- */
   return (
     <div className="max-w-md mx-auto mt-10 bg-white p-6 rounded shadow space-y-6">
-      <h1 className="text-2xl font-bold text-center text-gray-800">
-        Verify Your Account
-      </h1>
+      <h1 className="text-2xl font-bold text-center text-gray-800">Verify Your Account</h1>
 
       {/* EMAIL SECTION */}
       {!emailVerified ? (
@@ -225,9 +230,7 @@ export default function VerifyPage() {
                   : "bg-blue-600 hover:bg-blue-700"
               }`}
             >
-              {emailCountdown > 0
-                ? `Resend in ${emailCountdown}s`
-                : "Send Verification Email"}
+              {emailCountdown > 0 ? `Resend in ${emailCountdown}s` : "Send Verification Email"}
             </button>
             <button
               onClick={handleRefreshStatus}

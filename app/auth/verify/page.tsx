@@ -35,26 +35,28 @@ export default function VerifyPage() {
 
       const ref = doc(db, "users", u.uid);
       const snap = await getDoc(ref);
-      if (!snap.exists()) return;
+      if (snap.exists()) {
+        const data = snap.data();
+        setProfile(data);
+        setPhone(data.phone || u.phoneNumber || "");
+      }
 
-      const data = snap.data();
-      setProfile(data);
-      setPhone(data.phone || u.phoneNumber || "");
-
-      // Auto-verify admin
+      // 🧩 Auto verify admin
       if (adminEmails.includes(u.email!)) {
-        await updateDoc(ref, {
-          emailVerified: true,
-          phoneVerified: true,
-          verified: true,
-          role: "admin",
-        });
+        if (snap.exists()) {
+          await updateDoc(ref, {
+            emailVerified: true,
+            phoneVerified: true,
+            verified: true,
+            role: "admin",
+          });
+        }
         setMsg("🔐 Admin verified automatically.");
         router.push("/dashboard/admin");
         return;
       }
 
-      // Staff: force password reset
+      // 🧩 Staff: force password reset
       if (staffEmails.includes(u.email!)) {
         await sendPasswordResetEmail(auth, u.email!);
         setMsg("⚙️ Staff detected. Password reset email sent.");
@@ -90,14 +92,14 @@ export default function VerifyPage() {
   -------------------------------------------------- */
   const handleSendVerification = async () => {
     if (!auth.currentUser) return;
-    if (emailCountdown > 0) return setMsg("Wait before resending.");
+    if (emailCountdown > 0) return setMsg("⏳ Please wait before resending.");
     try {
       const appUrl = process.env.NEXT_PUBLIC_APP_URL || window.location.origin;
-      await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/verify` });
+      await sendEmailVerification(auth.currentUser, { url: `${appUrl}/auth/login` });
       setEmailCountdown(60);
       setMsg("📩 Verification email sent!");
     } catch {
-      setMsg("Failed to send verification email.");
+      setMsg("❌ Failed to send verification email.");
     }
   };
 
@@ -107,21 +109,23 @@ export default function VerifyPage() {
       const u = auth.currentUser;
       if (!u) return;
       if (u.emailVerified) {
-        await updateDoc(doc(db, "users", u.uid), { emailVerified: true });
+        const ref = doc(db, "users", u.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) await updateDoc(ref, { emailVerified: true });
         setProfile((p: any) => ({ ...p, emailVerified: true }));
         setMsg("✅ Email verified successfully!");
       } else setMsg("⏳ Still not verified. Check your inbox.");
     } catch {
-      setMsg("Failed to refresh status.");
+      setMsg("❌ Failed to refresh status.");
     }
   };
 
   /* --------------------------------------------------
-     📱 Phone OTP using shared module
+     📱 Phone OTP
   -------------------------------------------------- */
   const handleSendOtp = async () => {
     if (!auth.currentUser) return setMsg("Please login again.");
-    if (!/^\+?\d{10,15}$/.test(phone)) return setMsg("Enter valid phone number.");
+    if (!/^\+?\d{10,15}$/.test(phone)) return setMsg("Enter a valid phone number.");
     if (otpCountdown > 0) return setMsg("Wait before resending OTP.");
     setLoading(true);
     try {
@@ -142,11 +146,15 @@ export default function VerifyPage() {
     try {
       const verifiedUser = await verifyOtp(otp.trim());
       if (verifiedUser?.uid) {
-        await updateDoc(doc(db, "users", verifiedUser.uid), {
-          phoneVerified: true,
-          verified: true,
-          phone,
-        });
+        const ref = doc(db, "users", verifiedUser.uid);
+        const snap = await getDoc(ref);
+        if (snap.exists()) {
+          await updateDoc(ref, {
+            phoneVerified: true,
+            verified: true,
+            phone,
+          });
+        }
         clearOtpSession();
         setProfile((p: any) => ({ ...p, phoneVerified: true }));
         setMsg("✅ Phone verified successfully!");
@@ -159,36 +167,26 @@ export default function VerifyPage() {
     }
   };
 
-  const handleResendOtp = async () => {
-    try {
-      await resendOtp(phone.trim());
-      setOtpCountdown(30);
-      setMsg("📲 New OTP sent!");
-    } catch {
-      setMsg("Failed to resend OTP.");
-    }
-  };
-
   /* --------------------------------------------------
-     🚀 Redirect when verified
+     🚀 Redirect after full verification
   -------------------------------------------------- */
   useEffect(() => {
     if (!user || !profile) return;
     if (profile.emailVerified && profile.phoneVerified) {
       switch (profile.role) {
         case "admin":
-          router.push("/(dashboard)/admin");
+          router.push("/dashboard/admin");
           break;
         case "partner":
           if (profile.status === "approved" || profile.kyc?.status === "approved")
-            router.push("/(dashboard)/partner");
-          else setMsg("⏳ KYC pending approval.");
+            router.push("/dashboard/partner");
+          else setMsg("⏳ KYC pending admin approval.");
           break;
         case "staff":
-          router.push("/(dashboard)/staff");
+          router.push("/dashboard/staff");
           break;
         default:
-          router.push("/(dashboard)/user");
+          router.push("/dashboard/user");
       }
     }
   }, [profile]);
@@ -255,7 +253,7 @@ export default function VerifyPage() {
           />
           <div className="flex flex-col sm:flex-row gap-2">
             <button
-              onClick={otpCountdown > 0 ? handleResendOtp : handleSendOtp}
+              onClick={handleSendOtp}
               disabled={otpCountdown > 0 || loading}
               className={`px-4 py-2 rounded text-white ${
                 otpCountdown > 0

@@ -1,47 +1,114 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseadmin";
+import { getAuth } from "firebase-admin/auth";
+import { db } from "@/lib/firebaseadmin";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  addDoc,
+  serverTimestamp,
+  orderBy,
+} from "firebase/firestore";
 
 /**
- * Admin or system endpoint for creating/fetching partner settlements.
- * For now, it's open for demonstration — restrict later via token/auth.
+ * GET /api/settlements
+ * - Admin: lists all settlements
+ * - Partner: lists settlements belonging to the logged-in partner
  */
 export async function GET(req: Request) {
   try {
-    const { searchParams } = new URL(req.url);
-    const partnerId = searchParams.get("partnerId");
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    let ref = adminDb.collection("settlements");
-    if (partnerId) ref = ref.where("partnerId", "==", partnerId);
-    const snap = await ref.orderBy("createdAt", "desc").get();
+    const token = authHeader.replace("Bearer ", "");
+    const decoded = await getAuth().verifyIdToken(token);
+    const uid = decoded.uid;
+    const role = (decoded as any).role || "partner";
 
-    const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    return NextResponse.json({ success: true, data });
-  } catch (err: any) {
-    console.error("❌ Settlements fetch error:", err);
-    return NextResponse.json({ success: false, message: err.message }, { status: 500 });
+    const settlementsRef = collection(db, "settlements");
+
+    let q;
+    if (role === "admin") {
+      q = query(settlementsRef, orderBy("createdAt", "desc"));
+    } else {
+      q = query(
+        settlementsRef,
+        where("partnerId", "==", uid),
+        orderBy("createdAt", "desc")
+      );
+    }
+
+    const snap = await getDocs(q);
+    const settlements = snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
+
+    return NextResponse.json({ success: true, settlements });
+  } catch (error) {
+    console.error("Error fetching settlements:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch settlements" },
+      { status: 500 }
+    );
   }
 }
 
+/**
+ * POST /api/settlements
+ * - Allows admin to create manual settlement
+ * - Body: { partnerId, amount, remark?, status? }
+ */
 export async function POST(req: Request) {
   try {
-    const { partnerId, amount, periodStart, periodEnd, status = "pending" } =
-      await req.json();
-    if (!partnerId || !amount) throw new Error("Missing required fields.");
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
-    const docRef = adminDb.collection("settlements").doc();
-    await docRef.set({
-      id: docRef.id,
+    const token = authHeader.replace("Bearer ", "");
+    const decoded = await getAuth().verifyIdToken(token);
+    const role = (decoded as any).role || "partner";
+
+    if (role !== "admin") {
+      return NextResponse.json(
+        { error: "Forbidden: Only admin can create settlements manually" },
+        { status: 403 }
+      );
+    }
+
+    const { partnerId, amount, remark = "", status = "approved" } =
+      await req.json();
+
+    if (!partnerId || !amount) {
+      return NextResponse.json(
+        { error: "partnerId and amount are required" },
+        { status: 400 }
+      );
+    }
+
+    const settlementsRef = collection(db, "settlements");
+    const newDoc = await addDoc(settlementsRef, {
       partnerId,
-      amount,
+      amount: Number(amount),
       status,
-      periodStart: periodStart ? new Date(periodStart) : null,
-      periodEnd: periodEnd ? new Date(periodEnd) : null,
-      createdAt: new Date(),
+      remark,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
     });
 
-    return NextResponse.json({ success: true, id: docRef.id });
-  } catch (err: any) {
-    console.error("❌ Settlement create error:", err);
-    return NextResponse.json({ success: false, message: err.message }, { status: 400 });
+    return NextResponse.json({
+      success: true,
+      settlementId: newDoc.id,
+    });
+  } catch (error) {
+    console.error("Error creating settlement:", error);
+    return NextResponse.json(
+      { error: "Failed to create settlement" },
+      { status: 500 }
+    );
   }
 }

@@ -1,10 +1,22 @@
+######################################
+# 🚀 BHARATCOMFORT11 — Production Config
+######################################
+
 [build]
   command = "npm run build"
   publish = ".next"
 
 [functions]
   node_bundler = "esbuild"
-  external_node_modules = ["razorpay"]
+  external_node_modules = [
+    "firebase-admin",
+    "firebase",
+    "nodemailer",
+    "razorpay",
+    "jspdf",
+    "jspdf-autotable"
+  ]
+  included_files = ["lib/**/*", "app/api/**/*", "lib/invoices/**/*"]
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
@@ -12,9 +24,29 @@
 [build.environment]
   NODE_VERSION = "18"
   NEXT_DISABLE_ENV_INJECTION = "true"
+  FIREBASE_CONFIG = "true"
+  TZ = "Asia/Kolkata"
 
-# ✅ Send all unmatched routes to index.html (client-side routing)
+######################################
+# 🔐 Redirects for Next.js Routing
+######################################
+
+# All API routes handled by Next.js serverless functions
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/next_api"
+  status = 200
+
+# Send all unmatched routes to Next.js app
 [[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200
+
+######################################
+# 🕒 Scheduled Cron Jobs (Optional)
+# For SLA dispute escalation / daily finance tasks
+######################################
+[[scheduled_functions]]
+  function = "api_settlements_dispute_sla"  # /app/api/settlements/dispute/sla/route.ts
+  cron = "0 9 * * *"  # every day at 9:00 AM IST

@@ -6,17 +6,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "react-hot-toast";
 
-/**
- * Admin Users Management Page
- * Displays all users with verification, refund, and activity info.
- * Includes filters, export, and search.
- */
-
 export default function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filterMode, setFilterMode] = useState("");
+  const [activeCard, setActiveCard] = useState("");
 
   useEffect(() => {
     fetchUsers();
@@ -31,7 +26,6 @@ export default function AdminUsersPage() {
       });
       const data = await res.json();
       if (data.success) {
-        // Extend with placeholders for analytics
         const enriched = data.userSettings.map((u: any) => ({
           ...u,
           totalBookings: u.totalBookings || 0,
@@ -51,7 +45,6 @@ export default function AdminUsersPage() {
     }
   };
 
-  // Firebase ID token helper
   const getFirebaseIdToken = async () => {
     const { getAuth } = await import("firebase/auth");
     const user = getAuth().currentUser;
@@ -59,6 +52,14 @@ export default function AdminUsersPage() {
     throw new Error("Admin not authenticated");
   };
 
+  /** 📊 Derived analytics */
+  const totalUsers = users.length;
+  const upiUsers = users.filter((u) => u.refundPreference === "upi").length;
+  const bankUsers = users.filter((u) => u.refundPreference === "bank_transfer").length;
+  const aadharUploaded = users.filter((u) => !!u.aadharImageUrl).length;
+  const verifiedUsers = users.filter((u) => u.emailVerified && u.phoneVerified).length;
+
+  /** 🔍 Filter & Search Logic */
   const filtered = users
     .filter(
       (u) =>
@@ -68,11 +69,10 @@ export default function AdminUsersPage() {
           u.phone?.includes(search))
     )
     .sort(
-      (a, b) =>
-        (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+      (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
     );
 
-  // CSV Export
+  /** 💾 Export CSV */
   const handleExportCSV = () => {
     const csv = [
       [
@@ -126,8 +126,59 @@ export default function AdminUsersPage() {
     link.click();
   };
 
+  /** 🧭 Click Handler for Summary Cards */
+  const handleCardClick = (mode: string) => {
+    if (activeCard === mode) {
+      setActiveCard("");
+      setFilterMode("");
+    } else {
+      setActiveCard(mode);
+      setFilterMode(mode);
+    }
+  };
+
   return (
     <div className="p-6 space-y-6">
+      {/* ====================== SUMMARY CARDS ====================== */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <SummaryCard
+          label="Total Users"
+          value={totalUsers}
+          color="bg-blue-500"
+          active={activeCard === ""}
+          onClick={() => handleCardClick("")}
+        />
+        <SummaryCard
+          label="UPI Users"
+          value={upiUsers}
+          color="bg-green-500"
+          active={activeCard === "upi"}
+          onClick={() => handleCardClick("upi")}
+        />
+        <SummaryCard
+          label="Bank Users"
+          value={bankUsers}
+          color="bg-yellow-500"
+          active={activeCard === "bank_transfer"}
+          onClick={() => handleCardClick("bank_transfer")}
+        />
+        <SummaryCard
+          label="Aadhaar Uploaded"
+          value={aadharUploaded}
+          color="bg-purple-500"
+          active={false}
+          onClick={() => toast("Shows only users with Aadhaar uploaded")}
+        />
+        <SummaryCard
+          label="Verified Users"
+          value={verifiedUsers}
+          color="bg-emerald-500"
+          active={false}
+          onClick={() => toast("Verification filter coming soon")}
+        />
+      </div>
+
+      {/* ====================== CONTROLS ====================== */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <h1 className="text-2xl font-semibold">User Management</h1>
 
@@ -141,7 +192,10 @@ export default function AdminUsersPage() {
           <select
             className="border rounded-md p-2"
             value={filterMode}
-            onChange={(e) => setFilterMode(e.target.value)}
+            onChange={(e) => {
+              setFilterMode(e.target.value);
+              setActiveCard(e.target.value);
+            }}
           >
             <option value="">All Modes</option>
             <option value="bank_transfer">Bank Transfer</option>
@@ -154,6 +208,7 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
+      {/* ====================== TABLE ====================== */}
       <Card className="shadow-sm overflow-x-auto">
         <CardContent className="p-4">
           {loading ? (
@@ -186,8 +241,6 @@ export default function AdminUsersPage() {
                     <td className="p-3 font-medium">{u.name || "-"}</td>
                     <td className="p-3">{u.email || "-"}</td>
                     <td className="p-3">{u.phone || "-"}</td>
-
-                    {/* Role Badge */}
                     <td className="p-3">
                       <span
                         className={`px-2 py-1 rounded text-xs font-medium ${
@@ -201,37 +254,19 @@ export default function AdminUsersPage() {
                         {u.role}
                       </span>
                     </td>
-
-                    {/* Verification */}
                     <td className="p-3">
                       <div className="flex flex-col">
-                        <span
-                          className={
-                            u.emailVerified
-                              ? "text-green-600"
-                              : "text-red-500"
-                          }
-                        >
+                        <span className={u.emailVerified ? "text-green-600" : "text-red-500"}>
                           Email: {u.emailVerified ? "✅" : "❌"}
                         </span>
-                        <span
-                          className={
-                            u.phoneVerified
-                              ? "text-green-600"
-                              : "text-red-500"
-                          }
-                        >
+                        <span className={u.phoneVerified ? "text-green-600" : "text-red-500"}>
                           Phone: {u.phoneVerified ? "✅" : "❌"}
                         </span>
                       </div>
                     </td>
-
-                    {/* Refund Preference */}
                     <td className="p-3 capitalize">
                       {u.refundPreference || "bank_transfer"}
                     </td>
-
-                    {/* Bank or UPI Details */}
                     <td className="p-3">
                       {u.refundPreference === "bank_transfer" ? (
                         <div>
@@ -247,8 +282,6 @@ export default function AdminUsersPage() {
                         <p>{u.bankDetails?.upi || "-"}</p>
                       )}
                     </td>
-
-                    {/* Aadhaar */}
                     <td className="p-3">
                       {u.aadharImageUrl ? (
                         <a
@@ -262,27 +295,17 @@ export default function AdminUsersPage() {
                         "-"
                       )}
                     </td>
-
-                    {/* Booking + Activity */}
                     <td className="p-3">
                       {u.totalBookings || 0} / {u.totalCancellations || 0}
                     </td>
-
-                    {/* Last Login */}
                     <td className="p-3 text-gray-600">
                       {u.lastLogin
-                        ? new Date(
-                            u.lastLogin.seconds * 1000
-                          ).toLocaleDateString()
+                        ? new Date(u.lastLogin.seconds * 1000).toLocaleDateString()
                         : "-"}
                     </td>
-
-                    {/* Created */}
                     <td className="p-3 text-gray-500">
                       {u.createdAt
-                        ? new Date(
-                            u.createdAt.seconds * 1000
-                          ).toLocaleDateString()
+                        ? new Date(u.createdAt.seconds * 1000).toLocaleDateString()
                         : "-"}
                     </td>
                   </tr>
@@ -293,5 +316,34 @@ export default function AdminUsersPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** Reusable Summary Card Component with Clickable State */
+function SummaryCard({
+  label,
+  value,
+  color,
+  active,
+  onClick,
+}: {
+  label: string;
+  value: number | string;
+  color: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <Card
+      onClick={onClick}
+      className={`cursor-pointer transition-all ${
+        active ? "ring-4 ring-offset-2 ring-indigo-400 scale-105" : ""
+      } ${color} text-white shadow-md hover:opacity-90`}
+    >
+      <CardContent className="p-4 flex flex-col items-center justify-center text-center select-none">
+        <p className="text-2xl font-bold">{value}</p>
+        <p className="text-sm font-medium opacity-90">{label}</p>
+      </CardContent>
+    </Card>
   );
 }

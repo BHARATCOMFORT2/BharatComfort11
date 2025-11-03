@@ -6,30 +6,32 @@ import {
   getDoc,
   collection,
   addDoc,
-  serverTimestamp,
   updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
-import { sendEmail } from "@/lib/email"; // uses your existing email util
+import { sendEmail } from "@/lib/email";
 
 /**
  * POST /api/settlements/dispute/message
- * Body: { disputeId: string, text?: string, fileUrl?: string }
- * Role: partner or admin
- * Effect:
- *  - Appends a message to `settlement_disputes/{id}/messages`
- *  - Updates dispute.updatedAt
- *  - Sends email notification to the counterparty (admin or partner)
+ * Used by both partner & admin to send a new message in a dispute chat thread.
+ *
+ * Body:
+ * {
+ *   disputeId: string,
+ *   text?: string,
+ *   fileUrl?: string
+ * }
  */
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
-    const idToken = authHeader.split("Bearer ")[1];
-    const decoded = await getAuth().verifyIdToken(idToken);
-    const role = (decoded as any).role || "partner"; // "partner" | "admin"
+    const token = authHeader.replace("Bearer ", "");
+    const decoded = await getAuth().verifyIdToken(token);
+    const role = (decoded as any).role || "partner";
+    const uid = decoded.uid;
 
     const { disputeId, text = "", fileUrl = "" } = await req.json();
 
@@ -40,66 +42,75 @@ export async function POST(req: Request) {
       );
     }
 
-    // Fetch dispute
+    // Verify dispute exists
     const disputeRef = doc(db, "settlement_disputes", disputeId);
     const disputeSnap = await getDoc(disputeRef);
     if (!disputeSnap.exists()) {
       return NextResponse.json({ error: "Dispute not found" }, { status: 404 });
     }
+
     const dispute = disputeSnap.data();
 
-    // Append message in subcollection
+    // Add message to subcollection
     const messagesRef = collection(disputeRef, "messages");
-    const messageDoc = await addDoc(messagesRef, {
+    await addDoc(messagesRef, {
       text,
       fileUrl,
-      role,          // "partner" or "admin"
-      uid: decoded.uid,
+      uid,
+      role,
       createdAt: serverTimestamp(),
     });
 
-    // Touch updatedAt (and move to in_review if currently open)
+    // Update parent dispute
     const newStatus =
-      dispute.status === "open" && role === "admin" ? "in_review" : dispute.status;
+      dispute.status === "open" && role === "admin"
+        ? "in_review"
+        : dispute.status;
     await updateDoc(disputeRef, {
       updatedAt: serverTimestamp(),
       status: newStatus,
     });
 
-    // Email notification to counterparty
+    // Notify counterparty
     try {
       const isPartner = role === "partner";
       const subject = isPartner
-        ? `New message from Partner on Dispute ${disputeId}`
-        : `Update on your dispute ${disputeId}`;
+        ? `New Message from Partner - Dispute ${disputeId}`
+        : `Update on Your Dispute ${disputeId}`;
       const recipient = isPartner
-        ? "admin@bharatcomfort11.com" // admin mailbox
-        : dispute.partnerEmail || ""; // store partnerEmail on dispute when creating
+        ? "admin@bharatcomfort11.com"
+        : dispute.partnerEmail || "";
 
       if (recipient) {
         const html = `
           <h3>${subject}</h3>
-          <p><b>Settlement ID:</b> ${dispute.settlementId || "-"}</p>
-          ${text ? `<p><b>Message:</b> ${text}</p>` : ""}
-          ${fileUrl ? `<p><b>Attachment:</b> <a href="${fileUrl}" target="_blank">View file</a></p>` : ""}
-          <p style="margin-top:12px;">Open dashboard to reply.</p>
+          <p><b>Dispute ID:</b> ${disputeId}</p>
+          ${
+            text
+              ? `<p><b>Message:</b> ${text}</p>`
+              : "<p><b>Attachment:</b> Attached file received.</p>"
+          }
+          ${
+            fileUrl
+              ? `<p><a href="${fileUrl}" target="_blank">View Attachment</a></p>`
+              : ""
+          }
+          <p>— BHARATCOMFORT11 Finance Portal</p>
         `;
         await sendEmail(recipient, subject, html);
       }
     } catch (e) {
-      console.error("Email notify failed:", e);
-      // don't fail the API if email fails
+      console.warn("Email notification failed:", e);
     }
 
     return NextResponse.json({
       success: true,
-      messageId: messageDoc.id,
-      status: newStatus,
+      message: "Message sent successfully",
     });
   } catch (error) {
     console.error("Dispute message error:", error);
     return NextResponse.json(
-      { error: "Failed to post dispute message" },
+      { error: "Failed to send message" },
       { status: 500 }
     );
   }

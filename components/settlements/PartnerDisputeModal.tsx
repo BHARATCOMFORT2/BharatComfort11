@@ -1,29 +1,40 @@
 "use client";
 
 import { useState } from "react";
-import { X, FileText, MessageCircle, CheckCircle, Clock } from "lucide-react";
+import {
+  X,
+  FileText,
+  MessageCircle,
+  CheckCircle,
+  Clock,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { db } from "@/lib/firebase";
 import { doc, updateDoc, arrayUnion, serverTimestamp } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
-export default function PartnerDisputeModal({ dispute, onClose }: any) {
+export default function PartnerDisputeModal({
+  dispute,
+  onClose,
+}: {
+  dispute: any;
+  onClose: () => void;
+}) {
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
 
   if (!dispute) return null;
 
-  // Send partner reply to Firestore
   const handleReply = async () => {
-    if (!reply.trim()) return alert("Please enter a message before sending.");
+    if (!reply.trim()) return alert("Enter a message before sending.");
 
     try {
       setSending(true);
       const user = getAuth().currentUser;
-      if (!user) throw new Error("User not authenticated");
+      if (!user) throw new Error("User not authenticated.");
 
-      const docRef = doc(db, "settlement_disputes", dispute.id);
-      await updateDoc(docRef, {
+      const ref = doc(db, "settlement_disputes", dispute.id);
+      await updateDoc(ref, {
         partnerReplies: arrayUnion({
           text: reply,
           timestamp: serverTimestamp(),
@@ -33,23 +44,22 @@ export default function PartnerDisputeModal({ dispute, onClose }: any) {
         updatedAt: serverTimestamp(),
       });
 
-      alert("Reply sent to admin successfully.");
+      alert("Reply sent successfully.");
       setReply("");
-    } catch (error) {
-      console.error("Error sending reply:", error);
-      alert("Failed to send reply. Please try again.");
+    } catch (err) {
+      console.error("Reply error:", err);
+      alert("Failed to send reply.");
     } finally {
       setSending(false);
     }
   };
 
-  // Determine timeline stage
   const stage =
     dispute.status === "open"
       ? 1
       : dispute.status === "in_review"
       ? 2
-      : 3; // resolved
+      : 3;
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
@@ -104,7 +114,7 @@ export default function PartnerDisputeModal({ dispute, onClose }: any) {
           </div>
         </div>
 
-        {/* Info Section */}
+        {/* Dispute Info */}
         <div className="text-sm space-y-2 mb-5">
           <p>
             <b>Status:</b>{" "}
@@ -140,15 +150,15 @@ export default function PartnerDisputeModal({ dispute, onClose }: any) {
           )}
         </div>
 
-        {/* Partner Reply Box */}
-        <div className="mt-4 border-t pt-3">
+        {/* Partner Reply */}
+        <div className="border-t pt-3 mt-4">
           <h4 className="text-sm font-semibold mb-2 flex items-center">
             <MessageCircle className="mr-2 h-4 w-4 text-blue-600" /> Your Reply
           </h4>
           <textarea
-            placeholder="Write a clarification or additional note to admin..."
             value={reply}
             onChange={(e) => setReply(e.target.value)}
+            placeholder="Write a clarification or note for the admin..."
             className="w-full border rounded-lg p-2 text-sm min-h-[70px]"
           ></textarea>
           <Button
@@ -160,7 +170,6 @@ export default function PartnerDisputeModal({ dispute, onClose }: any) {
           </Button>
         </div>
 
-        {/* Close Button */}
         <div className="mt-4 text-center">
           <Button onClick={onClose} variant="outline">
             Close

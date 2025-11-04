@@ -29,6 +29,7 @@ interface Listing {
   status: "pending" | "approved" | "rejected";
   featured?: boolean;
   createdAt?: any;
+  allowPayAtHotel?: boolean;
 }
 
 export default function PartnerListingsManager() {
@@ -41,6 +42,7 @@ export default function PartnerListingsManager() {
     location: "",
     price: "",
     images: [] as File[],
+    allowPayAtHotel: false,
   });
   const [loading, setLoading] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
@@ -103,11 +105,13 @@ export default function PartnerListingsManager() {
         description: formData.description,
         location: formData.location,
         price: Number(formData.price),
-        images: imageUrls,
+        images: imageUrls.length ? imageUrls : undefined,
         createdBy: user.uid,
         status: userRole === "admin" ? "approved" : "pending",
         featured: false,
+        allowPayAtHotel: formData.allowPayAtHotel, // ✅ NEW FIELD
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       };
       if (editId) {
         await updateDoc(doc(db, "listings", editId), data);
@@ -123,6 +127,7 @@ export default function PartnerListingsManager() {
         location: "",
         price: "",
         images: [],
+        allowPayAtHotel: false,
       });
     } catch (err) {
       console.error(err);
@@ -132,12 +137,13 @@ export default function PartnerListingsManager() {
     }
   };
 
-  // Delete
+  // Delete listing
   const handleDelete = async (id: string) => {
     if (!confirm("Are you sure?")) return;
     await deleteDoc(doc(db, "listings", id));
   };
 
+  // Edit listing
   const handleEdit = (l: Listing) => {
     setEditId(l.id!);
     setFormData({
@@ -146,6 +152,7 @@ export default function PartnerListingsManager() {
       location: l.location,
       price: l.price.toString(),
       images: [],
+      allowPayAtHotel: l.allowPayAtHotel ?? false,
     });
   };
 
@@ -170,26 +177,20 @@ export default function PartnerListingsManager() {
           placeholder="Location"
           className="border p-2 w-full rounded"
           value={formData.location}
-          onChange={(e) =>
-            setFormData({ ...formData, location: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, location: e.target.value })}
         />
         <input
           placeholder="Price"
           type="number"
           className="border p-2 w-full rounded"
           value={formData.price}
-          onChange={(e) =>
-            setFormData({ ...formData, price: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, price: e.target.value })}
         />
         <textarea
           placeholder="Description"
           className="border p-2 w-full rounded"
           value={formData.description}
-          onChange={(e) =>
-            setFormData({ ...formData, description: e.target.value })
-          }
+          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
         />
         <input
           type="file"
@@ -203,10 +204,25 @@ export default function PartnerListingsManager() {
           }
         />
 
+        {/* ✅ Pay at Hotel toggle */}
+        <label className="flex items-center gap-2 mt-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={formData.allowPayAtHotel}
+            onChange={(e) =>
+              setFormData({ ...formData, allowPayAtHotel: e.target.checked })
+            }
+            className="w-5 h-5 accent-green-600"
+          />
+          <span className="text-sm text-gray-700">
+            Allow Pay at Hotel / Restaurant
+          </span>
+        </label>
+
         <Button
           onClick={handleSubmit}
           disabled={loading}
-          className="bg-blue-600 text-white w-full py-3 rounded-lg"
+          className="bg-blue-600 text-white w-full py-3 rounded-lg mt-3"
         >
           {loading ? "Processing..." : editId ? "Update Listing" : "Add Listing"}
         </Button>
@@ -241,6 +257,11 @@ export default function PartnerListingsManager() {
                       {l.status}
                     </span>
                   </p>
+                  {l.allowPayAtHotel && (
+                    <p className="text-xs text-green-600 font-medium mt-1">
+                      ✅ Pay at Hotel Enabled
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button

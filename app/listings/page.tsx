@@ -14,9 +14,11 @@ import { db, auth } from "@/lib/firebase";
 import ListingFilters from "@/components/listings/ListingFilters";
 import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
+import { getFirebaseIdToken } from "@/lib/firebase-auth";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
+import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
 
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
@@ -25,27 +27,14 @@ const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"),
 
 export const dynamic = "force-dynamic";
 
-interface Listing {
-  id: string;
-  name: string;
-  location: string;
-  price: number;
-  images?: string[];
-  image?: string;
-  category?: string;
-  rating?: number;
-  lat?: number;
-  lng?: number;
-}
-
 export default function ListingsPage() {
-  const [listings, setListings] = useState<Listing[]>([]);
+  const [listings, setListings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [lastDoc, setLastDoc] = useState<any>(null);
   const [hasMore, setHasMore] = useState(true);
   const [user, setUser] = useState<any>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [pendingListing, setPendingListing] = useState<Listing | null>(null);
+  const [pendingListing, setPendingListing] = useState<any>(null);
 
   const [filters, setFilters] = useState({
     search: "",
@@ -54,6 +43,7 @@ export default function ListingsPage() {
     maxPrice: 10000,
     location: "",
     rating: 0,
+    onlyPayAtHotel: false,
   });
 
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
@@ -61,13 +51,10 @@ export default function ListingsPage() {
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  /* ---------------------------------------------------
-     👤 Auth Listener
-  --------------------------------------------------- */
+  /* 👤 Auth Listener */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       setUser(u);
-      // Resume booking after login
       if (u && pendingListing) {
         handleBookNow(pendingListing);
         setPendingListing(null);
@@ -76,17 +63,13 @@ export default function ListingsPage() {
     return () => unsub();
   }, [pendingListing]);
 
-  /* ---------------------------------------------------
-     ⏱ Debounce Filters
-  --------------------------------------------------- */
+  /* ⏱ Debounce Filters */
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedFilters(filters), 400);
     return () => clearTimeout(timer);
   }, [filters]);
 
-  /* ---------------------------------------------------
-     🔁 Load Listings
-  --------------------------------------------------- */
+  /* 🔁 Load Listings */
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
@@ -102,6 +85,8 @@ export default function ListingsPage() {
           conditions.push(where("price", ">=", filters.minPrice));
         if (filters.maxPrice < 10000)
           conditions.push(where("price", "<=", filters.maxPrice));
+        if (filters.onlyPayAtHotel)
+          conditions.push(where("allowPayAtHotel", "==", true));
 
         let q = query(colRef, ...conditions, orderBy("createdAt", "desc"), limit(9));
         if (!reset && lastDoc) {
@@ -122,7 +107,7 @@ export default function ListingsPage() {
         }
 
         const newListings = snap.docs.map((doc) => {
-          const { id: _ignoredId, ...data } = doc.data() as any;
+          const data = doc.data() as any;
           const images =
             Array.isArray(data.images) && data.images.length > 0
               ? data.images
@@ -142,9 +127,7 @@ export default function ListingsPage() {
     [filters, lastDoc, hasMore, loading]
   );
 
-  /* ---------------------------------------------------
-     🔄 Infinite Scroll
-  --------------------------------------------------- */
+  /* 🔄 Infinite Scroll */
   useEffect(() => {
     if (observer.current) observer.current.disconnect();
 
@@ -159,19 +142,15 @@ export default function ListingsPage() {
     return () => observer.current?.disconnect();
   }, [loadListings, hasMore, loading]);
 
-  /* ---------------------------------------------------
-     🔍 Reload on Filter Change
-  --------------------------------------------------- */
+  /* 🔍 Reload on Filter Change */
   useEffect(() => {
     setLastDoc(null);
     setHasMore(true);
     loadListings(true);
   }, [debouncedFilters]);
 
-  /* ---------------------------------------------------
-     💳 Booking & Payment Flow
-  --------------------------------------------------- */
-  const handleBookNow = async (listing: Listing) => {
+  /* 💳 Handle Booking */
+  const handleBookNow = async (listing: any) => {
     if (!user) {
       setPendingListing(listing);
       setShowLoginModal(true);
@@ -179,41 +158,56 @@ export default function ListingsPage() {
     }
 
     try {
-      const token = await user.getIdToken(); // ✅ secure authentication
-      const res = await fetch("/api/payments/create-order", {
+      const token = await getFirebaseIdToken();
+      const mode =
+        listing.allowPayAtHotel &&
+        confirm("Would you like to Pay at Hotel instead of paying online?")
+          ? "pay_at_hotel"
+          : "razorpay";
+
+      const res = await fetch("/api/bookings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          authorization: `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          amount: listing.price,
           listingId: listing.id,
+          checkIn: new Date().toISOString(),
+          checkOut: new Date(Date.now() + 86400000).toISOString(),
+          paymentMode: mode,
         }),
       });
 
       const data = await res.json();
-      if (!data.success) throw new Error(data.error || "Payment order failed");
+      if (!data.success) {
+        toast.error(data.error || "Booking failed");
+        return;
+      }
 
-      openRazorpayCheckout({
-        amount: listing.price,
-        orderId: data.id,
-        name: listing.name,
-        email: user.email,
-        phone: user.phoneNumber || "",
-        onSuccess: () => alert("✅ Payment Successful!"),
-        onFailure: () => alert("❌ Payment Failed"),
-      });
+      if (mode === "razorpay") {
+        const { razorpayOrder } = data;
+        toast.info("Redirecting to Razorpay...");
+        await openRazorpayCheckout({
+          amount: razorpayOrder.amount,
+          orderId: razorpayOrder.id,
+          name: listing.name,
+          email: user.email,
+          phone: user.phoneNumber || "",
+          onSuccess: () => toast.success("✅ Payment successful"),
+          onFailure: () => toast.error("❌ Payment failed"),
+        });
+      } else {
+        toast.success("Booking confirmed — Pay at Hotel");
+      }
     } catch (err) {
       console.error("Booking error:", err);
-      alert("Payment could not be initiated. Try again.");
+      toast.error("Booking could not be initiated");
     }
   };
 
-  /* ---------------------------------------------------
-     🧱 Listing Card
-  --------------------------------------------------- */
-  const ListingCard = ({ listing }: { listing: Listing }) => {
+  /* 🧱 Listing Card */
+  const ListingCard = ({ listing }: { listing: any }) => {
     const [current, setCurrent] = useState(0);
 
     useEffect(() => {
@@ -240,21 +234,14 @@ export default function ListingsPage() {
               className="absolute inset-0 w-full h-full object-cover"
             />
           </AnimatePresence>
-          <div className="absolute bottom-2 left-1/2 transform -translate-x-1/2 flex gap-1">
-            {listing.images?.map((_, i) => (
-              <span
-                key={i}
-                className={`w-2 h-2 rounded-full ${
-                  i === current ? "bg-yellow-500" : "bg-gray-300"
-                }`}
-              />
-            ))}
-          </div>
         </div>
 
         <div className="p-4 space-y-2">
           <h3 className="text-lg font-semibold text-gray-800 truncate">{listing.name}</h3>
           <p className="text-gray-600 text-sm truncate">{listing.location}</p>
+          {listing.allowPayAtHotel && (
+            <p className="text-green-600 text-xs font-medium">🏨 Pay at Hotel Available</p>
+          )}
           <div className="flex justify-between items-center">
             <span className="text-blue-600 font-bold">₹{listing.price}</span>
             <span className="text-yellow-600 text-sm">⭐ {listing.rating || 4.2}</span>
@@ -278,9 +265,7 @@ export default function ListingsPage() {
     );
   };
 
-  /* ---------------------------------------------------
-     🖼️ Page UI
-  --------------------------------------------------- */
+  /* 🖼️ Page UI */
   return (
     <div className="p-6 space-y-8">
       <header className="flex items-center justify-between flex-wrap gap-2">
@@ -321,7 +306,6 @@ export default function ListingsPage() {
         </section>
       )}
 
-      {/* 🧩 Login Modal */}
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}

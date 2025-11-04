@@ -9,6 +9,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { startPayment } from "@/lib/payments/client";
 import { requireAuthUser } from "@/lib/auth-client";
+import { getFirebaseIdToken } from "@/lib/firebase-auth";
+import { toast } from "sonner";
 
 export default function BookingPage() {
   const { id } = useParams();
@@ -22,8 +24,11 @@ export default function BookingPage() {
   const [guests, setGuests] = useState(1);
   const [totalPrice, setTotalPrice] = useState(0);
   const [isPaying, setIsPaying] = useState(false);
+  const [paymentMode, setPaymentMode] = useState<"razorpay" | "pay_at_hotel">(
+    "razorpay"
+  );
 
-  // 🔐 Auth listener — check if user logged in
+  // 🔐 Auth listener
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged((currentUser) => {
       setUser(currentUser || null);
@@ -54,50 +59,79 @@ export default function BookingPage() {
     }
   }, [checkIn, checkOut, guests, listing]);
 
-  // 💳 Handle Secure Payment
-  const handlePayment = async () => {
+  // 💳 Handle Booking (Razorpay or Pay-at-Hotel)
+  const handleBooking = async () => {
     try {
-      // 🔒 Require login before booking
       const currentUser = await requireAuthUser().catch(() => null);
       if (!currentUser) {
         router.push(`/auth/login?redirect=/listing/${id}/book`);
         return;
       }
 
-      // 🧩 Validate booking details
       if (!checkIn || !checkOut || totalPrice <= 0) {
-        alert("Please select valid dates before booking.");
+        toast.error("Please select valid dates before booking.");
         return;
       }
 
       setIsPaying(true);
+      const token = await getFirebaseIdToken();
 
-      // 💰 Start Razorpay or custom payment
-      await startPayment({
-        amount: totalPrice,
-        context: "booking",
-        listingId: id as string,
-        userId: currentUser.uid,
-        name: listing?.name || "BHARATCOMFORT Stay",
-        email: currentUser.email || "unknown@bharatcomfort.com",
-        phone: currentUser.phoneNumber || "9999999999",
-        onSuccess: (msg) => {
-          alert("✅ " + msg);
-          router.push("/bookings");
+      // 🔹 Create booking on server (API validates pay-at-hotel option)
+      const res = await fetch("/api/bookings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-        onFailure: (msg) => {
-          alert("❌ " + msg);
-        },
+        body: JSON.stringify({
+          listingId: id,
+          checkIn,
+          checkOut,
+          paymentMode,
+        }),
       });
+
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.error || "Booking failed");
+        return;
+      }
+
+      // 💳 Online (Razorpay)
+      if (paymentMode === "razorpay") {
+        const { razorpayOrder } = data;
+        await startPayment({
+          amount: razorpayOrder.amount / 100,
+          context: "booking",
+          listingId: id as string,
+          userId: currentUser.uid,
+          name: listing?.name || "BHARATCOMFORT Stay",
+          email: currentUser.email || "unknown@bharatcomfort.com",
+          phone: currentUser.phoneNumber || "9999999999",
+          orderId: razorpayOrder.id,
+          onSuccess: (msg) => {
+            toast.success("✅ " + msg);
+            router.push("/user/dashboard/bookings");
+          },
+          onFailure: (msg) => {
+            toast.error("❌ " + msg);
+          },
+        });
+      }
+
+      // 🏨 Pay-at-Hotel mode
+      else {
+        toast.success("Booking confirmed! Please pay at hotel.");
+        router.push("/user/dashboard/bookings");
+      }
     } catch (err) {
-      console.error("❌ Payment failed:", err);
-      alert("Payment could not be processed. Please try again.");
+      console.error("❌ Booking error:", err);
+      toast.error("Error creating booking");
     } finally {
       setIsPaying(false);
     }
   };
 
-  // 🕒 Loading states
   if (loading)
     return <div className="text-center py-10 text-gray-500">Loading...</div>;
 
@@ -144,6 +178,32 @@ export default function BookingPage() {
             onChange={(e) => setGuests(Number(e.target.value))}
           />
         </div>
+
+        {/* Payment Mode Toggle */}
+        <div className="mt-4 space-y-2">
+          <label className="block text-sm font-medium mb-1">Payment Mode</label>
+          <label className="flex items-center gap-2">
+            <input
+              type="radio"
+              value="razorpay"
+              checked={paymentMode === "razorpay"}
+              onChange={() => setPaymentMode("razorpay")}
+            />
+            <span>Pay Online (Razorpay)</span>
+          </label>
+
+          {listing.allowPayAtHotel && (
+            <label className="flex items-center gap-2">
+              <input
+                type="radio"
+                value="pay_at_hotel"
+                checked={paymentMode === "pay_at_hotel"}
+                onChange={() => setPaymentMode("pay_at_hotel")}
+              />
+              <span>Pay at Hotel / Restaurant</span>
+            </label>
+          )}
+        </div>
       </div>
 
       {/* RIGHT — Summary */}
@@ -166,14 +226,17 @@ export default function BookingPage() {
         )}
 
         <Button
-          onClick={handlePayment}
+          onClick={handleBooking}
           className="w-full mt-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl py-3"
           disabled={!checkIn || !checkOut || totalPrice === 0 || isPaying}
         >
-          {isPaying ? "Processing..." : "Proceed to Payment"}
+          {isPaying
+            ? "Processing..."
+            : paymentMode === "razorpay"
+            ? "Pay & Book"
+            : "Confirm Booking"}
         </Button>
 
-        {/* 🔒 Show message if not logged in */}
         {!user && (
           <p className="text-center text-sm text-gray-500 mt-3">
             You must log in before booking.

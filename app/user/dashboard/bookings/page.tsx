@@ -13,12 +13,14 @@ interface Booking {
   paymentMode: string;
   paymentStatus: string;
   status: string;
+  invoiceUrl?: string;
   createdAt?: { seconds: number };
 }
 
 export default function UserBookingsPage() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [resending, setResending] = useState<string | null>(null);
 
   useEffect(() => {
     fetchBookings();
@@ -66,6 +68,39 @@ export default function UserBookingsPage() {
     } catch (error) {
       console.error(error);
       toast.error("Error cancelling booking");
+    }
+  };
+
+  const handleInvoiceDownload = (url?: string) => {
+    if (!url) {
+      toast("Invoice not available yet.");
+      return;
+    }
+    window.open(url, "_blank");
+  };
+
+  const handleInvoiceResend = async (bookingId: string) => {
+    try {
+      setResending(bookingId);
+      const token = await getFirebaseIdToken();
+
+      const res = await fetch("/api/invoices/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ type: "booking", id: bookingId }),
+      });
+
+      const data = await res.json();
+      if (data.success) toast.success("Invoice re-sent successfully!");
+      else toast.error(data.error || "Failed to re-send invoice");
+    } catch (err) {
+      console.error("Error re-sending invoice:", err);
+      toast.error("Error re-sending invoice");
+    } finally {
+      setResending(null);
     }
   };
 
@@ -125,8 +160,8 @@ export default function UserBookingsPage() {
               </p>
             </div>
 
-            {/* Cancel button logic */}
-            <div className="mt-3 md:mt-0">
+            <div className="mt-3 md:mt-0 flex flex-col md:flex-row gap-2">
+              {/* Cancel button */}
               {b.status === "confirmed" || b.status === "confirmed_unpaid" ? (
                 <Button
                   variant="destructive"
@@ -136,11 +171,36 @@ export default function UserBookingsPage() {
                   Cancel Booking
                 </Button>
               ) : (
-                <span className="text-sm text-gray-500">
+                <span className="text-sm text-gray-500 self-center">
                   {b.status.startsWith("cancel")
                     ? "Already cancelled"
                     : "Not cancellable"}
                 </span>
+              )}
+
+              {/* Invoice buttons */}
+              {b.invoiceUrl ? (
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleInvoiceDownload(b.invoiceUrl)}
+                  >
+                    Download Invoice
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={resending === b.id}
+                    onClick={() => handleInvoiceResend(b.id)}
+                  >
+                    {resending === b.id ? "Sending..." : "Re-send Invoice"}
+                  </Button>
+                </>
+              ) : (
+                <Button variant="outline" size="sm" disabled>
+                  Invoice Pending
+                </Button>
               )}
             </div>
           </div>

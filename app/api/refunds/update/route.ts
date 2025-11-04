@@ -1,0 +1,135 @@
+import { NextResponse } from "next/server";
+import { getAuth } from "firebase-admin/auth";
+import { db } from "@/lib/firebaseadmin";
+import {
+  doc,
+  getDoc,
+  updateDoc,
+  serverTimestamp,
+} from "firebase/firestore";
+import { generateRefundInvoice } from "@/lib/invoices/generateRefundInvoice";
+import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
+import { sendInvoiceEmail } from "@/lib/emails/sendInvoiceEmail";
+import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
+
+/**
+ * POST /api/refunds/update
+ * Admin endpoint
+ * Body: { refundId: string, newStatus: "approved" | "processed" }
+ */
+export async function POST(req: Request) {
+  try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader)
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const token = authHeader.replace("Bearer ", "");
+    const decoded = await getAuth().verifyIdToken(token);
+    const role = (decoded as any).role || "user";
+
+    if (role !== "admin") {
+      return NextResponse.json(
+        { error: "Forbidden: Admins only" },
+        { status: 403 }
+      );
+    }
+
+    const { refundId, newStatus } = await req.json();
+    if (!refundId || !["approved", "processed"].includes(newStatus)) {
+      return NextResponse.json(
+        { error: "Invalid refundId or status" },
+        { status: 400 }
+      );
+    }
+
+    const refundRef = doc(db, "refunds", refundId);
+    const refundSnap = await getDoc(refundRef);
+    if (!refundSnap.exists()) {
+      return NextResponse.json(
+        { error: "Refund record not found" },
+        { status: 404 }
+      );
+    }
+
+    const refund = refundSnap.data();
+
+    // ✅ Update refund status
+    await updateDoc(refundRef, {
+      refundStatus: newStatus,
+      updatedAt: serverTimestamp(),
+      ...(newStatus === "processed" && { processedAt: serverTimestamp() }),
+    });
+
+    // ✅ Generate refund invoice if not exists
+    let invoiceUrl = refund.invoiceUrl;
+    let invoiceId = refund.invoiceId;
+
+    if (!invoiceUrl) {
+      invoiceId = `INV-RF-${Date.now()}`;
+      const pdfBuffer = await generateRefundInvoice({
+        refundId,
+        bookingId: refund.bookingId,
+        invoiceId,
+        userName: refund.userName || "User",
+        userEmail: refund.userEmail || "",
+        amount: refund.amount,
+        paymentMode: refund.paymentMode || "razorpay",
+        reason: refund.notes || "Admin processed refund",
+        createdAt: new Date(),
+      });
+
+      // Upload PDF
+      invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
+
+      // Save invoice details
+      await updateDoc(refundRef, {
+        invoiceId,
+        invoiceUrl,
+        invoiceGeneratedAt: serverTimestamp(),
+      });
+    }
+
+    // ✅ Send email to user
+    if (refund.userEmail) {
+      await sendInvoiceEmail({
+        to: refund.userEmail,
+        subject:
+          newStatus === "approved"
+            ? `Refund Approved - ${invoiceId}`
+            : `Refund Processed - ${invoiceId}`,
+        invoiceId,
+        invoiceUrl,
+        bookingDetails: {
+          bookingId: refund.bookingId,
+          amount: refund.amount,
+          reason: refund.notes,
+        },
+      });
+    }
+
+    // ✅ Push admin notification
+    await pushInvoiceNotification({
+      type: "refund",
+      invoiceId,
+      invoiceUrl,
+      userId: refund.userId,
+      amount: refund.amount,
+      relatedId: refund.bookingId,
+    });
+
+    console.log(`✅ Refund ${refundId} marked as ${newStatus}`);
+
+    return NextResponse.json({
+      success: true,
+      message: `Refund ${newStatus} successfully.`,
+      refundId,
+      invoiceUrl,
+    });
+  } catch (error) {
+    console.error("❌ Refund update error:", error);
+    return NextResponse.json(
+      { error: "Failed to update refund" },
+      { status: 500 }
+    );
+  }
+}

@@ -32,6 +32,7 @@ interface Listing {
   createdBy: string;
   status: "pending" | "approved" | "rejected";
   featured?: boolean;
+  allowPayAtHotel?: boolean;
   createdAt?: any;
 }
 
@@ -48,6 +49,7 @@ export default function ListingsManager() {
     location: "",
     price: "",
     images: [] as File[],
+    allowPayAtHotel: false,
   });
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
@@ -166,7 +168,10 @@ export default function ListingsManager() {
         images: mergedImages,
         createdBy: user.uid,
         status: userRole === "admin" ? "approved" : "pending",
+        featured: false,
+        allowPayAtHotel: formData.allowPayAtHotel, // ✅ NEW FIELD
         createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       };
 
       if (editId) {
@@ -184,6 +189,7 @@ export default function ListingsManager() {
         location: "",
         price: "",
         images: [],
+        allowPayAtHotel: false,
       });
       setPreviewUrls([]);
       setUploadProgress(0);
@@ -215,6 +221,7 @@ export default function ListingsManager() {
       location: listing.location,
       price: listing.price.toString(),
       images: [],
+      allowPayAtHotel: listing.allowPayAtHotel ?? false,
     });
     setPreviewUrls(listing.images || []);
   };
@@ -280,6 +287,21 @@ export default function ListingsManager() {
             setFormData({ ...formData, description: e.target.value })
           }
         />
+
+        {/* ✅ Pay at Hotel toggle */}
+        <label className="flex items-center gap-2 col-span-full mt-1 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={formData.allowPayAtHotel}
+            onChange={(e) =>
+              setFormData({ ...formData, allowPayAtHotel: e.target.checked })
+            }
+            className="w-5 h-5 accent-green-600"
+          />
+          <span className="text-sm text-gray-700">
+            Allow Pay at Hotel / Restaurant
+          </span>
+        </label>
 
         {/* File Upload */}
         <input
@@ -365,6 +387,11 @@ export default function ListingsManager() {
                       {l.status}
                     </span>
                   </p>
+                  {l.allowPayAtHotel && (
+                    <p className="text-xs text-green-600 font-medium mt-1">
+                      ✅ Pay at Hotel Enabled
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <Button

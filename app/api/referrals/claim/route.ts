@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin";
-import { getAuth } from "firebase-admin/auth";
+import { adminDb } from "@/lib/firebaseadmin";
+import * as admin from "firebase-admin";
 import { cookies } from "next/headers";
 
 /* ============================================================
@@ -11,7 +11,7 @@ import { cookies } from "next/headers";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { uid, userType } = body; // userType = "user" | "partner" | "creator" | "agent"
+    const { uid, userType } = body; // "user" | "partner" | "creator" | "agent"
     if (!uid || !userType) {
       return NextResponse.json({ error: "Invalid request" }, { status: 400 });
     }
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     }
 
     // 2️⃣ Find referrer by referralCode
-    const refQuery = await db
+    const refQuery = await adminDb
       .collection("users")
       .where("referralCode", "==", referralCode)
       .limit(1)
@@ -39,15 +39,15 @@ export async function POST(req: Request) {
 
     const referrerDoc = refQuery.docs[0];
     const referrerId = referrerDoc.id;
-    const referrerData = referrerDoc.data();
+    const referrerData = referrerDoc.data() || {};
 
-    // Prevent self-referral
+    // 🚫 Prevent self-referral
     if (referrerId === uid) {
       return NextResponse.json({ message: "Self-referral ignored" }, { status: 200 });
     }
 
-    // 3️⃣ Add referral entry in Firestore
-    const referralRef = db.collection("referrals").doc();
+    // 3️⃣ Add referral entry in Firestore (pending)
+    const referralRef = adminDb.collection("referrals").doc();
     await referralRef.set({
       id: referralRef.id,
       referrerId,
@@ -56,33 +56,34 @@ export async function POST(req: Request) {
       referredUserType: userType,
       referralCode,
       status: "pending",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     // 4️⃣ Update new user’s profile with referrer info
-    await db.collection("users").doc(uid).set(
+    await adminDb.collection("users").doc(uid).set(
       {
         referredBy: referrerId,
         referredByCode: referralCode,
         referralStatus: "pending",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
     // 5️⃣ Update referrer stats (increment total referrals)
-    await db
-      .collection("users")
-      .doc(referrerId)
-      .set(
-        {
-          referralStats: {
-            totalReferrals: (referrerData.referralStats?.totalReferrals || 0) + 1,
-          },
-          updatedAt: new Date(),
+    const totalReferrals =
+      (referrerData.referralStats?.totalReferrals || 0) + 1;
+
+    await adminDb.collection("users").doc(referrerId).set(
+      {
+        referralStats: {
+          totalReferrals,
         },
-        { merge: true }
-      );
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
 
     return NextResponse.json({
       success: true,

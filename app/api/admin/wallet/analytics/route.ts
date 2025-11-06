@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin";
+import { adminDb } from "@/lib/firebaseadmin";
 
 /**
  * 📊 Wallet Analytics API
@@ -19,11 +19,11 @@ export async function GET() {
       months.push({ month: label, credits: 0, debits: 0 });
     }
 
-    const usersSnap = await db.collection("users").get();
+    const usersSnap = await adminDb.collection("users").get();
 
     for (const userDoc of usersSnap.docs) {
       const uid = userDoc.id;
-      const walletSnap = await db
+      const walletSnap = await adminDb
         .collection("users")
         .doc(uid)
         .collection("wallet")
@@ -33,13 +33,19 @@ export async function GET() {
       for (const tx of walletSnap.docs) {
         const data = tx.data();
         if (!data.createdAt || !data.amount) continue;
-        const ts = data.createdAt._seconds
-          ? new Date(data.createdAt._seconds * 1000)
-          : new Date(data.createdAt);
+
+        // Safe Firestore timestamp conversion
+        const ts =
+          data.createdAt.toDate?.() ||
+          (data.createdAt._seconds
+            ? new Date(data.createdAt._seconds * 1000)
+            : new Date(data.createdAt));
+
         const key = `${ts.getFullYear()}-${(ts.getMonth() + 1)
           .toString()
           .padStart(2, "0")}`;
         const idx = months.findIndex((m) => m.month === key);
+
         if (idx !== -1) {
           if (data.type === "credit") months[idx].credits += data.amount;
           else if (data.type === "debit") months[idx].debits += data.amount;
@@ -48,7 +54,7 @@ export async function GET() {
     }
 
     // === 2️⃣ Top Referrers ===
-    const referralSnap = await db
+    const referralSnap = await adminDb
       .collection("referrals")
       .where("status", "==", "completed")
       .get();
@@ -67,7 +73,7 @@ export async function GET() {
 
     const topReferrers = [];
     for (const r of sortedReferrers) {
-      const userDoc = await db.collection("users").doc(r.id).get();
+      const userDoc = await adminDb.collection("users").doc(r.id).get();
       topReferrers.push({
         name: userDoc.data()?.name || r.id,
         total: r.total,
@@ -88,10 +94,10 @@ export async function GET() {
       topReferrers,
       growth,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("🔥 Wallet analytics error:", err);
     return NextResponse.json(
-      { error: "Failed to fetch analytics" },
+      { error: "Failed to fetch analytics", details: err.message },
       { status: 500 }
     );
   }

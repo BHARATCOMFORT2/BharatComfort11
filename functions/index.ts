@@ -45,7 +45,7 @@ export const onReviewCreated = functions.firestore
   });
 
 /* ============================================================
-   💳 Razorpay Payment Verification Webhook
+   💳 Razorpay Webhook + Auto Referral Reward Trigger
 ============================================================ */
 export const razorpayWebhook = functions.https.onRequest(async (req, res) => {
   try {
@@ -53,14 +53,14 @@ export const razorpayWebhook = functions.https.onRequest(async (req, res) => {
     const signature = req.headers["x-razorpay-signature"] as string;
     const body = JSON.stringify(req.body);
 
-    // 1️⃣ Verify Razorpay signature
+    // ✅ Verify signature
     const expectedSignature = crypto
       .createHmac("sha256", secret!)
       .update(body)
       .digest("hex");
 
     if (signature !== expectedSignature) {
-      console.warn("❌ Invalid Razorpay signature detected.");
+      console.warn("❌ Invalid Razorpay signature");
       return res.status(400).send("Invalid signature");
     }
 
@@ -69,45 +69,100 @@ export const razorpayWebhook = functions.https.onRequest(async (req, res) => {
 
     console.log("✅ Razorpay event received:", event);
 
-    // 2️⃣ Handle successful payment events
+    // 🧾 Handle successful payment
     if (event === "payment.captured" || event === "order.paid") {
       const orderId = payload.order_id;
       const paymentId = payload.id;
       const amount = payload.amount / 100;
 
-      // 3️⃣ Find booking by orderId (your app links order_id when booking created)
+      // 🔍 Find related booking
       const bookingSnap = await db
         .collection("bookings")
         .where("orderId", "==", orderId)
         .limit(1)
         .get();
 
-      if (!bookingSnap.empty) {
-        const bookingDoc = bookingSnap.docs[0];
-        await bookingDoc.ref.update({
-          status: "paid",
-          paymentId,
-          paymentMethod: "razorpay",
-          updatedAt: new Date(),
-        });
+      if (bookingSnap.empty) {
+        console.warn("⚠️ Booking not found for Razorpay order:", orderId);
+        return res.status(200).send("No related booking found");
+      }
 
-        console.log(`💰 Booking ${bookingDoc.id} marked as PAID.`);
+      const bookingDoc = bookingSnap.docs[0];
+      const bookingData = bookingDoc.data();
 
-        // Optional: Trigger referral reward flow
-        await db.collection("system_logs").add({
-          type: "razorpay_payment",
-          message: `Payment verified for booking ${bookingDoc.id}`,
+      // 💾 Update booking status
+      await bookingDoc.ref.update({
+        status: "paid",
+        paymentId,
+        paymentMethod: "razorpay",
+        updatedAt: new Date(),
+      });
+
+      console.log(`💰 Booking ${bookingDoc.id} marked as PAID.`);
+
+      // 🎯 Check referral for this user
+      const referralSnap = await db
+        .collection("referrals")
+        .where("referredUserId", "==", bookingData.userId)
+        .where("status", "==", "pending")
+        .limit(1)
+        .get();
+
+      if (!referralSnap.empty) {
+        const referralDoc = referralSnap.docs[0];
+        const referralData = referralDoc.data();
+        const referrerId = referralData.referrerId;
+
+        const rewardAmount = Math.round(amount * 0.05); // 5% reward
+        const referrerRef = db.collection("users").doc(referrerId);
+        const referrerSnap = await referrerRef.get();
+        const referrer = referrerSnap.data() || {};
+
+        const newBalance = (referrer.walletBalance || 0) + rewardAmount;
+
+        // 💳 Credit reward to wallet
+        await referrerRef.set(
+          {
+            walletBalance: newBalance,
+            totalEarnings: (referrer.totalEarnings || 0) + rewardAmount,
+            referralStats: {
+              successfulReferrals:
+                (referrer.referralStats?.successfulReferrals || 0) + 1,
+            },
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+
+        // 🧾 Mark referral as completed
+        await referralDoc.ref.set(
+          {
+            status: "completed",
+            bookingAmount: amount,
+            rewardAmount,
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+
+        // 🪙 Add wallet history record
+        await referrerRef.collection("wallet").add({
+          type: "credit",
+          source: "referral_reward",
+          referredUserId: bookingData.userId,
+          amount: rewardAmount,
+          bookingId: bookingDoc.id,
           createdAt: new Date(),
         });
-      } else {
-        console.warn("⚠️ Booking not found for Razorpay order:", orderId);
+
+        console.log(`🎁 Referral reward ₹${rewardAmount} credited to ${referrerId}`);
       }
     }
 
-    return res.status(200).send("OK");
+    res.status(200).send("OK");
   } catch (error) {
     console.error("🔥 Razorpay webhook error:", error);
-    return res.status(500).send("Internal Server Error");
+    res.status(500).send("Internal Server Error");
   }
 });
 
@@ -188,7 +243,7 @@ export const scheduleReferralStats = functions
         { merge: true }
       );
 
-      console.log(`✅ ${uid} → ₹${totalReward} reward generated`);
+      console.log(`✅ ${uid} → ₹${totalReward} monthly reward generated`);
     }
 
     console.log("🎯 Monthly referral aggregation completed.");

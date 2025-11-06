@@ -1,33 +1,48 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin";
+import { adminDb } from "@/lib/firebaseadmin";
 
+/**
+ * 🔹 GET /api/admin/referrals/export
+ * Exports monthly referral settlements as CSV
+ * Query: ?month=YYYY-MM&status=pending|paid
+ */
 export async function GET(req: Request) {
-  const { searchParams } = new URL(req.url);
-  const monthKey = searchParams.get("month");
-  const status = searchParams.get("status") || "pending";
-  if (!monthKey) return NextResponse.json({ error: "Missing month" }, { status: 400 });
+  try {
+    const { searchParams } = new URL(req.url);
+    const monthKey = searchParams.get("month");
+    const status = searchParams.get("status") || "pending";
 
-  const snap = await db
-    .collection("referralStatsMonthly")
-    .doc(monthKey)
-    .collection("users")
-    .where("payoutStatus", "==", status)
-    .get();
+    if (!monthKey)
+      return NextResponse.json({ error: "Missing month" }, { status: 400 });
 
-  if (snap.empty) {
-    return NextResponse.json({ error: "No records" }, { status: 404 });
+    const snap = await adminDb
+      .collection("referralStatsMonthly")
+      .doc(monthKey)
+      .collection("users")
+      .where("payoutStatus", "==", status)
+      .get();
+
+    if (snap.empty) {
+      return NextResponse.json({ error: "No records found" }, { status: 404 });
+    }
+
+    let csv = "UID,UserType,TotalBooking,TotalReward,PayoutStatus\n";
+    snap.forEach((doc) => {
+      const d = doc.data();
+      csv += `${d.uid},${d.userType},${d.totalBookingAmount},${d.totalReward},${d.payoutStatus}\n`;
+    });
+
+    return new NextResponse(csv, {
+      headers: {
+        "Content-Type": "text/csv",
+        "Content-Disposition": `attachment; filename="referral-settlements-${monthKey}.csv"`,
+      },
+    });
+  } catch (err: any) {
+    console.error("Error exporting referral settlements:", err);
+    return NextResponse.json(
+      { error: "Failed to export settlements", details: err.message },
+      { status: 500 }
+    );
   }
-
-  let csv = "UID,UserType,TotalBooking,TotalReward,PayoutStatus\n";
-  snap.forEach((doc) => {
-    const d = doc.data();
-    csv += `${d.uid},${d.userType},${d.totalBookingAmount},${d.totalReward},${d.payoutStatus}\n`;
-  });
-
-  return new NextResponse(csv, {
-    headers: {
-      "Content-Type": "text/csv",
-      "Content-Disposition": `attachment; filename="referral-settlements-${monthKey}.csv"`,
-    },
-  });
 }

@@ -66,4 +66,66 @@ export default function ManualWalletPage() {
         className="border p-6 rounded-2xl shadow-sm space-y-4 bg-white/70"
       >
         <div>
-          <label className="block text-sm font-medium"
+          <label className="block text-sm font-medium">User ID (UID)</label>
+          <input
+            type="text"
+            value={uid}
+            onChange={(e) => setUid(e.target.value)}
+            placeholder="Enter user's UID"
+            className="mt-1 w-full rounded-lg border px-3 py-2"
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium">Amount (₹)</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="Enter amount"
+              className="mt-1 w-full rounded-lg border px-3 py-2"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium">Type</label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as any)}
+              className="mt-1 w-full rounded-lg border px-3 py-2 bg-white"
+            >
+              <option value="credit">Credit (+)</option>
+              <option value="debit">Debit (−)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium">Reason / Notes</label>
+          <textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g., Bonus for campaign, Refund, Manual adjustment..."
+            className="mt-1 w-full rounded-lg border px-3 py-2 h-24"
+          />
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            disabled={isPending}
+            type="submit"
+            className="px-5 py-2 rounded-lg border font-medium hover:bg-black hover:text-white transition"
+          >
+            {isPending ? "Processing..." : "Submit Adjustment"}
+          </button>
+        </div>
+      </form>
+
+      <p className="text-xs text-muted-foreground">
+        ⚠️ All manual adjustments are logged under
+        <code> users/{'{uid}'}/wallet </code> and appear in wallet overview.
+      </p>
+    </div>
+  );
+}

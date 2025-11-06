@@ -4,12 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { auth } from "@/lib/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
-import {
-  getDocs,
-  query,
-  where,
-  collection,
-} from "firebase/firestore";
+import { getDocs, query, where, collection } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { nanoid } from "nanoid";
@@ -77,8 +72,9 @@ export default function RegisterPage() {
     .toString()
     .padStart(2, "0")}:${(timeLeft % 60).toString().padStart(2, "0")}`;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
-    setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
   /* 🧩 STEP 1: Register user + Send Phone OTP */
   const handleRegister = async (e: React.FormEvent) => {
@@ -95,7 +91,11 @@ export default function RegisterPage() {
 
     setLoading(true);
     try {
-      const cred = await createUserWithEmailAndPassword(auth, form.email, form.password);
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        form.email,
+        form.password
+      );
       const user = cred.user;
       setTempUid(user.uid);
 
@@ -177,12 +177,16 @@ export default function RegisterPage() {
       // Get referral if valid
       let referredBy: string | null = null;
       try {
-        const refQuery = query(collection(window.db, "users"), where("referralCode", "==", form.referral.trim()));
+        const refQuery = query(
+          collection(window.db, "users"),
+          where("referralCode", "==", form.referral.trim())
+        );
         const snapshot = await getDocs(refQuery);
         if (!snapshot.empty) referredBy = snapshot.docs[0].id;
       } catch {}
 
-      const referralCode = form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
+      const referralCode =
+        form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
 
       // ✅ Use secure API instead of direct Firestore write
       const createRes = await fetch("/api/auth/create-verified-user", {
@@ -201,6 +205,29 @@ export default function RegisterPage() {
 
       const createData = await createRes.json();
       if (!createData.success) throw new Error(createData.message);
+
+      /* 🔁 FIX: Trigger referral claim API (connects user ↔ referrer) */
+      try {
+        // read referral code from cookie if not entered manually
+        const cookieRef = document.cookie
+          .split("; ")
+          .find((c) => c.startsWith("bc_referral_code="))
+          ?.split("=")[1];
+
+        const referralInput = form.referral?.trim() || cookieRef || null;
+
+        await fetch("/api/referrals/claim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            uid: tempUid,
+            userType: form.role,
+            referralCode: referralInput,
+          }),
+        });
+      } catch (err) {
+        console.warn("Referral claim skipped:", err);
+      }
 
       alert("🎉 Account created successfully! You can now log in.");
       router.push("/auth/login");
@@ -225,40 +252,104 @@ export default function RegisterPage() {
               Step 1 of 3 – Register your account
             </p>
 
-            {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
+            {error && (
+              <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>
+            )}
 
             <form onSubmit={handleRegister} className="space-y-4">
-              <input name="name" placeholder="Full Name" value={form.name} onChange={handleChange} className="w-full border rounded-lg p-3" required />
-              <input name="email" type="email" placeholder="Email Address" value={form.email} onChange={handleChange} className="w-full border rounded-lg p-3" required />
+              <input
+                name="name"
+                placeholder="Full Name"
+                value={form.name}
+                onChange={handleChange}
+                className="w-full border rounded-lg p-3"
+                required
+              />
+              <input
+                name="email"
+                type="email"
+                placeholder="Email Address"
+                value={form.email}
+                onChange={handleChange}
+                className="w-full border rounded-lg p-3"
+                required
+              />
 
               <div className="flex gap-2">
-                <select className="border rounded-lg p-2 bg-white w-28" value={countryCode} onChange={(e) => setCountryCode(e.target.value)}>
+                <select
+                  className="border rounded-lg p-2 bg-white w-28"
+                  value={countryCode}
+                  onChange={(e) => setCountryCode(e.target.value)}
+                >
                   {countryCodes.map((c) => (
                     <option key={c.code} value={c.code}>
                       {c.name} ({c.code})
                     </option>
                   ))}
                 </select>
-                <input name="phone" type="tel" placeholder="9876543210" value={form.phone} onChange={handleChange} className="flex-1 border rounded-lg p-3" required />
+                <input
+                  name="phone"
+                  type="tel"
+                  placeholder="9876543210"
+                  value={form.phone}
+                  onChange={handleChange}
+                  className="flex-1 border rounded-lg p-3"
+                  required
+                />
               </div>
 
-              <input name="referral" placeholder="Referral Code (optional)" value={form.referral} onChange={handleChange} className="w-full border rounded-lg p-3" />
+              <input
+                name="referral"
+                placeholder="Referral Code (optional)"
+                value={form.referral}
+                onChange={handleChange}
+                className="w-full border rounded-lg p-3"
+              />
 
               <div className="relative">
-                <input name="password" type={showPassword ? "text" : "password"} placeholder="Password" value={form.password} onChange={handleChange} className="w-full border rounded-lg p-3 pr-10" required />
-                <button type="button" onClick={() => setShowPassword((s) => !s)} className="absolute right-3 top-3 text-gray-500">
+                <input
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Password"
+                  value={form.password}
+                  onChange={handleChange}
+                  className="w-full border rounded-lg p-3 pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="absolute right-3 top-3 text-gray-500"
+                >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
               <div className="relative">
-                <input name="confirmPassword" type={showConfirm ? "text" : "password"} placeholder="Confirm Password" value={form.confirmPassword} onChange={handleChange} className="w-full border rounded-lg p-3 pr-10" required />
-                <button type="button" onClick={() => setShowConfirm((s) => !s)} className="absolute right-3 top-3 text-gray-500">
+                <input
+                  name="confirmPassword"
+                  type={showConfirm ? "text" : "password"}
+                  placeholder="Confirm Password"
+                  value={form.confirmPassword}
+                  onChange={handleChange}
+                  className="w-full border rounded-lg p-3 pr-10"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirm((s) => !s)}
+                  className="absolute right-3 top-3 text-gray-500"
+                >
                   {showConfirm ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
               </div>
 
-              <select name="role" value={form.role} onChange={handleChange} className="w-full border rounded-lg p-3">
+              <select
+                name="role"
+                value={form.role}
+                onChange={handleChange}
+                className="w-full border rounded-lg p-3"
+              >
                 <option value="user">User</option>
                 <option value="partner">Partner</option>
               </select>
@@ -279,10 +370,18 @@ export default function RegisterPage() {
             <p className="text-center text-gray-500 mb-2">
               Step 2 of 3 – OTP sent to {countryCode} {form.phone}
             </p>
-            {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
+            {error && (
+              <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>
+            )}
 
             <div className="flex gap-2 mt-4">
-              <input type="text" value={otp} onChange={(e) => setOtp(e.target.value)} placeholder="Enter OTP" className="flex-1 border rounded-lg p-3" />
+              <input
+                type="text"
+                value={otp}
+                onChange={(e) => setOtp(e.target.value)}
+                placeholder="Enter OTP"
+                className="flex-1 border rounded-lg p-3"
+              />
               <Button onClick={handleVerifyPhoneOtp} disabled={loading}>
                 {loading ? "Verifying..." : "Verify"}
               </Button>
@@ -304,10 +403,18 @@ export default function RegisterPage() {
             <p className="text-center text-gray-500 mb-2">
               Step 3 of 3 – OTP sent to {form.email}
             </p>
-            {error && <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>}
+            {error && (
+              <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>
+            )}
 
             <div className="flex gap-2 mt-4">
-              <input type="text" value={emailOtp} onChange={(e) => setEmailOtp(e.target.value)} placeholder="Enter Email OTP" className="flex-1 border rounded-lg p-3" />
+              <input
+                type="text"
+                value={emailOtp}
+                onChange={(e) => setEmailOtp(e.target.value)}
+                placeholder="Enter Email OTP"
+                className="flex-1 border rounded-lg p-3"
+              />
               <Button onClick={handleVerifyEmailOtp} disabled={loading}>
                 {loading ? "Verifying..." : "Verify"}
               </Button>

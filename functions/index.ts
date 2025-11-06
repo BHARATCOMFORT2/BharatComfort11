@@ -1,19 +1,19 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import * as crypto from "crypto";
 
 admin.initializeApp();
 const db = admin.firestore();
 
-/**
- * 🔔 Send notification when a new listing is added
- */
+/* ============================================================
+   🔔 Notify when new listing is added
+============================================================ */
 export const onListingCreated = functions.firestore
   .document("listings/{listingId}")
   .onCreate(async (snap, context) => {
     const data = snap.data();
     if (!data) return;
 
-    // Notify all users about trending/new listing
     const notification = {
       title: "New Listing Added",
       message: `${data.name} is now available for booking.`,
@@ -25,12 +25,12 @@ export const onListingCreated = functions.firestore
     await db.collection("notifications").add(notification);
   });
 
-/**
- * ⭐ Auto-moderate reviews (simple bad word filter)
- */
+/* ============================================================
+   ⭐ Auto Moderate Reviews
+============================================================ */
 export const onReviewCreated = functions.firestore
   .document("reviews/{reviewId}")
-  .onCreate(async (snap, context) => {
+  .onCreate(async (snap) => {
     const data = snap.data();
     if (!data) return;
 
@@ -39,20 +39,158 @@ export const onReviewCreated = functions.firestore
       data.text.toLowerCase().includes(w)
     );
 
-    if (hasBannedWord) {
-      await snap.ref.update({ status: "flagged" });
-    } else {
-      await snap.ref.update({ status: "approved" });
-    }
+    await snap.ref.update({
+      status: hasBannedWord ? "flagged" : "approved",
+    });
   });
 
-/**
- * 💳 Stripe Webhook Listener (for payments)
- * Needs to be connected with your API route: /app/api/webhook/route.ts
- */
-export const stripeWebhook = functions.https.onRequest((req, res) => {
-  // This proxies Stripe events to Next.js API
-  // Good for handling server-side payment confirmation
-  console.log("Received Stripe event:", req.body.type);
-  res.sendStatus(200);
+/* ============================================================
+   💳 Razorpay Payment Verification Webhook
+============================================================ */
+export const razorpayWebhook = functions.https.onRequest(async (req, res) => {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const signature = req.headers["x-razorpay-signature"] as string;
+    const body = JSON.stringify(req.body);
+
+    // 1️⃣ Verify Razorpay signature
+    const expectedSignature = crypto
+      .createHmac("sha256", secret!)
+      .update(body)
+      .digest("hex");
+
+    if (signature !== expectedSignature) {
+      console.warn("❌ Invalid Razorpay signature detected.");
+      return res.status(400).send("Invalid signature");
+    }
+
+    const event = req.body.event;
+    const payload = req.body.payload.payment?.entity || req.body.payload.order?.entity;
+
+    console.log("✅ Razorpay event received:", event);
+
+    // 2️⃣ Handle successful payment events
+    if (event === "payment.captured" || event === "order.paid") {
+      const orderId = payload.order_id;
+      const paymentId = payload.id;
+      const amount = payload.amount / 100;
+
+      // 3️⃣ Find booking by orderId (your app links order_id when booking created)
+      const bookingSnap = await db
+        .collection("bookings")
+        .where("orderId", "==", orderId)
+        .limit(1)
+        .get();
+
+      if (!bookingSnap.empty) {
+        const bookingDoc = bookingSnap.docs[0];
+        await bookingDoc.ref.update({
+          status: "paid",
+          paymentId,
+          paymentMethod: "razorpay",
+          updatedAt: new Date(),
+        });
+
+        console.log(`💰 Booking ${bookingDoc.id} marked as PAID.`);
+
+        // Optional: Trigger referral reward flow
+        await db.collection("system_logs").add({
+          type: "razorpay_payment",
+          message: `Payment verified for booking ${bookingDoc.id}`,
+          createdAt: new Date(),
+        });
+      } else {
+        console.warn("⚠️ Booking not found for Razorpay order:", orderId);
+      }
+    }
+
+    return res.status(200).send("OK");
+  } catch (error) {
+    console.error("🔥 Razorpay webhook error:", error);
+    return res.status(500).send("Internal Server Error");
+  }
 });
+
+/* ============================================================
+   💰 Monthly Referral Rewards Aggregation
+============================================================ */
+export const scheduleReferralStats = functions
+  .runWith({ timeoutSeconds: 540, memory: "512MB" })
+  .pubsub.schedule("0 0 1 * *")
+  .timeZone("Asia/Kolkata")
+  .onRun(async () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const monthKey = `${year}-${(month + 1).toString().padStart(2, "0")}`;
+
+    console.log(`🏁 Starting monthly referral aggregation for: ${monthKey}`);
+
+    const participantsSnap = await db
+      .collection("users")
+      .where("userType", "in", ["creator", "agent"])
+      .get();
+
+    for (const doc of participantsSnap.docs) {
+      const user = doc.data();
+      const uid = doc.id;
+
+      const startDate = new Date(year, month, 1);
+      const endDate = new Date(year, month + 1, 1);
+
+      const referralsSnap = await db
+        .collection("referrals")
+        .where("referrerId", "==", uid)
+        .where("status", "==", "completed")
+        .where("updatedAt", ">=", startDate)
+        .where("updatedAt", "<", endDate)
+        .get();
+
+      if (referralsSnap.empty) continue;
+
+      let totalBookingAmount = 0;
+      let totalPartners = 0;
+
+      referralsSnap.forEach((r) => {
+        const d = r.data();
+        if (d.bookingAmount) totalBookingAmount += d.bookingAmount;
+        if (d.referredUserType === "partner") totalPartners++;
+      });
+
+      const rewardPercent = 5;
+      const totalReward = Math.round(totalBookingAmount * (rewardPercent / 100));
+
+      await db
+        .collection("referralStatsMonthly")
+        .doc(monthKey)
+        .collection("users")
+        .doc(uid)
+        .set({
+          uid,
+          userType: user.userType,
+          totalBookingAmount,
+          totalPartners,
+          rewardPercent,
+          totalReward,
+          payoutStatus: "pending",
+          createdAt: new Date(),
+        });
+
+      await db.collection("users").doc(uid).set(
+        {
+          monthlyStats: {
+            lastMonthKey: monthKey,
+            totalBookingAmount,
+            totalReward,
+          },
+          updatedAt: new Date(),
+        },
+        { merge: true }
+      );
+
+      console.log(`✅ ${uid} → ₹${totalReward} reward generated`);
+    }
+
+    console.log("🎯 Monthly referral aggregation completed.");
+    return null;
+  });

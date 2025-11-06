@@ -15,11 +15,17 @@ function getLocale(request: NextRequest): string {
 }
 
 /* ============================================================
-   🔐 Middleware: Locale + Auth + Role + Route Control
+   🔐 Middleware: Locale + Auth + Role + Route + Referral Capture
 ============================================================ */
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const locale = getLocale(request);
+
+  // 🔗 Referral cookie setup
+  const REF_COOKIE = "bc_referral_code";
+  const REF_COOKIE_TTL_DAYS = 30;
+  const refFromQuery = request.nextUrl.searchParams.get("ref");
+  const response = NextResponse.next();
 
   /* --------------------------------------------------
      🚫 Skip middleware for static / API / internal files
@@ -40,13 +46,28 @@ export async function middleware(request: NextRequest) {
   }
 
   /* --------------------------------------------------
+     💰 Referral Code Capture (store in cookie)
+  -------------------------------------------------- */
+  if (refFromQuery && /^[a-zA-Z0-9_-]{4,20}$/.test(refFromQuery)) {
+    const expires = new Date();
+    expires.setDate(expires.getDate() + REF_COOKIE_TTL_DAYS);
+
+    response.cookies.set(REF_COOKIE, refFromQuery, {
+      path: "/",
+      expires,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: false, // readable by client (signup)
+    });
+  }
+
+  /* --------------------------------------------------
      🔐 Auth Enforcement
   -------------------------------------------------- */
   const sessionCookie = request.cookies.get("session")?.value || "";
   const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
   const isProtected = protectedPaths.some((p) => pathname.includes(p));
 
-  // 🚪 If protected and no session → redirect to login
   if (isProtected && !sessionCookie) {
     const loginUrl = new URL(`/${locale}/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
@@ -60,7 +81,7 @@ export async function middleware(request: NextRequest) {
     try {
       const verifyUrl =
         process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "") +
-        "/api/auth/session"; // use main session route, not verify-session
+        "/api/auth/session";
 
       const res = await fetch(verifyUrl, {
         method: "GET",
@@ -68,7 +89,7 @@ export async function middleware(request: NextRequest) {
       });
 
       if (!res.ok) {
-        console.warn("⚠️ Invalid session detected (status):", res.status);
+        console.warn("⚠️ Invalid session detected:", res.status);
         const loginUrl = new URL(`/${locale}/auth/login`, request.url);
         loginUrl.searchParams.set("redirect", pathname);
         const r = NextResponse.redirect(loginUrl);
@@ -77,9 +98,8 @@ export async function middleware(request: NextRequest) {
       }
 
       const data = await res.json();
-
-      // 🔄 Auto redirect by role if needed
       const role = data.role || "user";
+
       if (pathname.includes("/admin") && role !== "admin") {
         return NextResponse.redirect(
           new URL(`/${locale}/(dashboard)/user`, request.url)
@@ -103,7 +123,7 @@ export async function middleware(request: NextRequest) {
   /* --------------------------------------------------
      ✅ Default: Allow normal browsing (public routes)
   -------------------------------------------------- */
-  return NextResponse.next();
+  return response;
 }
 
 /* ============================================================

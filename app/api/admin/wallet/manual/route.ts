@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin";
+import { adminDb } from "@/lib/firebaseadmin";
+import * as admin from "firebase-admin";
 
 /**
  * 💳 Manual Wallet Adjustment API (Admin only)
+ * Supports credit/debit adjustments with transaction log.
  */
 export async function POST(req: Request) {
   try {
@@ -17,10 +19,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid amount" }, { status: 400 });
     }
 
-    const userRef = db.collection("users").doc(uid);
+    const userRef = adminDb.collection("users").doc(uid);
     const walletRef = userRef.collection("wallet").doc();
 
-    await db.runTransaction(async (tx) => {
+    await adminDb.runTransaction(async (tx) => {
       const userSnap = await tx.get(userRef);
       const data = userSnap.data() || {};
       let newBalance = data.walletBalance || 0;
@@ -30,8 +32,7 @@ export async function POST(req: Request) {
         newBalance += amt;
         newEarnings += amt;
       } else if (type === "debit") {
-        if (newBalance < amt)
-          throw new Error("Insufficient wallet balance for debit");
+        if (newBalance < amt) throw new Error("Insufficient wallet balance for debit");
         newBalance -= amt;
       }
 
@@ -41,7 +42,7 @@ export async function POST(req: Request) {
         {
           walletBalance: newBalance,
           totalEarnings: newEarnings,
-          updatedAt: new Date(),
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
         { merge: true }
       );
@@ -53,18 +54,18 @@ export async function POST(req: Request) {
         source: "manual_admin_adjustment",
         reason,
         amount: amt,
-        createdAt: new Date(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
     });
 
     // Optional: log to system logs
-    await db.collection("system_logs").add({
+    await adminDb.collection("system_logs").add({
       type: "manual_wallet_adjustment",
       uid,
       amount: amt,
       adjustmentType: type,
       reason,
-      createdAt: new Date(),
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({ success: true });

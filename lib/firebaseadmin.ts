@@ -68,6 +68,13 @@ export function getFirebaseAdmin() {
 }
 
 /* ============================================================
+   💾 LEGACY EXPORT (for backward compatibility)
+   👉 Some APIs import { db } — this maps safely to adminDb.
+   📝 TODO Later: Replace all { db } imports with { adminDb }.
+============================================================ */
+export const db = adminDb;
+
+/* ============================================================
    🧠 DEV CONNECTION CHECK
 ============================================================ */
 if (process.env.NODE_ENV !== "production") {

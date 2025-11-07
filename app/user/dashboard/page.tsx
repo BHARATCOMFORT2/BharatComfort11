@@ -3,7 +3,14 @@
 import { useEffect, useState } from "react";
 import { auth, db } from "@/lib/firebase";
 import { useRouter } from "next/navigation";
-import { doc, onSnapshot, collection, query, where, orderBy } from "firebase/firestore";
+import {
+  doc,
+  onSnapshot,
+  collection,
+  query,
+  where,
+  orderBy,
+} from "firebase/firestore";
 
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import QuickActionStrip from "@/components/home/QuickActionStrip";
@@ -14,14 +21,20 @@ import NewsletterSignup from "@/components/home/NewsletterSignup";
 import AIRecommendations from "@/components/home/AIRecommendations";
 import MapSection from "@/components/home/MapSection";
 
+/* ============================================================
+   🚀 User Dashboard (Fully Connected)
+============================================================ */
 export default function UserDashboard() {
   const router = useRouter();
+
   const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [bookings, setBookings] = useState<any[]>([]);
+  const [token, setToken] = useState<string>("");
+  const [aiSuggestions, setAiSuggestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // -------------------- Auth & Profile --------------------
+  /* -------------------- Auth & Profile -------------------- */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (currentUser) => {
       if (!currentUser) {
@@ -29,6 +42,8 @@ export default function UserDashboard() {
         return;
       }
       setUser(currentUser);
+      const t = await currentUser.getIdToken();
+      setToken(t);
 
       const userRef = doc(db, "users", currentUser.uid);
       const unsubProfile = onSnapshot(
@@ -47,36 +62,66 @@ export default function UserDashboard() {
 
       return () => unsubProfile();
     });
-
     return () => unsub();
   }, [router]);
 
-  // -------------------- Real-time Bookings --------------------
+  /* -------------------- Real-time Bookings -------------------- */
   useEffect(() => {
     if (!user) return;
 
-    try {
-      const q = query(
-        collection(db, "bookings"),
-        where("userId", "==", user.uid),
-        orderBy("createdAt", "desc") // Ensure each booking has createdAt timestamp
-      );
+    const q = query(
+      collection(db, "bookings"),
+      where("userId", "==", user.uid),
+      orderBy("createdAt", "desc")
+    );
 
-      const unsubBookings = onSnapshot(
-        q,
-        (snap) => {
-          const allBookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-          setBookings(allBookings);
-        },
-        (err) => console.error("Bookings fetch error:", err)
-      );
+    const unsubBookings = onSnapshot(
+      q,
+      (snap) => {
+        const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setBookings(all);
+      },
+      (err) => console.error("Bookings fetch error:", err)
+    );
 
-      return () => unsubBookings();
-    } catch (err) {
-      console.error("Bookings query failed:", err);
-    }
+    return () => unsubBookings();
   }, [user]);
 
+  /* -------------------- AI Recommendations (from API) -------------------- */
+  useEffect(() => {
+    if (!token) return;
+    const fetchRecommendations = async () => {
+      try {
+        const res = await fetch("/api/ai/recommendations", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        if (data.success && Array.isArray(data.suggestions)) {
+          setAiSuggestions(data.suggestions);
+        }
+      } catch (err) {
+        console.warn("AI recommendations error:", err);
+      }
+    };
+    fetchRecommendations();
+  }, [token]);
+
+  /* -------------------- Booking Summary (optional API sync) -------------------- */
+  useEffect(() => {
+    if (!token) return;
+    const syncUserBookings = async () => {
+      try {
+        await fetch("/api/bookings/sync", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch (e) {
+        console.log("Bookings sync skipped:", e);
+      }
+    };
+    syncUserBookings();
+  }, [token]);
+
+  /* -------------------- UI -------------------- */
   if (loading) return <p className="text-center py-12">Loading your dashboard...</p>;
   if (!profile) return <p className="text-center py-12 text-red-500">Profile not found!</p>;
 
@@ -95,22 +140,30 @@ export default function UserDashboard() {
           Hello, {profile?.name || "Traveler"} 👋
         </h1>
         <p className="text-gray-600 mt-1">
-          Explore destinations, book stays, and get AI-powered suggestions!
+          Explore destinations, book stays, and get personalized AI travel plans!
         </p>
       </div>
 
       {/* Quick Actions */}
       <QuickActionStrip />
 
-      {/* Recent Bookings */}
+      {/* My Trips / Bookings */}
       <div className="bg-white p-6 rounded-2xl shadow mb-8">
         <h2 className="text-xl font-semibold mb-3">My Recent Trips</h2>
         {bookings.length > 0 ? (
           <ul className="space-y-2 max-h-60 overflow-y-auto">
             {bookings.map((b) => (
-              <li key={b.id} className="flex justify-between border-b py-2">
-                <span>{b.listingName || "Trip"}</span>
-                <span className="text-gray-500 text-sm">
+              <li
+                key={b.id}
+                className="flex justify-between border-b py-2 text-sm"
+              >
+                <span>
+                  {b.listingName || "Trip"}{" "}
+                  {b.status === "completed" && (
+                    <span className="ml-1 text-green-600">(Completed)</span>
+                  )}
+                </span>
+                <span className="text-gray-500">
                   {b.createdAt?.toDate
                     ? b.createdAt.toDate().toLocaleString()
                     : new Date().toLocaleString()}
@@ -119,12 +172,16 @@ export default function UserDashboard() {
             ))}
           </ul>
         ) : (
-          <p className="text-gray-500">No bookings yet.</p>
+          <p className="text-gray-500">No bookings yet. Start exploring now!</p>
         )}
       </div>
 
+      {/* AI Recommendations */}
+      {aiSuggestions.length > 0 && (
+        <AIRecommendations suggestions={aiSuggestions} profile={profile} />
+      )}
+
       {/* Homepage Sections */}
-      <AIRecommendations profile={profile} />
       <TrendingDestinations />
       <PromotionsStrip />
       <RecentStories />

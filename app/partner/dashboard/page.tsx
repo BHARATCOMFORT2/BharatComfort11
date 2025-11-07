@@ -106,7 +106,7 @@ export default function PartnerDashboard() {
 
   /* -------------------- Auth + Firestore -------------------- */
   useEffect(() => {
-    let unsubAuth: any, unsubListings: any, unsubBookings: any;
+    const unsubAuth: any, unsubListings: any, unsubBookings: any;
 
     unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {

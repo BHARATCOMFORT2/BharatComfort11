@@ -175,7 +175,49 @@ export default function UserDashboard() {
           <p className="text-gray-500">No bookings yet. Start exploring now!</p>
         )}
       </div>
+{/* === Chat Support === */}
+<div className="bg-white p-6 rounded-2xl shadow mb-8">
+  <h2 className="text-xl font-semibold mb-3">Chat with Support</h2>
+  <p className="text-gray-600 mb-3">
+    Need help with your booking or planning your trip? Start a chat with our support team.
+  </p>
+  <button
+    onClick={async () => {
+      const user = auth.currentUser;
+      if (!user) return router.push("/auth/login");
 
+      try {
+        const { getDocs, collection, query, where, addDoc, serverTimestamp } = await import(
+          "firebase/firestore"
+        );
+
+        const chatRef = collection(db, "chats");
+        const q = query(chatRef, where("participants", "array-contains", user.uid));
+        const snap = await getDocs(q);
+
+        let chatId = snap.docs[0]?.id;
+        if (!chatId) {
+          const docRef = await addDoc(chatRef, {
+            participants: [user.uid, "admin_support"],
+            type: "support",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            lastMessage: "Chat initiated by user",
+          });
+          chatId = docRef.id;
+        }
+
+        router.push(`/chat/${chatId}`);
+      } catch (err) {
+        console.error("Chat initiation error:", err);
+        alert("Something went wrong while starting chat. Try again.");
+      }
+    }}
+    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+  >
+    Open Chat
+  </button>
+</div>
       {/* AI Recommendations */}
       {aiSuggestions.length > 0 && (
         <AIRecommendations suggestions={aiSuggestions} profile={profile} />

@@ -65,6 +65,7 @@ type PartnerProfile = {
   phone?: string;
   profilePic?: string;
   status?: "pending" | "approved" | "rejected";
+  kyc?: { status?: string };
   bank?: {
     accountHolder?: string;
     accountNumber?: string;
@@ -127,7 +128,13 @@ export default function PartnerDashboard() {
           createdAt: serverTimestamp(),
         });
       }
-      setProfile({ uid: user.uid, ...(snap.data() as any) });
+
+      const partnerData = snap.data() || {};
+      setProfile({
+        uid: user.uid,
+        ...partnerData,
+        kyc: partnerData.kyc || { status: "pending" },
+      });
 
       // listings
       unsubListings = onSnapshot(
@@ -196,7 +203,12 @@ export default function PartnerDashboard() {
       alert("✅ Settlement request submitted!");
       setOpenSettlementModal(false);
     } else {
-      alert(`❌ ${data.error}`);
+      if (data.error?.includes("KYC")) {
+        alert("⚠️ You must complete KYC verification before requesting payouts.");
+        setOpenSettlementModal(false);
+      } else {
+        alert(`❌ ${data.error}`);
+      }
     }
   };
 
@@ -216,17 +228,50 @@ export default function PartnerDashboard() {
           <div>
             <h1 className="text-2xl font-bold">Hello, {welcome} 👋</h1>
             <p className="text-gray-600">Manage your listings, bookings & payouts.</p>
+
+            {/* KYC Status Badge */}
+            {profile?.kyc?.status && (
+              <div
+                className={`mt-2 inline-block px-3 py-1 text-sm rounded-full ${
+                  profile.kyc.status === "approved"
+                    ? "bg-green-100 text-green-700"
+                    : profile.kyc.status === "rejected"
+                    ? "bg-red-100 text-red-700"
+                    : "bg-yellow-100 text-yellow-700"
+                }`}
+              >
+                🧾 KYC {profile.kyc.status.charAt(0).toUpperCase() + profile.kyc.status.slice(1)}
+              </div>
+            )}
           </div>
-          <div className="flex gap-2">
+
+          <div className="flex flex-wrap gap-2 justify-end">
             <button onClick={() => setOpenBusinessModal(true)} className="px-4 py-2 bg-gray-900 text-white rounded-lg">
               Business Settings
             </button>
             <button onClick={() => setOpenBankModal(true)} className="px-4 py-2 bg-blue-600 text-white rounded-lg">
               Bank Settings
             </button>
-            <button onClick={() => setOpenSettlementModal(true)} className="px-4 py-2 bg-green-600 text-white rounded-lg">
-              Request Settlement
-            </button>
+
+            {/* KYC Gated Settlement Button */}
+            {profile?.kyc?.status === "approved" ? (
+              <button
+                onClick={() => setOpenSettlementModal(true)}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+              >
+                Request Settlement
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg border border-yellow-300 text-sm">
+                ⚠️ KYC {profile?.kyc?.status || "Pending"} —{" "}
+                <button
+                  onClick={() => router.push("/partner/kyc")}
+                  className="text-blue-600 underline hover:text-blue-800"
+                >
+                  Complete KYC
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -264,56 +309,63 @@ export default function PartnerDashboard() {
         <h3 className="text-xl font-semibold mb-4">Your Listings</h3>
         <PartnerListingsManager />
       </div>
-{/* === Partner Chat Support === */}
-<div className="bg-white p-6 rounded-2xl shadow mb-10">
-  <h3 className="text-xl font-semibold mb-2">Chat with Admin / Finance</h3>
-  <p className="text-gray-600 mb-3">
-    Need help with payouts, bookings, or listings? Start a secure chat with our admin or finance team.
-  </p>
 
-  <button
-    onClick={async () => {
-      const user = auth.currentUser;
-      if (!user) return router.push("/auth/login");
+      {/* Partner Chat Support */}
+      <div className="bg-white p-6 rounded-2xl shadow mb-10">
+        <h3 className="text-xl font-semibold mb-2">Chat with Admin / Finance</h3>
+        <p className="text-gray-600 mb-3">
+          Need help with payouts, bookings, or listings? Start a secure chat with our admin or finance team.
+        </p>
 
-      try {
-        const {
-          getDocs,
-          collection,
-          query,
-          where,
-          addDoc,
-          serverTimestamp,
-        } = await import("firebase/firestore");
+        {profile?.kyc?.status === "approved" || profile?.kyc?.status === "pending" ? (
+          <button
+            onClick={async () => {
+              const user = auth.currentUser;
+              if (!user) return router.push("/auth/login");
 
-        const chatRef = collection(db, "chats");
-        const q = query(chatRef, where("participants", "array-contains", user.uid));
-        const snap = await getDocs(q);
+              try {
+                const {
+                  getDocs,
+                  collection,
+                  query,
+                  where,
+                  addDoc,
+                  serverTimestamp,
+                } = await import("firebase/firestore");
 
-        let chatId = snap.docs[0]?.id;
-        if (!chatId) {
-          const docRef = await addDoc(chatRef, {
-            participants: [user.uid, "admin_finance"],
-            type: "support",
-            context: "partner_dashboard",
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            lastMessage: "Partner initiated support chat",
-          });
-          chatId = docRef.id;
-        }
+                const chatRef = collection(db, "chats");
+                const q = query(chatRef, where("participants", "array-contains", user.uid));
+                const snap = await getDocs(q);
 
-        router.push(`/chat/${chatId}`);
-      } catch (err) {
-        console.error("Partner chat initiation error:", err);
-        alert("Something went wrong while starting chat. Please try again.");
-      }
-    }}
-    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-  >
-    Open Chat
-  </button>
-</div>
+                let chatId = snap.docs[0]?.id;
+                if (!chatId) {
+                  const docRef = await addDoc(chatRef, {
+                    participants: [user.uid, "admin_finance"],
+                    type: "support",
+                    context: "partner_dashboard",
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp(),
+                    lastMessage: "Partner initiated support chat",
+                  });
+                  chatId = docRef.id;
+                }
+
+                router.push(`/chat/${chatId}`);
+              } catch (err) {
+                console.error("Partner chat initiation error:", err);
+                alert("Something went wrong while starting chat. Please try again.");
+              }
+            }}
+            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          >
+            Open Chat
+          </button>
+        ) : (
+          <div className="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm">
+            💬 Chat available after KYC submission.
+          </div>
+        )}
+      </div>
 
       {/* Settlements Placeholder */}
       <div className="bg-white p-6 rounded-2xl shadow">
@@ -323,7 +375,7 @@ export default function PartnerDashboard() {
         </p>
       </div>
 
-      {/* Modals */}
+      {/* Business Modal */}
       <Modal isOpen={openBusinessModal} title="Business Settings" onClose={() => setOpenBusinessModal(false)}>
         <div className="space-y-4">
           <label className="block text-sm">Business Name</label>
@@ -349,6 +401,7 @@ export default function PartnerDashboard() {
         </div>
       </Modal>
 
+      {/* Bank Modal */}
       <Modal isOpen={openBankModal} title="Bank Settings" onClose={() => setOpenBankModal(false)}>
         <div className="space-y-3">
           {["accountHolder", "accountNumber", "ifsc", "bankName", "branch", "upi"].map((f) => (
@@ -372,6 +425,7 @@ export default function PartnerDashboard() {
         </div>
       </Modal>
 
+      {/* Settlement Modal */}
       <Modal isOpen={openSettlementModal} title="Request Settlement" onClose={() => setOpenSettlementModal(false)}>
         <div className="space-y-3">
           <label className="block text-sm">Booking IDs (comma separated)</label>

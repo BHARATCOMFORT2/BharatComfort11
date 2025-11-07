@@ -32,14 +32,39 @@ import {
 } from "recharts";
 import { exportFinanceCSV, exportFinancePDF } from "@/lib/utils/exportFinanceReport";
 
-/* -------------------- Modal -------------------- */
-function Modal({ isOpen, title, onClose, children }: any) {
+/* =========================================================
+   🔹 TYPES
+========================================================= */
+interface SettlementRecord {
+  id: string;
+  partnerId?: string;
+  partnerType?: "individual" | "company" | "firm" | "llp";
+  amount?: number;
+  status?: "pending" | "paid" | "failed";
+  createdAt?: Timestamp;
+}
+
+/* =========================================================
+   🔹 Modal Component
+========================================================= */
+function Modal({
+  isOpen,
+  title,
+  onClose,
+  children,
+}: {
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
   useEffect(() => {
     if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
@@ -58,21 +83,23 @@ function Modal({ isOpen, title, onClose, children }: any) {
   );
 }
 
-/* -------------------- Helpers -------------------- */
+/* =========================================================
+   🔹 Helper Functions
+========================================================= */
 const money = (n: number) => `₹${(n || 0).toLocaleString("en-IN")}`;
 
 const tdsRateFor = (partnerType?: string) => {
-  // extend as needed: "firm", "llp", etc.
-  return partnerType === "company" ? 0.05 : 0.01; // default 1% (individual)
+  return partnerType === "company" ? 0.05 : 0.01;
 };
 
-/* -------------------- Main Page -------------------- */
+/* =========================================================
+   🔹 Main Component
+========================================================= */
 export default function AdminFinancePage() {
   const [loading, setLoading] = useState(true);
-
-  const [settlements, setSettlements] = useState<any[]>([]);
+  const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
   const [chartData, setChartData] = useState<any[]>([]);
-  const [dailyRecords, setDailyRecords] = useState<any[]>([]);
+  const [dailyRecords, setDailyRecords] = useState<SettlementRecord[]>([]);
   const [showDayModal, setShowDayModal] = useState(false);
   const [selectedDate, setSelectedDate] = useState("");
 
@@ -119,7 +146,6 @@ export default function AdminFinancePage() {
     try {
       const { start, end } = getDateRange();
 
-      // 1) Fetch settlements in range
       const settleSnap = await getDocs(
         query(
           collection(db, "settlements"),
@@ -128,21 +154,16 @@ export default function AdminFinancePage() {
           orderBy("createdAt", "desc")
         )
       );
-      let settlementsData = settleSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-      // 2) Build unique partner IDs set
-      const partnerIds = Array.from(
-        new Set(
-          settlementsData
-            .map((s: any) => s.partnerId)
-            .filter((x: string | undefined) => !!x)
-        )
+      let settlementsData: SettlementRecord[] = settleSnap.docs.map(
+        (d) => ({ id: d.id, ...(d.data() as SettlementRecord) })
       );
 
-      // 3) Fetch partner docs and make a lookup {partnerId: partnerType}
+      const partnerIds = Array.from(
+        new Set(settlementsData.map((s) => s.partnerId).filter(Boolean))
+      ) as string[];
+
       const partnersById: Record<string, { partnerType?: string }> = {};
       if (partnerIds.length) {
-        // Firestore doesn't support "IN" on large arrays easily; do batched fetches of ~10
         const batchSize = 10;
         for (let i = 0; i < partnerIds.length; i += batchSize) {
           const chunk = partnerIds.slice(i, i + batchSize);
@@ -151,36 +172,38 @@ export default function AdminFinancePage() {
           );
           ps.docs.forEach((p) => {
             const data = p.data() as any;
-            partnersById[data.uid] = { partnerType: data.partnerType || data.type || "individual" };
+            partnersById[data.uid] = {
+              partnerType: data.partnerType || data.type || "individual",
+            };
           });
         }
       }
 
-      // 4) Enrich settlements with partnerType (fallback individual)
-      settlementsData = settlementsData.map((s: any) => ({
+      settlementsData = settlementsData.map((s) => ({
         ...s,
-        partnerType: partnersById[s.partnerId]?.partnerType || s.partnerType || "individual",
+        partnerType: partnersById[s.partnerId || ""]?.partnerType || "individual",
       }));
 
-      // 5) Compute totals using real partner types
-      const paid = settlementsData.filter((s: any) => s.status === "paid");
-      const totalSettlements = paid.reduce((a: number, b: any) => a + (Number(b.amount) || 0), 0);
-      const totalCommission = Math.round(totalSettlements * 0.10);
+      const paid = settlementsData.filter((s) => s.status === "paid");
+      const totalSettlements = paid.reduce(
+        (a, b) => a + (Number(b.amount) || 0),
+        0
+      );
+      const totalCommission = Math.round(totalSettlements * 0.1);
       const gstCollected = Math.round(totalCommission * 0.18);
-      const gstPayable = Math.round(gstCollected * 0.95); // assumption: 5% credit retained
+      const gstPayable = Math.round(gstCollected * 0.95);
 
-      // TDS
       let tdsDeducted = 0;
       for (const s of paid) {
         const rate = tdsRateFor(s.partnerType);
         tdsDeducted += Math.round((Number(s.amount) || 0) * rate);
       }
+
       const tdsPayable = tdsDeducted;
-      const tdsDeposited = Math.round(tdsPayable * 0.9); // assume 90% deposited so far
+      const tdsDeposited = Math.round(tdsPayable * 0.9);
       const pendingTds = tdsPayable - tdsDeposited;
 
-      // 6) Chart grouping (by day)
-      const grouped = settlementsData.reduce((acc: any[], cur: any) => {
+      const grouped = settlementsData.reduce((acc: any[], cur) => {
         const date = cur.createdAt?.toDate().toLocaleDateString("en-IN");
         const ex = acc.find((x) => x.date === date);
         const amt = Number(cur.amount) || 0;
@@ -188,9 +211,10 @@ export default function AdminFinancePage() {
         else acc.push({ date, total: amt });
         return acc;
       }, []);
-      grouped.sort((a, b) => new Date(a.date as any).getTime() - new Date(b.date as any).getTime());
+      grouped.sort(
+        (a, b) => new Date(a.date as any).getTime() - new Date(b.date as any).getTime()
+      );
 
-      // 7) Set state
       setSettlements(settlementsData);
       setChartData(grouped);
       setSummary({ totalSettlements, totalPayouts: totalSettlements });
@@ -207,7 +231,7 @@ export default function AdminFinancePage() {
     if (!data?.activeLabel) return;
     const date = data.activeLabel;
     const dayRecords = settlements.filter(
-      (r: any) => r.createdAt?.toDate().toLocaleDateString("en-IN") === date
+      (r) => r.createdAt?.toDate().toLocaleDateString("en-IN") === date
     );
     setSelectedDate(date);
     setDailyRecords(dayRecords);
@@ -215,9 +239,9 @@ export default function AdminFinancePage() {
   };
 
   const exportFullTaxReport = () => {
-    const reportData = settlements.map((r: any) => {
+    const reportData = settlements.map((r) => {
       const gross = Number(r.amount) || 0;
-      const commission = Math.round(gross * 0.10);
+      const commission = Math.round(gross * 0.1);
       const gst = Math.round(commission * 0.18);
       const tds = Math.round(gross * tdsRateFor(r.partnerType));
       const net = gross - (commission + gst + tds);
@@ -236,16 +260,12 @@ export default function AdminFinancePage() {
     });
 
     exportFinanceCSV(reportData);
-    exportFinancePDF(
-      {
-        ...summary,
-        ...gstSummary,
-        ...tdsSummary,
-      },
-      reportData
-    );
+    exportFinancePDF({ ...summary, ...gstSummary, ...tdsSummary }, reportData);
   };
 
+  /* =========================================================
+     🔹 JSX Rendering
+  ========================================================= */
   return (
     <div className="p-6">
       {/* Header */}
@@ -270,10 +290,7 @@ export default function AdminFinancePage() {
           <Button onClick={loadFinanceData} className="bg-gray-700 hover:bg-gray-800">
             <RefreshCcw className="mr-2 h-4 w-4" /> Refresh
           </Button>
-          <Button
-            onClick={exportFullTaxReport}
-            className="bg-indigo-600 hover:bg-indigo-700"
-          >
+          <Button onClick={exportFullTaxReport} className="bg-indigo-600 hover:bg-indigo-700">
             <Receipt className="mr-2 h-4 w-4" /> Export Full Tax Report
           </Button>
         </div>
@@ -320,21 +337,21 @@ export default function AdminFinancePage() {
           <h3 className="text-lg font-semibold mb-4 flex items-center">
             <TrendingUp className="mr-2 text-blue-600" /> Daily Payout Trends
           </h3>
-        <div className="w-full h-80">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} onClick={handleBarClick}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="date" />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="total" fill="#2563eb" />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+          <div className="w-full h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} onClick={handleBarClick}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="date" />
+                <YAxis />
+                <Tooltip />
+                <Bar dataKey="total" fill="#2563eb" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Daily Modal (Tax Breakdown per partner) */}
+      {/* Daily Modal */}
       <Modal
         isOpen={showDayModal}
         title={`Day-wise Tax Breakdown (${selectedDate})`}
@@ -355,9 +372,9 @@ export default function AdminFinancePage() {
               </tr>
             </thead>
             <tbody>
-              {dailyRecords.map((r: any) => {
+              {dailyRecords.map((r) => {
                 const gross = Number(r.amount) || 0;
-                const commission = Math.round(gross * 0.10);
+                const commission = Math.round(gross * 0.1);
                 const gst = Math.round(commission * 0.18);
                 const tds = Math.round(gross * tdsRateFor(r.partnerType));
                 const net = gross - (commission + gst + tds);

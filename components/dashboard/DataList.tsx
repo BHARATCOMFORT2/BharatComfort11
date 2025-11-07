@@ -12,26 +12,42 @@ import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/Button";
 
 /* -------------------------------------------
+   🔹 Props Interface
+-------------------------------------------- */
+interface DataListProps {
+  collectionName: string;
+  token?: string; // ✅ optional, for admin-authenticated fetches if needed later
+}
+
+/* -------------------------------------------
    DataList Component (Persistent Filters + Search)
 -------------------------------------------- */
-export default function DataList({ collectionName }: { collectionName: string }) {
+export default function DataList({ collectionName, token }: DataListProps) {
   const [data, setData] = useState<any[]>([]);
   const [filtered, setFiltered] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  /* Load saved filters */
+  /* -------------------------------------------
+     Load saved filters from localStorage
+  -------------------------------------------- */
   useEffect(() => {
     const saved = localStorage.getItem(`filters_${collectionName}`);
     if (saved) {
-      const { search: savedSearch, filterStatus: savedFilter } = JSON.parse(saved);
-      setSearch(savedSearch || "");
-      setFilterStatus(savedFilter || "all");
+      try {
+        const { search: savedSearch, filterStatus: savedFilter } = JSON.parse(saved);
+        setSearch(savedSearch || "");
+        setFilterStatus(savedFilter || "all");
+      } catch {
+        console.warn("Invalid saved filters JSON");
+      }
     }
   }, [collectionName]);
 
-  /* Real-time listener */
+  /* -------------------------------------------
+     Real-time Firestore listener
+  -------------------------------------------- */
   useEffect(() => {
     const unsub = onSnapshot(collection(db, collectionName), (snap) => {
       const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -41,7 +57,9 @@ export default function DataList({ collectionName }: { collectionName: string })
     return () => unsub();
   }, [collectionName]);
 
-  /* Search + Filter logic + Persistence */
+  /* -------------------------------------------
+     Search + Filter logic + Persistence
+  -------------------------------------------- */
   useEffect(() => {
     let results = [...data];
 
@@ -63,6 +81,7 @@ export default function DataList({ collectionName }: { collectionName: string })
       );
     }
 
+    // Save filters to localStorage
     localStorage.setItem(
       `filters_${collectionName}`,
       JSON.stringify({ search, filterStatus })
@@ -71,14 +90,22 @@ export default function DataList({ collectionName }: { collectionName: string })
     setFiltered(results);
   }, [data, search, filterStatus, collectionName]);
 
-  /* Firestore actions */
+  /* -------------------------------------------
+     Firestore Actions
+  -------------------------------------------- */
   const handleApprove = async (id: string) => {
-    await updateDoc(doc(db, collectionName, id), { status: "approved" });
+    await updateDoc(doc(db, collectionName, id), {
+      status: "approved",
+      updatedAt: new Date(),
+    });
     alert("✅ Approved successfully");
   };
 
   const handleReject = async (id: string) => {
-    await updateDoc(doc(db, collectionName, id), { status: "rejected" });
+    await updateDoc(doc(db, collectionName, id), {
+      status: "rejected",
+      updatedAt: new Date(),
+    });
     alert("❌ Rejected");
   };
 
@@ -88,7 +115,9 @@ export default function DataList({ collectionName }: { collectionName: string })
     alert("🗑️ Deleted successfully");
   };
 
-  /* Render */
+  /* -------------------------------------------
+     Render
+  -------------------------------------------- */
   if (loading)
     return (
       <p className="text-center py-6 text-gray-500">

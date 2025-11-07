@@ -132,28 +132,22 @@ export async function POST(req: Request) {
         (typeof razorpayOrderId === "string" && razorpayOrderId) ||
         `PAYLATER-${bookingId}`;
 
-      // ⬇️ Call with ONLY allowed fields: { bookingId, userId, paymentId, amount }
-      const maybeUrlOrBuffer = await generateBookingInvoice({
+      // NOTE: generator is typed/implemented to possibly return void | string | Buffer
+      const out: any = await generateBookingInvoice({
         bookingId,
         userId: uid,
         paymentId,
         amount: Number(amount),
       });
 
-      // The generator may return a URL or a Buffer — handle both:
       let invoiceUrl = "";
-      if (typeof maybeUrlOrBuffer === "string") {
-        invoiceUrl = maybeUrlOrBuffer;
-      } else if (
-        maybeUrlOrBuffer &&
-        typeof (maybeUrlOrBuffer as any).byteLength === "number"
-      ) {
+      if (typeof out === "string") {
+        // returns a URL directly
+        invoiceUrl = out;
+      } else if (out && typeof out.byteLength === "number") {
+        // looks like a Buffer — upload it
         const invoiceId = `INV-BK-${Date.now()}`;
-        invoiceUrl = await uploadInvoiceToFirebase(
-          maybeUrlOrBuffer as Buffer,
-          invoiceId,
-          "booking"
-        );
+        invoiceUrl = await uploadInvoiceToFirebase(out as Buffer, invoiceId, "booking");
       }
 
       await adminDb.collection("invoices").add({

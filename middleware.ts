@@ -1,20 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { initializeApp, getApps, cert } from "firebase-admin/app";
-import { getAuth } from "firebase-admin/auth";
 import { i18n } from "./app/i18n/settings";
-
-/* ============================================================
-   🧩 Firebase Admin Initialization (Server-Safe)
-============================================================ */
-if (!getApps().length) {
-  initializeApp({
-    credential: cert({
-      projectId: process.env.FIREBASE_PROJECT_ID,
-      clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-      privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-    }),
-  });
-}
 
 /* ============================================================
    🌐 Locale Detection Helper
@@ -35,10 +20,10 @@ function getLocale(request: NextRequest): string {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const locale = getLocale(request);
-
   const REF_COOKIE = "bc_referral_code";
   const REF_COOKIE_TTL_DAYS = 30;
   const refFromQuery = request.nextUrl.searchParams.get("ref");
+
   const response = NextResponse.next();
 
   /* --------------------------------------------------
@@ -78,7 +63,7 @@ export async function middleware(request: NextRequest) {
   }
 
   /* --------------------------------------------------
-     🔐 Auth Enforcement + Role Control
+     🔐 Auth Enforcement (Edge-safe)
   -------------------------------------------------- */
   const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
   const isProtected = protectedPaths.some((p) => pathname.includes(p));
@@ -91,40 +76,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Verify Firebase session (direct Admin SDK)
-  if (sessionCookie) {
-    try {
-      const decoded = await getAuth().verifySessionCookie(sessionCookie, true);
-      const role = decoded.role || "user";
-
-      // Role-based dashboards
-      if (pathname.startsWith(`/${locale}/admin`) && role !== "admin") {
-        return NextResponse.redirect(
-          new URL(`/${locale}/(dashboard)/user`, request.url)
-        );
-      }
-
-      if (pathname.startsWith(`/${locale}/partner`) && role !== "partner") {
-        return NextResponse.redirect(
-          new URL(`/${locale}/(dashboard)/user`, request.url)
-        );
-      }
-
-      // Non-logged-in fallback handled above
-      return response;
-    } catch (error) {
-      console.error("🔥 Invalid Firebase session:", error);
-      const loginUrl = new URL(`/${locale}/auth/login`, request.url);
-      loginUrl.searchParams.set("redirect", pathname);
-      const r = NextResponse.redirect(loginUrl);
-      r.cookies.delete("session");
-      return r;
-    }
-  }
-
-  /* --------------------------------------------------
-     ✅ Default: Allow normal browsing
-  -------------------------------------------------- */
+  // (Optional) Edge-safe token check via cookie presence only.
+  // Deep verification happens inside Node API routes.
   return response;
 }
 

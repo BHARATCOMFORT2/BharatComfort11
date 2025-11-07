@@ -1,3 +1,7 @@
+export const runtime = "nodejs";          // ✅ Force Node.js runtime
+export const dynamic = "force-dynamic";   // ✅ Disable static optimization
+import "server-only";                     // ✅ Prevent client/edge bundling
+
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
@@ -10,7 +14,6 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { sendEmail } from "@/lib/email";
-import { generateRefundInvoice } from "@/lib/invoices/generateRefundInvoice";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
 
@@ -88,6 +91,9 @@ export async function POST(req: Request) {
         processedAt: serverTimestamp(),
         notes: reason,
       });
+
+      // 🔸 Lazy import refund invoice generator (Node-only)
+      const { generateRefundInvoice } = await import("@/lib/invoices/generateRefundInvoice");
 
       // 🔸 Generate refund invoice
       const invoiceId = `INV-RF-${Date.now()}`;

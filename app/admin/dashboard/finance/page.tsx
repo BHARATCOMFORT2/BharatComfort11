@@ -154,9 +154,10 @@ export default function AdminFinancePage() {
           orderBy("createdAt", "desc")
         )
       );
-      let settlementsData: SettlementRecord[] = settleSnap.docs.map(
-        (d) => ({ id: d.id, ...(d.data() as SettlementRecord) })
-      );
+      let settlementsData: SettlementRecord[] = settleSnap.docs.map((d) => {
+  const data = d.data() as SettlementRecord;
+  return { ...data, id: data.id || d.id }; // ✅ keep Firestore id only if not in data
+});
 
       const partnerIds = Array.from(
         new Set(settlementsData.map((s) => s.partnerId).filter(Boolean))

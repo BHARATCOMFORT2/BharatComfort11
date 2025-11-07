@@ -5,14 +5,6 @@ import "server-only";                     // ✅ Prevent client/edge bundling
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  collection,
-  addDoc,
-  serverTimestamp,
-} from "firebase/firestore";
 import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
@@ -38,12 +30,13 @@ export async function POST(req: Request) {
     if (!bookingId)
       return NextResponse.json({ error: "bookingId is required" }, { status: 400 });
 
-    const bookingRef = doc(db, "bookings", bookingId);
-    const bookingSnap = await getDoc(bookingRef);
-    if (!bookingSnap.exists())
+    // ✅ Admin SDK syntax
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingSnap = await bookingRef.get();
+    if (!bookingSnap.exists)
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
 
-    const booking = bookingSnap.data();
+    const booking = bookingSnap.data()!;
     if (booking.userId !== uid)
       return NextResponse.json({ error: "Forbidden: not your booking" }, { status: 403 });
 
@@ -69,17 +62,18 @@ export async function POST(req: Request) {
         );
       }
 
-      await updateDoc(bookingRef, {
+      await bookingRef.update({
         status: "cancel_requested",
         refundStatus: "pending",
         cancelReason: reason,
-        cancelRequestedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        cancelRequestedAt: new Date(),
+        updatedAt: new Date(),
       });
 
       // 🔸 Create refund record
-      const refundsRef = collection(db, "refunds");
-      const refundDoc = await addDoc(refundsRef, {
+      const refundRef = db.collection("refunds").doc();
+      await refundRef.set({
+        id: refundRef.id,
         bookingId,
         userId: uid,
         partnerId: booking.partnerId || null,
@@ -87,8 +81,8 @@ export async function POST(req: Request) {
         paymentMode: "razorpay",
         refundMode: "original",
         refundStatus: "processed",
-        createdAt: serverTimestamp(),
-        processedAt: serverTimestamp(),
+        createdAt: new Date(),
+        processedAt: new Date(),
         notes: reason,
       });
 
@@ -98,7 +92,7 @@ export async function POST(req: Request) {
       // 🔸 Generate refund invoice
       const invoiceId = `INV-RF-${Date.now()}`;
       const pdfBuffer = await generateRefundInvoice({
-        refundId: refundDoc.id,
+        refundId: refundRef.id,
         bookingId,
         invoiceId,
         userName: booking.userName || decoded.name || "User",
@@ -112,11 +106,11 @@ export async function POST(req: Request) {
       // 🔸 Upload invoice PDF
       const invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
 
-      // 🔸 Save invoice details in refund doc
-      await updateDoc(refundDoc, {
+      // 🔸 Save invoice details
+      await refundRef.update({
         invoiceId,
         invoiceUrl,
-        invoiceGeneratedAt: serverTimestamp(),
+        invoiceGeneratedAt: new Date(),
       });
 
       // 🔸 Send refund confirmation email
@@ -153,18 +147,18 @@ export async function POST(req: Request) {
       return NextResponse.json({
         success: true,
         message: "Refund processed and invoice generated.",
-        refundId: refundDoc.id,
+        refundId: refundRef.id,
         invoiceUrl,
       });
     }
 
     // 🔹 Pay-at-hotel / restaurant — cancel only
     if (status === "confirmed" || status === "confirmed_unpaid") {
-      await updateDoc(bookingRef, {
+      await bookingRef.update({
         status: "cancelled_unpaid",
         cancelReason: reason,
-        cancelRequestedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        cancelRequestedAt: new Date(),
+        updatedAt: new Date(),
       });
 
       try {

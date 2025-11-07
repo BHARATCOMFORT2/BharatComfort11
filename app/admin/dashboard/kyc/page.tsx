@@ -44,7 +44,7 @@ function Modal({ isOpen, title, onClose, children }: ModalProps) {
 }
 
 /* =========================================================
-   🔹 Admin KYC Management Page
+   🔹 Data Types
 ========================================================= */
 interface PartnerData {
   id: string;
@@ -64,6 +64,9 @@ interface PartnerData {
   };
 }
 
+/* =========================================================
+   🔹 Admin KYC Management Page
+========================================================= */
 export default function AdminKYCPage() {
   const { firebaseUser, profile, loading } = useAuth();
   const [kycList, setKycList] = useState<PartnerData[]>([]);
@@ -82,9 +85,10 @@ export default function AdminKYCPage() {
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map(
-        (d) => ({ id: d.id, ...(d.data() as PartnerData) }) as PartnerData
-      );
+      const docs = snap.docs.map((d) => {
+        const data = d.data() as PartnerData;
+        return { ...data, id: data.id || d.id } as PartnerData; // ✅ safe id assignment
+      });
       setKycList(docs);
     });
 

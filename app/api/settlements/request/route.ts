@@ -34,6 +34,24 @@ export async function POST(req: Request) {
     const decoded = await getAuth().verifyIdToken(token);
     const uid = decoded.uid;
     const role = (decoded as any).role || "partner";
+// 🔒 KYC Verification Check
+const partnerRef = db.collection("partners").doc(uid);
+const partnerSnap = await partnerRef.get();
+
+if (!partnerSnap.exists) {
+  return NextResponse.json({ error: "Partner profile not found" }, { status: 404 });
+}
+
+const partnerData = partnerSnap.data();
+if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
+  return NextResponse.json(
+    {
+      error:
+        "KYC not verified. Please complete your KYC verification before requesting a settlement.",
+    },
+    { status: 403 }
+  );
+}
 
     if (role !== "partner") {
       return NextResponse.json(

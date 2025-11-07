@@ -37,6 +37,9 @@ export default function DashboardLayout({ title, children, profile }: Props) {
 
   if (!mounted) return null; // prevents blank flashes during hydration
 
+  /* -----------------------------------------------
+     📋 Sidebar Navigation Links
+  ----------------------------------------------- */
   const navLinks =
     profile?.role === "partner"
       ? [
@@ -48,16 +51,21 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           { name: "Dashboard", path: "/user/dashboard" },
           { name: "My Trips", path: "/user/bookings" },
           { name: "Settings", path: "/user/settings" },
+          { name: "Refer & Earn 💰", path: "/user/dashboard/referrals" }, // ✅ Added referral link
         ];
 
+  /* -----------------------------------------------
+     🧱 Layout Structure
+  ----------------------------------------------- */
   return (
     <div className="flex min-h-screen bg-gray-100">
-      {/* Sidebar */}
+      {/* ===== Sidebar ===== */}
       <aside
         className={`fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-30 transition-transform duration-300 ${
           menuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
         }`}
       >
+        {/* Profile Header */}
         <div className="p-6 flex flex-col items-center border-b">
           {profile?.profilePic ? (
             <img
@@ -72,12 +80,13 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           <p className="text-sm text-gray-500 capitalize">{profile?.role || "user"}</p>
         </div>
 
+        {/* Navigation Menu */}
         <nav className="mt-6 space-y-2 px-4">
           {navLinks.map((link) => (
             <button
               key={link.name}
               onClick={() => router.push(link.path)}
-              className={`block w-full text-left px-4 py-2 rounded-lg ${
+              className={`block w-full text-left px-4 py-2 rounded-lg transition ${
                 pathname === link.path
                   ? "bg-blue-100 text-blue-700 font-semibold"
                   : "hover:bg-blue-50 text-gray-700"
@@ -88,6 +97,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           ))}
         </nav>
 
+        {/* Logout */}
         <div className="absolute bottom-6 w-full flex justify-center">
           <button
             onClick={handleLogout}
@@ -98,8 +108,9 @@ export default function DashboardLayout({ title, children, profile }: Props) {
         </div>
       </aside>
 
-      {/* Main Content */}
+      {/* ===== Main Content ===== */}
       <div className="flex-1 sm:ml-64">
+        {/* Header */}
         <header className="flex justify-between items-center bg-white shadow px-6 py-4 sticky top-0 z-20">
           <div className="flex items-center gap-3">
             <button className="sm:hidden" onClick={() => setMenuOpen(!menuOpen)}>
@@ -109,6 +120,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           </div>
         </header>
 
+        {/* Page Content */}
         <main className="p-6">{children}</main>
       </div>
     </div>

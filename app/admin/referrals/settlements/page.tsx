@@ -1,10 +1,14 @@
+// ✅ Force Node.js runtime (server-only)
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 import "server-only";
+
 import { db } from "@/lib/firebaseadmin";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 
 /**
- * 🔐 Optional: gate this page (you already enforce role in middleware)
+ * 🔐 Optional: gate this page (middleware already enforces role)
  * This file assumes your middleware blocks non-admins.
  */
 
@@ -20,7 +24,9 @@ type MonthlyStat = {
   paidAt?: Date;
 };
 
-function getMonthKeyFromSearch(searchParams: { [k: string]: string | string[] | undefined }) {
+function getMonthKeyFromSearch(searchParams: {
+  [k: string]: string | string[] | undefined;
+}) {
   const raw = (searchParams?.month as string) || "";
   const today = new Date();
   const y = today.getFullYear();
@@ -85,7 +91,7 @@ export async function approvePayoutAction(formData: FormData) {
     const udata = userSnap.data() || {};
     const newBalance = (udata.walletBalance || 0) + totalReward;
 
-    // 1) credit wallet balance + totals
+    // 1️⃣ Credit wallet balance + totals
     tx.set(
       userRef,
       {
@@ -96,7 +102,7 @@ export async function approvePayoutAction(formData: FormData) {
       { merge: true }
     );
 
-    // 2) add wallet history log
+    // 2️⃣ Add wallet history log
     const walletRef = userRef.collection("wallet").doc();
     tx.set(walletRef, {
       id: walletRef.id,
@@ -107,7 +113,7 @@ export async function approvePayoutAction(formData: FormData) {
       createdAt: new Date(),
     });
 
-    // 3) mark monthly stat as paid
+    // 3️⃣ Mark monthly stat as paid
     tx.set(
       monthDocRef,
       {
@@ -127,38 +133,38 @@ export async function approvePayoutAction(formData: FormData) {
     createdAt: new Date(),
   });
 
-  // Revalidate page
+  // Revalidate page cache
   revalidatePath("/admin/referrals/settlements");
 }
 
-function MonthSwitcher({ monthKey, status }: { monthKey: string; status: "pending" | "paid" }) {
+function MonthSwitcher({
+  monthKey,
+  status,
+}: {
+  monthKey: string;
+  status: "pending" | "paid";
+}) {
   const [y, m] = monthKey.split("-").map(Number);
-  const prev = new Date(y, (m - 1) - 1, 1);
-  const next = new Date(y, (m - 1) + 1, 1);
+  const prev = new Date(y, m - 2, 1);
+  const next = new Date(y, m, 1);
 
   const fmt = (d: Date) =>
     `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, "0")}`;
 
   return (
     <div className="flex items-center gap-2">
-      <Link
-        className="px-3 py-1 rounded border"
-        href={`?month=${fmt(prev)}&status=${status}`}
-      >
+      <Link className="px-3 py-1 rounded border" href={`?month=${fmt(prev)}&status=${status}`}>
         ← {fmt(prev)}
       </Link>
       <span className="text-sm text-muted-foreground">{monthKey}</span>
-      <Link
-        className="px-3 py-1 rounded border"
-        href={`?month=${fmt(next)}&status=${status}`}
-      >
+      <Link className="px-3 py-1 rounded border" href={`?month=${fmt(next)}&status=${status}`}>
         {fmt(next)} →
       </Link>
     </div>
   );
 }
 
-export default async function SettlementsPage({
+export default async function AdminReferralSettlementsPage({
   searchParams,
 }: {
   searchParams: { [k: string]: string | string[] | undefined };
@@ -182,13 +188,17 @@ export default async function SettlementsPage({
           <MonthSwitcher monthKey={monthKey} status={status} />
           <Link
             href={`?month=${monthKey}&status=pending`}
-            className={`px-3 py-1 rounded border ${status === "pending" ? "bg-black text-white" : ""}`}
+            className={`px-3 py-1 rounded border ${
+              status === "pending" ? "bg-black text-white" : ""
+            }`}
           >
             Pending
           </Link>
           <Link
             href={`?month=${monthKey}&status=paid`}
-            className={`px-3 py-1 rounded border ${status === "paid" ? "bg-black text-white" : ""}`}
+            className={`px-3 py-1 rounded border ${
+              status === "paid" ? "bg-black text-white" : ""
+            }`}
           >
             Paid
           </Link>
@@ -204,7 +214,9 @@ export default async function SettlementsPage({
         <div className="p-4 rounded-xl border">
           <div className="text-sm text-muted-foreground">Total Payout</div>
           <div className="text-2xl font-semibold">
-            ₹{items.reduce((a, b) => a + (b.totalReward || 0), 0).toLocaleString("en-IN")}
+            ₹{items
+              .reduce((a, b) => a + (b.totalReward || 0), 0)
+              .toLocaleString("en-IN")}
           </div>
         </div>
         <div className="p-4 rounded-xl border">
@@ -267,7 +279,10 @@ export default async function SettlementsPage({
                     </form>
                   ) : (
                     <span className="inline-flex px-2 py-1 text-xs rounded-full border">
-                      Paid {row.paidAt ? new Date(row.paidAt).toLocaleDateString("en-IN") : ""}
+                      Paid{" "}
+                      {row.paidAt
+                        ? new Date(row.paidAt).toLocaleDateString("en-IN")
+                        : ""}
                     </span>
                   )}
                 </td>
@@ -278,7 +293,8 @@ export default async function SettlementsPage({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Tip: set creator/agent percent in <code>referralConfig</code> if you plan to vary it later.
+        Tip: set creator/agent percent in <code>referralConfig</code> if you plan
+        to vary it later.
       </p>
     </div>
   );

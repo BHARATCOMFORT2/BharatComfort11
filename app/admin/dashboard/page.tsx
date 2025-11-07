@@ -255,6 +255,30 @@ export default function AdminDashboardPage() {
         <h3 className="text-lg font-semibold mb-4">Manage All Listings</h3>
         <ListingsManager />
       </section>
+{/* === Compliance & Partner Management === */}
+<section className="mb-12">
+  <h3 className="font-semibold mb-4">Partner Compliance</h3>
+  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+    <a
+      href="/admin/dashboard/kyc"
+      className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block"
+    >
+      🧾 Partner KYC Verification
+    </a>
+    <a
+      href="/admin/dashboard/settlements"
+      className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block"
+    >
+      💰 Settlements & Payouts
+    </a>
+    <a
+      href="/admin/dashboard/disputes"
+      className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block"
+    >
+      ⚠️ Disputes & SLA
+    </a>
+  </div>
+</section>
 
       {/* === Modals === */}
       <Modal isOpen={!!activeSection} onClose={() => setActiveSection(null)}>

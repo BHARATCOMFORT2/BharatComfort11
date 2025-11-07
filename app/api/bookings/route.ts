@@ -7,7 +7,7 @@ import { getAuth } from "firebase-admin/auth";
 import { adminDb } from "@/lib/firebaseadmin";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { sendEmail } from "@/lib/email";
-import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice"; // used if invoice generator returns a Buffer
+import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 
 type Role = "admin" | "partner" | "user";
 
@@ -30,7 +30,6 @@ export async function GET(req: Request) {
     const role = (decoded as any).role as Role || "user";
 
     const col = adminDb.collection("bookings");
-    // ✅ Start as a Query to avoid TS mismatch
     let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = col;
 
     if (role === "admin") {
@@ -44,7 +43,7 @@ export async function GET(req: Request) {
     const snap = await q.get();
     const bookings = snap.docs.map((d) => {
       const data = d.data() || {};
-      return { ...data, id: data.id || d.id }; // ✅ don't overwrite id if present in data
+      return { ...data, id: data.id || d.id };
     });
 
     return NextResponse.json({ success: true, bookings });
@@ -56,7 +55,6 @@ export async function GET(req: Request) {
 
 /**
  * 🔹 POST /api/bookings
- * Creates a new booking document
  * Body: { listingId, partnerId, amount, checkIn, checkOut, paymentMode, razorpayOrderId? }
  */
 export async function POST(req: Request) {
@@ -128,22 +126,28 @@ export async function POST(req: Request) {
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
 
-    // 🔹 Generate unpaid invoice for Pay-at-Property flows
+    // 🔹 Generate unpaid invoice for Pay-at-Property flows (type-safe call)
     if (paymentMode === "pay_at_hotel" || paymentMode === "pay_at_restaurant") {
+      const paymentId =
+        (typeof razorpayOrderId === "string" && razorpayOrderId) ||
+        `PAYLATER-${bookingId}`;
+
+      // ⬇️ Call with ONLY allowed fields: { bookingId, userId, paymentId, amount }
       const maybeUrlOrBuffer = await generateBookingInvoice({
         bookingId,
-        userEmail,
-        listingName: listing.name,
+        userId: uid,
+        paymentId,
         amount: Number(amount),
-        status: "Unpaid (Pay at Property)",
-        paymentMode: paymentMode === "pay_at_hotel" ? "Pay at Hotel" : "Pay at Restaurant",
       });
 
       // The generator may return a URL or a Buffer — handle both:
       let invoiceUrl = "";
       if (typeof maybeUrlOrBuffer === "string") {
         invoiceUrl = maybeUrlOrBuffer;
-      } else if (maybeUrlOrBuffer && typeof (maybeUrlOrBuffer as any).byteLength === "number") {
+      } else if (
+        maybeUrlOrBuffer &&
+        typeof (maybeUrlOrBuffer as any).byteLength === "number"
+      ) {
         const invoiceId = `INV-BK-${Date.now()}`;
         invoiceUrl = await uploadInvoiceToFirebase(
           maybeUrlOrBuffer as Buffer,

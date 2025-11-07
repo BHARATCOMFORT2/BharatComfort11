@@ -106,19 +106,21 @@ export default function PartnerDashboard() {
 
   /* -------------------- Auth + Firestore -------------------- */
   useEffect(() => {
-    const unsubAuth: any, unsubListings: any, unsubBookings: any;
+    let unsubListings: (() => void) | null = null;
+    let unsubBookings: (() => void) | null = null;
 
-    unsubAuth = onAuthStateChanged(auth, async (user) => {
+    const unsubAuth = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.push("/auth/login");
         return;
       }
+
       const t = await user.getIdToken();
       setToken(t);
 
-      // partner doc
       const ref = doc(db, "partners", user.uid);
       const snap = await getDoc(ref);
+
       if (!snap.exists()) {
         await setDoc(ref, {
           uid: user.uid,
@@ -136,30 +138,33 @@ export default function PartnerDashboard() {
         kyc: partnerData.kyc || { status: "pending" },
       });
 
-      // listings
+      // listings subscription
       unsubListings = onSnapshot(
         query(collection(db, "listings"), where("createdBy", "==", user.uid)),
         (s) => setStats((p) => ({ ...p, listings: s.size }))
       );
 
-      // bookings
+      // bookings subscription
       const q = query(
         collection(db, "bookings"),
         where("partnerId", "==", user.uid),
         orderBy("createdAt", "desc")
       );
+
       unsubBookings = onSnapshot(q, (s) => {
         const list = s.docs.map((d) => ({ id: d.id, ...(d.data() as any) }));
         const total = list.reduce((a, b) => a + (Number(b.amount) || 0), 0);
         setStats((p) => ({ ...p, bookings: list.length, earnings: total }));
         setRecentBookings(list.slice(0, 5));
       });
+
       setLoading(false);
     });
+
     return () => {
-      unsubListings && unsubListings();
-      unsubBookings && unsubBookings();
-      unsubAuth && unsubAuth();
+      if (unsubListings) unsubListings();
+      if (unsubBookings) unsubBookings();
+      unsubAuth();
     };
   }, [router]);
 

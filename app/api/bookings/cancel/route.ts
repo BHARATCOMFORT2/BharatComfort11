@@ -1,6 +1,6 @@
 export const runtime = "nodejs";          // ✅ Force Node.js runtime
 export const dynamic = "force-dynamic";   // ✅ Disable static optimization
-import "server-only";                     // ✅ Prevent client/edge bundling
+import "server-only";
 
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
@@ -9,36 +9,33 @@ import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
 
-/**
- * POST /api/bookings/cancel
- * Body: { bookingId: string, reason?: string }
- *
- * - Razorpay bookings: auto refund + refund invoice + email
- * - Pay-at-Hotel/Restaurant: immediate cancel (no refund)
- */
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader)
+    if (!authHeader) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
 
     const token = authHeader.replace("Bearer ", "");
     const decoded = await getAuth().verifyIdToken(token);
     const uid = decoded.uid;
 
     const { bookingId, reason = "User requested cancellation" } = await req.json();
-    if (!bookingId)
+    if (!bookingId) {
       return NextResponse.json({ error: "bookingId is required" }, { status: 400 });
+    }
 
-    // ✅ Admin SDK syntax
+    // ✅ Admin SDK Firestore
     const bookingRef = db.collection("bookings").doc(bookingId);
     const bookingSnap = await bookingRef.get();
-    if (!bookingSnap.exists)
+    if (!bookingSnap.exists) {
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
+    }
 
-    const booking = bookingSnap.data()!;
-    if (booking.userId !== uid)
+    const booking = bookingSnap.data() as any;
+    if (booking.userId !== uid) {
       return NextResponse.json({ error: "Forbidden: not your booking" }, { status: 403 });
+    }
 
     const paymentMode = booking.paymentMode || "razorpay";
     const status = booking.status || "";
@@ -72,12 +69,14 @@ export async function POST(req: Request) {
 
       // 🔸 Create refund record
       const refundRef = db.collection("refunds").doc();
+      const refundAmount = Number(booking.amount) || 0;
+
       await refundRef.set({
         id: refundRef.id,
         bookingId,
         userId: uid,
         partnerId: booking.partnerId || null,
-        amount: booking.amount || 0,
+        amount: refundAmount,
         paymentMode: "razorpay",
         refundMode: "original",
         refundStatus: "processed",
@@ -86,34 +85,29 @@ export async function POST(req: Request) {
         notes: reason,
       });
 
-      // 🔸 Lazy import refund invoice generator (Node-only)
+      // 🔸 Generate refund invoice (PASS ONLY WHAT THE TYPE EXPECTS)
       const { generateRefundInvoice } = await import("@/lib/invoices/generateRefundInvoice");
-
-      // 🔸 Generate refund invoice
-      const invoiceId = `INV-RF-${Date.now()}`;
       const pdfBuffer = await generateRefundInvoice({
         refundId: refundRef.id,
         bookingId,
-        invoiceId,
-        userName: booking.userName || decoded.name || "User",
-        userEmail: booking.userEmail || decoded.email || "",
-        amount: booking.amount,
-        paymentMode: "razorpay",
+        userId: uid,
+        amount: refundAmount,
+        mode: "razorpay",
         reason,
-        createdAt: new Date(),
       });
 
-      // 🔸 Upload invoice PDF
+      // 🔸 Create our own invoice id & upload the PDF
+      const invoiceId = `INV-RF-${Date.now()}`;
       const invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
 
-      // 🔸 Save invoice details
+      // 🔸 Save invoice meta on refund doc
       await refundRef.update({
         invoiceId,
         invoiceUrl,
         invoiceGeneratedAt: new Date(),
       });
 
-      // 🔸 Send refund confirmation email
+      // 🔸 Email user (best-effort)
       try {
         const userEmail = booking.userEmail || decoded.email || "";
         if (userEmail) {
@@ -123,9 +117,9 @@ export async function POST(req: Request) {
             `
               <p>Hi ${booking.userName || "User"},</p>
               <p>Your refund for booking <b>${bookingId}</b> has been processed successfully.</p>
-              <p>Amount Refunded: ₹${booking.amount}</p>
+              <p>Amount Refunded: ₹${refundAmount}</p>
               <p>You can download your refund invoice here:</p>
-              <p><a href="${invoiceUrl}" target="_blank">${invoiceUrl}</a></p>
+              <p><a href="${invoiceUrl}" target="_blank" rel="noopener noreferrer">${invoiceUrl}</a></p>
               <p>Thank you for using BharatComfort11.</p>
             `
           );
@@ -134,13 +128,13 @@ export async function POST(req: Request) {
         console.warn("⚠️ Refund email failed:", e);
       }
 
-      // 🔸 Push admin notification
+      // 🔸 Admin notification
       await pushInvoiceNotification({
         type: "refund",
         invoiceId,
         invoiceUrl,
         userId: uid,
-        amount: booking.amount,
+        amount: refundAmount,
         relatedId: bookingId,
       });
 

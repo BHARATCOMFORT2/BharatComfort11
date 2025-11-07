@@ -4,236 +4,325 @@ import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
 import {
   collection,
+  getDocs,
   query,
   orderBy,
-  getDocs,
+  where,
+  Timestamp,
 } from "firebase/firestore";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Wallet,
-  TrendingUp,
-  FileText,
-  AlertTriangle,
-  IndianRupee,
-} from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
+import { Wallet, RefreshCcw, Filter, Calendar } from "lucide-react";
 import { exportFinanceCSV, exportFinancePDF } from "@/lib/utils/exportFinanceReport";
 
-export default function AdminFinanceDashboard() {
-  const [stats, setStats] = useState({
-    totalRevenue: 0,
+export default function AdminFinancePage() {
+  const [activeTab, setActiveTab] = useState("settlements");
+  const [loading, setLoading] = useState(true);
+  const [settlements, setSettlements] = useState<any[]>([]);
+  const [withdrawals, setWithdrawals] = useState<any[]>([]);
+  const [referrals, setReferrals] = useState<any[]>([]);
+  const [summary, setSummary] = useState({
+    totalSettlements: 0,
+    totalWithdrawals: 0,
+    totalReferrals: 0,
     totalPayouts: 0,
-    pendingSettlements: 0,
-    gstCollected: 0,
-    totalCommission: 0,
-    disputedCount: 0,
   });
 
-  const [monthlyData, setMonthlyData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Date Filter
+  const [dateRange, setDateRange] = useState("month"); // today | week | month | custom
+  const [customStart, setCustomStart] = useState<string>("");
+  const [customEnd, setCustomEnd] = useState<string>("");
 
   useEffect(() => {
-    const fetchFinance = async () => {
-      try {
-        const settlementsSnap = await getDocs(
-          query(collection(db, "settlements"), orderBy("createdAt", "desc"))
-        );
+    loadFinanceData();
+  }, [dateRange, customStart, customEnd]);
 
-        const settlements = settlementsSnap.docs.map((d) => ({
-          id: d.id,
-          ...d.data(),
-        }));
+  const getDateRange = () => {
+    const now = new Date();
+    let startDate = new Date();
 
-        const totalPayouts = settlements
-          .filter((s) => s.status === "paid")
-          .reduce((sum, s) => sum + (s.amount || 0), 0);
-
-        const pendingSettlements = settlements.filter((s) =>
-          ["pending", "approved", "on_hold"].includes(s.status)
-        ).length;
-
-        const totalRevenue = totalPayouts * 1.1; // 10% margin assumption
-        const totalCommission = totalPayouts * 0.1;
-        const gstCollected = totalCommission * 0.18;
-
-        // Disputes
-        const disputesSnap = await getDocs(collection(db, "settlement_disputes"));
-        const disputedCount = disputesSnap.docs.length;
-
-        // Monthly chart data
-        const months = Array.from({ length: 12 }, (_, i) =>
-          new Date(0, i).toLocaleString("default", { month: "short" })
-        );
-
-        const chartData = months.map((m, idx) => {
-          const monthSettlements = settlements.filter(
-            (s) => new Date(s.createdAt?.seconds * 1000).getMonth() === idx
-          );
-          return {
-            month: m,
-            Payouts: monthSettlements
-              .filter((s) => s.status === "paid")
-              .reduce((sum, s) => sum + (s.amount || 0), 0),
-            Revenue: monthSettlements
-              .filter((s) => ["approved", "paid"].includes(s.status))
-              .reduce((sum, s) => sum + (s.amount || 0) * 1.1, 0),
-          };
-        });
-
-        setStats({
-          totalRevenue,
-          totalPayouts,
-          pendingSettlements,
-          gstCollected,
-          totalCommission,
-          disputedCount,
-        });
-        setMonthlyData(chartData);
-      } catch (error) {
-        console.error("Admin finance fetch error:", error);
-      } finally {
-        setLoading(false);
-      }
+    if (dateRange === "today") {
+      startDate.setHours(0, 0, 0, 0);
+    } else if (dateRange === "week") {
+      startDate.setDate(now.getDate() - 7);
+    } else if (dateRange === "month") {
+      startDate.setDate(now.getDate() - 30);
+    } else if (dateRange === "custom" && customStart && customEnd) {
+      startDate = new Date(customStart);
+      return {
+        start: Timestamp.fromDate(startDate),
+        end: Timestamp.fromDate(new Date(customEnd)),
+      };
+    }
+    return {
+      start: Timestamp.fromDate(startDate),
+      end: Timestamp.fromDate(now),
     };
+  };
 
-    fetchFinance();
-  }, []);
+  async function loadFinanceData() {
+    try {
+      setLoading(true);
+      const { start, end } = getDateRange();
 
-  const format = (n: number) => n.toLocaleString("en-IN");
+      // Queries with date filters
+      const settlementQuery = query(
+        collection(db, "settlements"),
+        where("createdAt", ">=", start),
+        where("createdAt", "<=", end),
+        orderBy("createdAt", "desc")
+      );
+      const withdrawQuery = query(
+        collection(db, "withdraw_requests"),
+        where("createdAt", ">=", start),
+        where("createdAt", "<=", end),
+        orderBy("createdAt", "desc")
+      );
+      const referralQuery = query(
+        collection(db, "referrals"),
+        where("createdAt", ">=", start),
+        where("createdAt", "<=", end),
+        orderBy("createdAt", "desc")
+      );
 
-  if (loading) {
-    return <div className="p-6 text-gray-500">Loading...</div>;
+      const [settleSnap, withdrawSnap, referralSnap] = await Promise.all([
+        getDocs(settlementQuery),
+        getDocs(withdrawQuery),
+        getDocs(referralQuery),
+      ]);
+
+      const settlementsData = settleSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const withdrawalData = withdrawSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const referralData = referralSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      // Totals
+      const totalSettlements = settlementsData
+        .filter((s) => s.status === "paid")
+        .reduce((a, b) => a + (Number(b.amount) || 0), 0);
+      const totalWithdrawals = withdrawalData
+        .filter((s) => s.status === "paid")
+        .reduce((a, b) => a + (Number(b.amount) || 0), 0);
+      const totalReferrals = referralData.reduce(
+        (a, b) => a + (Number(b.rewardAmount) || 0),
+        0
+      );
+      const totalPayouts = totalSettlements + totalWithdrawals + totalReferrals;
+
+      setSettlements(settlementsData);
+      setWithdrawals(withdrawalData);
+      setReferrals(referralData);
+      setSummary({
+        totalSettlements,
+        totalWithdrawals,
+        totalReferrals,
+        totalPayouts,
+      });
+    } catch (err) {
+      console.error("Finance data load error:", err);
+    } finally {
+      setLoading(false);
+    }
   }
+
+  const currentData =
+    activeTab === "settlements"
+      ? settlements
+      : activeTab === "withdrawals"
+      ? withdrawals
+      : referrals;
+
+  const format = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
   return (
     <div className="p-6">
-      <h2 className="text-2xl font-semibold mb-5 flex items-center">
-        <Wallet className="mr-2 text-green-600" /> Admin Finance Dashboard
-      </h2>
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between mb-5 gap-3">
+        <h2 className="text-2xl font-bold flex items-center gap-2">
+          <Wallet className="text-green-600" /> Finance Analytics Center
+        </h2>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            onClick={loadFinanceData}
+            className="bg-gray-700 hover:bg-gray-800 flex items-center gap-1"
+          >
+            <RefreshCcw className="h-4 w-4" /> Refresh
+          </Button>
+          <Button
+            onClick={() => exportFinanceCSV(currentData)}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            Export CSV
+          </Button>
+          <Button
+            onClick={() => exportFinancePDF(summary, currentData)}
+            className="bg-blue-600 hover:bg-blue-700"
+          >
+            Export PDF
+          </Button>
+        </div>
+      </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+      {/* Date Filter */}
+      <div className="flex flex-wrap gap-2 mb-6 items-center">
+        {["today", "week", "month"].map((range) => (
+          <Button
+            key={range}
+            onClick={() => setDateRange(range)}
+            variant={dateRange === range ? "default" : "outline"}
+            className={
+              dateRange === range
+                ? "bg-blue-600 text-white"
+                : "bg-white text-gray-700"
+            }
+          >
+            <Calendar className="mr-2 h-4 w-4" />{" "}
+            {range === "today"
+              ? "Today"
+              : range === "week"
+              ? "This Week"
+              : "This Month"}
+          </Button>
+        ))}
+
+        {/* Custom Range */}
+        <Button
+          onClick={() => setDateRange("custom")}
+          variant={dateRange === "custom" ? "default" : "outline"}
+          className={
+            dateRange === "custom"
+              ? "bg-blue-600 text-white"
+              : "bg-white text-gray-700"
+          }
+        >
+          <Calendar className="mr-2 h-4 w-4" /> Custom
+        </Button>
+
+        {dateRange === "custom" && (
+          <div className="flex gap-2 items-center ml-2">
+            <input
+              type="date"
+              value={customStart}
+              onChange={(e) => setCustomStart(e.target.value)}
+              className="border p-2 rounded-lg"
+            />
+            <span>to</span>
+            <input
+              type="date"
+              value={customEnd}
+              onChange={(e) => setCustomEnd(e.target.value)}
+              className="border p-2 rounded-lg"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Summary Bar */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Card>
           <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Total Revenue</p>
+            <p className="text-sm text-gray-500">Total Settlements</p>
             <h3 className="text-xl font-semibold text-green-700">
-              ₹{format(stats.totalRevenue)}
+              {format(summary.totalSettlements)}
             </h3>
           </CardContent>
         </Card>
-
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-500">Total Withdrawals</p>
+            <h3 className="text-xl font-semibold text-blue-700">
+              {format(summary.totalWithdrawals)}
+            </h3>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="p-4">
+            <p className="text-sm text-gray-500">Referral Rewards</p>
+            <h3 className="text-xl font-semibold text-indigo-700">
+              {format(summary.totalReferrals)}
+            </h3>
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="p-4">
             <p className="text-sm text-gray-500">Total Payouts</p>
-            <h3 className="text-xl font-semibold text-blue-700">
-              ₹{format(stats.totalPayouts)}
-            </h3>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Pending Settlements</p>
-            <h3 className="text-xl font-semibold text-yellow-700">
-              {stats.pendingSettlements}
-            </h3>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Total Commission</p>
-            <h3 className="text-xl font-semibold text-indigo-700">
-              ₹{format(stats.totalCommission)}
-            </h3>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-gray-500">GST (18%)</p>
-            <h3 className="text-xl font-semibold text-purple-700">
-              ₹{format(stats.gstCollected)}
-            </h3>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-4">
-            <p className="text-sm text-gray-500">Total Disputes</p>
-            <h3 className="text-xl font-semibold text-red-700">
-              {stats.disputedCount}
+            <h3 className="text-xl font-semibold text-gray-900">
+              {format(summary.totalPayouts)}
             </h3>
           </CardContent>
         </Card>
       </div>
 
-      {/* Monthly Chart */}
-      <Card className="mb-6">
-        <CardContent className="p-5">
-          <h3 className="text-lg font-semibold mb-4 flex items-center">
-            <TrendingUp className="mr-2 text-blue-600" /> Monthly Performance
-          </h3>
-          <div className="w-full h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={monthlyData}>
-                <XAxis dataKey="month" />
-                <YAxis />
-                <Tooltip />
-                <Bar dataKey="Revenue" />
-                <Bar dataKey="Payouts" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Export Section */}
-      <div className="flex gap-3 mb-6">
-        <Button
-          onClick={() => exportFinanceCSV(monthlyData)}
-          className="bg-green-600 hover:bg-green-700"
-        >
-          <FileText className="mr-2" /> Export CSV
-        </Button>
-        <Button
-          onClick={() => exportFinancePDF(stats, monthlyData)}
-          className="bg-blue-600 hover:bg-blue-700"
-        >
-          <IndianRupee className="mr-2" /> Export PDF
-        </Button>
+      {/* Tabs */}
+      <div className="flex gap-2 mb-4">
+        {["settlements", "withdrawals", "referrals"].map((tab) => (
+          <Button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            variant={activeTab === tab ? "default" : "outline"}
+            className={
+              activeTab === tab ? "bg-blue-600 text-white" : "bg-white text-gray-700"
+            }
+          >
+            <Filter className="mr-2 h-4 w-4" />{" "}
+            {tab.charAt(0).toUpperCase() + tab.slice(1)}
+          </Button>
+        ))}
       </div>
 
-      {/* Quick Insights */}
-      <Card>
-        <CardContent className="p-5">
-          <h3 className="text-lg font-semibold mb-3 flex items-center">
-            <AlertTriangle className="mr-2 text-yellow-600" /> Quick Insights
-          </h3>
-          <ul className="list-disc list-inside text-sm text-gray-700 space-y-1">
-            <li>
-              <b>{stats.pendingSettlements}</b> settlements are pending approval or payout.
-            </li>
-            <li>
-              <b>{stats.disputedCount}</b> disputes are under review.
-            </li>
-            <li>
-              Estimated <b>GST collected:</b> ₹{format(stats.gstCollected)}.
-            </li>
-            <li>
-              Commission margin currently at <b>10%</b> base rate.
-            </li>
-          </ul>
-        </CardContent>
-      </Card>
+      {/* Data Table */}
+      {loading ? (
+        <p className="text-gray-500">Loading data...</p>
+      ) : (
+        <div className="bg-white rounded-xl shadow overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 text-gray-700 border-b">
+              <tr>
+                <th className="p-3 text-left">ID</th>
+                <th className="p-3 text-left">User / Partner</th>
+                <th className="p-3 text-left">Amount</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              {currentData.map((r) => (
+                <tr key={r.id} className="border-b hover:bg-gray-50">
+                  <td className="p-3">{r.id.slice(0, 8)}</td>
+                  <td className="p-3">
+                    {r.partnerId || r.userId || r.referrerId || "--"}
+                  </td>
+                  <td className="p-3">{format(r.amount || r.rewardAmount || 0)}</td>
+                  <td
+                    className={`p-3 capitalize ${
+                      r.status === "paid"
+                        ? "text-green-600"
+                        : r.status === "pending"
+                        ? "text-yellow-600"
+                        : r.status === "rejected"
+                        ? "text-red-600"
+                        : "text-blue-600"
+                    }`}
+                  >
+                    {r.status || "completed"}
+                  </td>
+                  <td className="p-3 text-gray-500">
+                    {r.createdAt?.toDate
+                      ? r.createdAt.toDate().toLocaleDateString()
+                      : "--"}
+                  </td>
+                </tr>
+              ))}
+              {currentData.length === 0 && (
+                <tr>
+                  <td className="p-4 text-gray-500 text-center" colSpan={5}>
+                    No records found for {activeTab}.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

@@ -9,9 +9,9 @@ import {
   query,
 } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/Button";
+import { Card, CardContent } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
 import { Loader2, CheckCircle, AlertTriangle, Ban, Wallet } from "lucide-react";
 
 export default function AdminSettlementsPage() {

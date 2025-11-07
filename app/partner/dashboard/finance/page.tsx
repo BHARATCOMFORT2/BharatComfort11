@@ -18,8 +18,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { FileText, Wallet2, TrendingUp, Clock } from "lucide-react";
 import { exportFinanceCSV, exportFinancePDF } from "@/lib/utils/exportFinanceReport";
 import PartnerDisputeModal from "@/components/settlements/PartnerDisputeModal";

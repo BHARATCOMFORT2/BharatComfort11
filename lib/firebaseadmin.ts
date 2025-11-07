@@ -1,3 +1,4 @@
+import "server-only";
 import * as admin from "firebase-admin";
 
 /**
@@ -68,11 +69,12 @@ export function getFirebaseAdmin() {
 }
 
 /* ============================================================
-   💾 LEGACY EXPORT (for backward compatibility)
-   👉 Some APIs import { db } — this maps safely to adminDb.
-   📝 TODO Later: Replace all { db } imports with { adminDb }.
+   💾 LEGACY EXPORTS (Backward Compatibility)
+   👉 Keeps old imports working, e.g. { admin }, { db }, { storage }
 ============================================================ */
-export const db = adminDb;
+export { admin };               // Fixes "Attempted import error: 'admin'..."
+export const db = adminDb;      // Some routes import { db }
+export const storage = adminStorage; // Fixes "Attempted import error: 'storage'..."
 
 /* ============================================================
    🧠 DEV CONNECTION CHECK

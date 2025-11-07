@@ -1,10 +1,12 @@
+// app/api/admin/kyc/review/route.ts
 import { NextResponse } from "next/server";
-import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
+import { sendEmail } from "@/lib/email";
 
 /**
  * POST /api/admin/kyc/review
- * Body: { partnerId, action: "approve" | "reject", remark?: string }
+ * Body: { partnerId: string, action: "approve" | "reject", remark?: string }
+ * (Role check is expected via Firestore Rules or middleware)
  */
 export async function POST(req: Request) {
   try {
@@ -24,7 +26,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Partner not found" }, { status: 404 });
     }
 
+    const partner = partnerSnap.data()!;
     const status = action === "approve" ? "approved" : "rejected";
+    const partnerEmail = partner.email || "-";
+    const partnerName = partner.businessName || partner.name || "Partner";
 
     await partnerRef.update({
       "kyc.status": status,
@@ -32,6 +37,34 @@ export async function POST(req: Request) {
       "kyc.remark": remark,
       updatedAt: new Date(),
     });
+
+    // --- Email to partner about decision ---
+    try {
+      if (partnerEmail && partnerEmail !== "-") {
+        await sendEmail(
+          partnerEmail,
+          status === "approved"
+            ? "🎉 KYC Approved — BharatComfort11"
+            : "⚠️ KYC Rejected — BharatComfort11",
+          `
+            <h3>Hi ${partnerName},</h3>
+            <p>Your KYC review is complete.</p>
+            <p><b>Status:</b> ${status.toUpperCase()}</p>
+            ${
+              status === "rejected"
+                ? `<p><b>Reason:</b> ${remark || "Not specified"}</p>`
+                : ""
+            }
+            <p>${status === "approved"
+              ? "You can now access all partner features, including settlements."
+              : "Please update and resubmit your documents from the KYC page."
+            }</p>
+          `
+        );
+      }
+    } catch (e) {
+      console.warn("Partner decision email failed:", e);
+    }
 
     return NextResponse.json({
       success: true,

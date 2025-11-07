@@ -19,7 +19,7 @@ import {
 import DataList from "@/components/dashboard/DataList";
 
 /* ============================================================
-   🖼️ Image Upload (via /api/uploads)
+   🖼️ Image Upload via /api/uploads
 ============================================================ */
 const ImageUpload = ({ images, onChange, maxFiles = 5 }) => {
   const [uploading, setUploading] = useState(false);
@@ -27,7 +27,6 @@ const ImageUpload = ({ images, onChange, maxFiles = 5 }) => {
   const handleFileChange = async (e) => {
     if (!e.target.files?.length) return;
     const files = Array.from(e.target.files).slice(0, maxFiles - images.length);
-
     setUploading(true);
     const uploadedUrls: string[] = [];
 
@@ -56,10 +55,7 @@ const ImageUpload = ({ images, onChange, maxFiles = 5 }) => {
       {uploading && <p className="text-blue-600 mb-2">Uploading...</p>}
       <div className="flex flex-wrap gap-2">
         {images.map((url) => (
-          <div
-            key={url}
-            className="relative w-24 h-24 border rounded overflow-hidden"
-          >
+          <div key={url} className="relative w-24 h-24 border rounded overflow-hidden">
             <img src={url} alt="preview" className="object-cover w-full h-full" />
             <button
               onClick={() => onChange(images.filter((i) => i !== url))}
@@ -75,9 +71,9 @@ const ImageUpload = ({ images, onChange, maxFiles = 5 }) => {
 };
 
 /* ============================================================
-   🧩 Homepage Section Editor (uses /api/admin/homepage)
+   🧩 Homepage Section Editor (Connected)
 ============================================================ */
-const SectionEditor = ({ sectionId }: { sectionId: string }) => {
+const SectionEditor = ({ sectionId, token }: { sectionId: string; token: string }) => {
   const [title, setTitle] = useState("");
   const [subtitle, setSubtitle] = useState("");
   const [images, setImages] = useState<string[]>([]);
@@ -85,7 +81,9 @@ const SectionEditor = ({ sectionId }: { sectionId: string }) => {
 
   useEffect(() => {
     const loadSection = async () => {
-      const res = await fetch(`/api/admin/homepage?section=${sectionId}`);
+      const res = await fetch(`/api/admin/homepage?section=${sectionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
       if (data.success && data.section) {
         setTitle(data.section.title || "");
@@ -95,12 +93,15 @@ const SectionEditor = ({ sectionId }: { sectionId: string }) => {
       setLoading(false);
     };
     loadSection();
-  }, [sectionId]);
+  }, [sectionId, token]);
 
   const handleSave = async () => {
     const res = await fetch(`/api/admin/homepage`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body: JSON.stringify({ sectionId, title, subtitle, images }),
     });
     const data = await res.json();
@@ -143,37 +144,52 @@ export default function AdminDashboardPage() {
   const { firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
 
+  const [token, setToken] = useState<string>("");
   const [stats, setStats] = useState({ users: 0, partners: 0, listings: 0, staffs: 0 });
   const [chartData, setChartData] = useState([]);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [selectedStat, setSelectedStat] = useState<string | null>(null);
 
+  /* --- Ensure only admins can access --- */
   useEffect(() => {
     if (!loading && (!firebaseUser || profile?.role !== "admin")) {
       alert("❌ Not authorized");
       router.push("/");
+    } else if (firebaseUser) {
+      firebaseUser.getIdToken().then((t) => setToken(t));
     }
   }, [firebaseUser, profile, loading, router]);
 
-  // Load stats + chart from backend APIs
+  /* --- Authenticated Fetch Helper --- */
+  const authFetch = async (url: string, options: any = {}) => {
+    const headers = {
+      ...(options.headers || {}),
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+    return fetch(url, { ...options, headers });
+  };
+
+  /* --- Load Stats and Charts --- */
   useEffect(() => {
-    if (!profile || profile.role !== "admin") return;
+    if (!token || !profile || profile.role !== "admin") return;
 
-    const fetchStats = async () => {
-      const res = await fetch("/api/admin/stats");
+    const fetchReports = async () => {
+      const res = await authFetch("/api/reports");
       const data = await res.json();
-      if (data.success) setStats(data.stats);
+      if (data.success) {
+        const s = data.summary;
+        setStats({
+          users: s.totalBookings || 0,
+          partners: s.totalPartners || 0,
+          listings: s.totalSettlements || 0,
+          staffs: s.totalRevenue ? Math.floor(s.totalRevenue / 1000) : 0,
+        });
+        setChartData(data.charts.last7Bookings || []);
+      }
     };
-
-    const fetchChart = async () => {
-      const res = await fetch("/api/bookings?range=7days");
-      const data = await res.json();
-      if (data.success) setChartData(data.chart);
-    };
-
-    fetchStats();
-    fetchChart();
-  }, [profile]);
+    fetchReports();
+  }, [token, profile]);
 
   if (loading || !profile)
     return <p className="text-center py-12">Loading dashboard...</p>;
@@ -204,7 +220,7 @@ export default function AdminDashboardPage() {
         ))}
       </div>
 
-      {/* === Homepage Editor === */}
+      {/* === Homepage Section Editor === */}
       <section className="mb-12">
         <h3 className="font-semibold mb-4">Homepage Sections</h3>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -242,11 +258,11 @@ export default function AdminDashboardPage() {
 
       {/* === Modals === */}
       <Modal isOpen={!!activeSection} onClose={() => setActiveSection(null)}>
-        {activeSection && <SectionEditor sectionId={activeSection} />}
+        {activeSection && token && <SectionEditor sectionId={activeSection} token={token} />}
       </Modal>
 
       <Modal isOpen={!!selectedStat} onClose={() => setSelectedStat(null)}>
-        {selectedStat && <DataList collectionName={selectedStat} />}
+        {selectedStat && <DataList collectionName={selectedStat} token={token} />}
       </Modal>
     </DashboardLayout>
   );

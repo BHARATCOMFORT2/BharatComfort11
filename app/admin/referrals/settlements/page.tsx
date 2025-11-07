@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import "server-only";
 
 import { db } from "@/lib/firebaseadmin";
-import { revalidatePath } from "next/cache";
+import { approvePayoutAction } from "./actions"; // ✅ Imported server action
 import Link from "next/link";
 
 /**
@@ -55,86 +55,6 @@ async function fetchStats(monthKey: string, status: "pending" | "paid") {
     });
   }
   return items;
-}
-
-/** 💳 Server Action: approve & credit wallet (atomic) */
-export async function approvePayoutAction(formData: FormData) {
-  "use server";
-
-  const monthKey = String(formData.get("monthKey"));
-  const uid = String(formData.get("uid"));
-  const totalReward = Number(formData.get("totalReward"));
-  const docId = String(formData.get("docId"));
-
-  if (!monthKey || !uid || !docId || !Number.isFinite(totalReward) || totalReward <= 0) {
-    throw new Error("Invalid payout data");
-  }
-
-  const monthDocRef = db
-    .collection("referralStatsMonthly")
-    .doc(monthKey)
-    .collection("users")
-    .doc(uid);
-
-  const userRef = db.collection("users").doc(uid);
-
-  await db.runTransaction(async (tx) => {
-    const monthDoc = await tx.get(monthDocRef);
-    if (!monthDoc.exists) throw new Error("Monthly stat not found");
-
-    const cur = monthDoc.data() as MonthlyStat;
-    if (cur.payoutStatus === "paid") {
-      throw new Error("Already paid");
-    }
-
-    const userSnap = await tx.get(userRef);
-    const udata = userSnap.data() || {};
-    const newBalance = (udata.walletBalance || 0) + totalReward;
-
-    // 1️⃣ Credit wallet balance + totals
-    tx.set(
-      userRef,
-      {
-        walletBalance: newBalance,
-        totalEarnings: (udata.totalEarnings || 0) + totalReward,
-        updatedAt: new Date(),
-      },
-      { merge: true }
-    );
-
-    // 2️⃣ Add wallet history log
-    const walletRef = userRef.collection("wallet").doc();
-    tx.set(walletRef, {
-      id: walletRef.id,
-      type: "credit",
-      source: "monthly_creator_agent_reward",
-      monthKey,
-      amount: totalReward,
-      createdAt: new Date(),
-    });
-
-    // 3️⃣ Mark monthly stat as paid
-    tx.set(
-      monthDocRef,
-      {
-        payoutStatus: "paid",
-        paidAt: new Date(),
-      },
-      { merge: true }
-    );
-  });
-
-  // Optional: add admin system log
-  await db.collection("system_logs").add({
-    type: "settlement_paid",
-    monthKey,
-    uid,
-    amount: totalReward,
-    createdAt: new Date(),
-  });
-
-  // Revalidate page cache
-  revalidatePath("/admin/referrals/settlements");
 }
 
 function MonthSwitcher({
@@ -214,9 +134,7 @@ export default async function AdminReferralSettlementsPage({
         <div className="p-4 rounded-xl border">
           <div className="text-sm text-muted-foreground">Total Payout</div>
           <div className="text-2xl font-semibold">
-            ₹{items
-              .reduce((a, b) => a + (b.totalReward || 0), 0)
-              .toLocaleString("en-IN")}
+            ₹{items.reduce((a, b) => a + (b.totalReward || 0), 0).toLocaleString("en-IN")}
           </div>
         </div>
         <div className="p-4 rounded-xl border">

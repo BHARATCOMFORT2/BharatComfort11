@@ -15,8 +15,17 @@ import {
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { useAuth } from "@/hooks/useAuth";
 
-/* -------------------- Modal -------------------- */
-function Modal({ isOpen, title, onClose, children }) {
+/* =========================================================
+   🔹 Modal Component (Typed)
+========================================================= */
+type ModalProps = {
+  isOpen: boolean;
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+};
+
+function Modal({ isOpen, title, onClose, children }: ModalProps) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
@@ -34,12 +43,35 @@ function Modal({ isOpen, title, onClose, children }) {
   );
 }
 
-/* -------------------- Admin KYC Management -------------------- */
+/* =========================================================
+   🔹 Admin KYC Management Page
+========================================================= */
+interface PartnerData {
+  id: string;
+  name?: string;
+  businessName?: string;
+  email?: string;
+  phone?: string;
+  kyc?: {
+    panNumber?: string;
+    gstNumber?: string;
+    status?: "submitted" | "pending" | "approved" | "rejected";
+    submittedAt?: any;
+    approvedAt?: any;
+    rejectedAt?: any;
+    rejectionReason?: string;
+    documents?: Record<string, string>;
+  };
+}
+
 export default function AdminKYCPage() {
   const { firebaseUser, profile, loading } = useAuth();
-  const [kycList, setKycList] = useState([]);
-  const [selected, setSelected] = useState(null);
+  const [kycList, setKycList] = useState<PartnerData[]>([]);
+  const [selected, setSelected] = useState<PartnerData | null>(null);
 
+  /* ---------------------------------------------------------
+     📡 Fetch Pending KYC
+  --------------------------------------------------------- */
   useEffect(() => {
     if (!firebaseUser) return;
 
@@ -50,14 +82,19 @@ export default function AdminKYCPage() {
     );
 
     const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      const docs = snap.docs.map(
+        (d) => ({ id: d.id, ...(d.data() as PartnerData) }) as PartnerData
+      );
       setKycList(docs);
     });
 
     return () => unsub();
   }, [firebaseUser]);
 
-  const handleApprove = async (partnerId) => {
+  /* ---------------------------------------------------------
+     ✅ Approve / ❌ Reject
+  --------------------------------------------------------- */
+  const handleApprove = async (partnerId: string) => {
     if (!confirm("Approve this KYC?")) return;
     await updateDoc(doc(db, "partners", partnerId), {
       "kyc.status": "approved",
@@ -67,7 +104,7 @@ export default function AdminKYCPage() {
     setSelected(null);
   };
 
-  const handleReject = async (partnerId) => {
+  const handleReject = async (partnerId: string) => {
     const reason = prompt("Enter reason for rejection:");
     if (!reason) return;
     await updateDoc(doc(db, "partners", partnerId), {
@@ -79,6 +116,9 @@ export default function AdminKYCPage() {
     setSelected(null);
   };
 
+  /* ---------------------------------------------------------
+     🧭 Render
+  --------------------------------------------------------- */
   if (loading) return <p className="text-center py-12">Loading...</p>;
 
   if (profile?.role !== "admin") {
@@ -144,7 +184,7 @@ export default function AdminKYCPage() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* 🔍 KYC Modal */}
       <Modal
         isOpen={!!selected}
         title={`KYC Details - ${selected?.businessName || selected?.name}`}
@@ -164,6 +204,7 @@ export default function AdminKYCPage() {
             <p>
               <strong>GST:</strong> {selected.kyc?.gstNumber || "-"}
             </p>
+
             <div className="grid sm:grid-cols-2 gap-3">
               {Object.entries(selected.kyc?.documents || {}).map(
                 ([key, url]) => (

@@ -35,10 +35,12 @@ import { exportFinanceCSV, exportFinancePDF } from "@/lib/utils/exportFinanceRep
 /* =========================================================
    🔹 TYPES
 ========================================================= */
+type PartnerType = "individual" | "company" | "firm" | "llp";
+
 interface SettlementRecord {
   id: string;
   partnerId?: string;
-  partnerType?: "individual" | "company" | "firm" | "llp";
+  partnerType?: PartnerType;
   amount?: number;
   status?: "pending" | "paid" | "failed";
   createdAt?: Timestamp;
@@ -88,8 +90,21 @@ function Modal({
 ========================================================= */
 const money = (n: number) => `₹${(n || 0).toLocaleString("en-IN")}`;
 
-const tdsRateFor = (partnerType?: string) => {
+const tdsRateFor = (partnerType?: PartnerType) => {
   return partnerType === "company" ? 0.05 : 0.01;
+};
+
+const toPartnerType = (v: any): PartnerType => {
+  switch (String(v || "").toLowerCase()) {
+    case "company":
+      return "company";
+    case "firm":
+      return "firm";
+    case "llp":
+      return "llp";
+    default:
+      return "individual";
+  }
 };
 
 /* =========================================================
@@ -154,16 +169,19 @@ export default function AdminFinancePage() {
           orderBy("createdAt", "desc")
         )
       );
+
+      // ✅ Fix duplicate ID and normalize partnerType
       let settlementsData: SettlementRecord[] = settleSnap.docs.map((d) => {
-  const data = d.data() as SettlementRecord;
-  return { ...data, id: data.id || d.id }; // ✅ keep Firestore id only if not in data
-});
+        const data = d.data() as SettlementRecord;
+        return { ...data, id: data.id || d.id };
+      });
 
       const partnerIds = Array.from(
         new Set(settlementsData.map((s) => s.partnerId).filter(Boolean))
       ) as string[];
 
-      const partnersById: Record<string, { partnerType?: string }> = {};
+      const partnersById: Record<string, { partnerType: PartnerType }> = {};
+
       if (partnerIds.length) {
         const batchSize = 10;
         for (let i = 0; i < partnerIds.length; i += batchSize) {
@@ -174,15 +192,18 @@ export default function AdminFinancePage() {
           ps.docs.forEach((p) => {
             const data = p.data() as any;
             partnersById[data.uid] = {
-              partnerType: data.partnerType || data.type || "individual",
+              partnerType: toPartnerType(data.partnerType || data.type),
             };
           });
         }
       }
 
+      // ✅ Normalize partnerType
       settlementsData = settlementsData.map((s) => ({
         ...s,
-        partnerType: partnersById[s.partnerId || ""]?.partnerType || "individual",
+        partnerType:
+          partnersById[s.partnerId || ""]?.partnerType ||
+          toPartnerType(s.partnerType),
       }));
 
       const paid = settlementsData.filter((s) => s.status === "paid");

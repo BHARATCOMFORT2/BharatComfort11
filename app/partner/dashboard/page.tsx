@@ -264,6 +264,56 @@ export default function PartnerDashboard() {
         <h3 className="text-xl font-semibold mb-4">Your Listings</h3>
         <PartnerListingsManager />
       </div>
+{/* === Partner Chat Support === */}
+<div className="bg-white p-6 rounded-2xl shadow mb-10">
+  <h3 className="text-xl font-semibold mb-2">Chat with Admin / Finance</h3>
+  <p className="text-gray-600 mb-3">
+    Need help with payouts, bookings, or listings? Start a secure chat with our admin or finance team.
+  </p>
+
+  <button
+    onClick={async () => {
+      const user = auth.currentUser;
+      if (!user) return router.push("/auth/login");
+
+      try {
+        const {
+          getDocs,
+          collection,
+          query,
+          where,
+          addDoc,
+          serverTimestamp,
+        } = await import("firebase/firestore");
+
+        const chatRef = collection(db, "chats");
+        const q = query(chatRef, where("participants", "array-contains", user.uid));
+        const snap = await getDocs(q);
+
+        let chatId = snap.docs[0]?.id;
+        if (!chatId) {
+          const docRef = await addDoc(chatRef, {
+            participants: [user.uid, "admin_finance"],
+            type: "support",
+            context: "partner_dashboard",
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+            lastMessage: "Partner initiated support chat",
+          });
+          chatId = docRef.id;
+        }
+
+        router.push(`/chat/${chatId}`);
+      } catch (err) {
+        console.error("Partner chat initiation error:", err);
+        alert("Something went wrong while starting chat. Please try again.");
+      }
+    }}
+    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+  >
+    Open Chat
+  </button>
+</div>
 
       {/* Settlements Placeholder */}
       <div className="bg-white p-6 rounded-2xl shadow">

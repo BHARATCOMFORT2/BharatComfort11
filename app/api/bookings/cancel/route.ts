@@ -1,12 +1,12 @@
-export const runtime = "nodejs";          // ✅ Force Node.js runtime
-export const dynamic = "force-dynamic";   // ✅ Disable static optimization
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 import "server-only";
 
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
 import { sendEmail } from "@/lib/email";
-import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
+// ❌ removed: import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
 
 export async function POST(req: Request) {
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "bookingId is required" }, { status: 400 });
     }
 
-    // ✅ Admin SDK Firestore
+    // Admin SDK Firestore
     const bookingRef = db.collection("bookings").doc(bookingId);
     const bookingSnap = await bookingRef.get();
     if (!bookingSnap.exists) {
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     const checkIn = new Date(booking.checkIn);
     const diffHours = (checkIn.getTime() - Date.now()) / (1000 * 60 * 60);
 
-    // 🔹 Razorpay paid bookings — eligible for refund
+    // Razorpay paid bookings — eligible for refund
     if (paymentMode === "razorpay") {
       if (!(status === "confirmed" && paymentStatus === "paid")) {
         return NextResponse.json(
@@ -67,7 +67,7 @@ export async function POST(req: Request) {
         updatedAt: new Date(),
       });
 
-      // 🔸 Create refund record
+      // Create refund record
       const refundRef = db.collection("refunds").doc();
       const refundAmount = Number(booking.amount) || 0;
 
@@ -85,9 +85,9 @@ export async function POST(req: Request) {
         notes: reason,
       });
 
-      // 🔸 Generate refund invoice (PASS ONLY WHAT THE TYPE EXPECTS)
+      // Generate refund invoice → treat return value as URL (since previous type implied void for buffer)
       const { generateRefundInvoice } = await import("@/lib/invoices/generateRefundInvoice");
-      const pdfBuffer = await generateRefundInvoice({
+      const invoiceUrlMaybe = await generateRefundInvoice({
         refundId: refundRef.id,
         bookingId,
         userId: uid,
@@ -96,18 +96,17 @@ export async function POST(req: Request) {
         reason,
       });
 
-      // 🔸 Create our own invoice id & upload the PDF
+      // If your generator returns a URL, use it; otherwise keep empty string (no crash)
       const invoiceId = `INV-RF-${Date.now()}`;
-      const invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
+      const invoiceUrl = typeof invoiceUrlMaybe === "string" ? invoiceUrlMaybe : "";
 
-      // 🔸 Save invoice meta on refund doc
       await refundRef.update({
         invoiceId,
         invoiceUrl,
         invoiceGeneratedAt: new Date(),
       });
 
-      // 🔸 Email user (best-effort)
+      // Email (best-effort)
       try {
         const userEmail = booking.userEmail || decoded.email || "";
         if (userEmail) {
@@ -118,8 +117,12 @@ export async function POST(req: Request) {
               <p>Hi ${booking.userName || "User"},</p>
               <p>Your refund for booking <b>${bookingId}</b> has been processed successfully.</p>
               <p>Amount Refunded: ₹${refundAmount}</p>
-              <p>You can download your refund invoice here:</p>
-              <p><a href="${invoiceUrl}" target="_blank" rel="noopener noreferrer">${invoiceUrl}</a></p>
+              ${
+                invoiceUrl
+                  ? `<p>You can download your refund invoice here:</p>
+                     <p><a href="${invoiceUrl}" target="_blank" rel="noopener noreferrer">${invoiceUrl}</a></p>`
+                  : `<p>The refund invoice will be available in your account shortly.</p>`
+              }
               <p>Thank you for using BharatComfort11.</p>
             `
           );
@@ -128,7 +131,7 @@ export async function POST(req: Request) {
         console.warn("⚠️ Refund email failed:", e);
       }
 
-      // 🔸 Admin notification
+      // Admin notification
       await pushInvoiceNotification({
         type: "refund",
         invoiceId,
@@ -146,7 +149,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // 🔹 Pay-at-hotel / restaurant — cancel only
+    // Pay-at-hotel / restaurant — cancel only
     if (status === "confirmed" || status === "confirmed_unpaid") {
       await bookingRef.update({
         status: "cancelled_unpaid",

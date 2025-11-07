@@ -102,7 +102,7 @@ export default function AdminFinancePage() {
 
   const getDateRange = () => {
     const now = new Date();
-    let startDate = new Date();
+    const startDate = new Date();
 
     if (dateRange === "today") startDate.setHours(0, 0, 0, 0);
     else if (dateRange === "week") startDate.setDate(now.getDate() - 7);

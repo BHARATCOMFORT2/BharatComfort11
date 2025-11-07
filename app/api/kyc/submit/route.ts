@@ -1,10 +1,13 @@
+// app/api/kyc/submit/route.ts
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
+import { sendEmail } from "@/lib/email";
 
 /**
  * POST /api/kyc/submit
- * Body: { aadhaarUrl, panUrl, gstUrl, businessName }
+ * Body: { aadhaarUrl?, panUrl?, gstUrl?, businessName? }
+ * Auth: Bearer <idToken>
  */
 export async function POST(req: Request) {
   try {
@@ -27,13 +30,19 @@ export async function POST(req: Request) {
     }
 
     const ref = db.collection("partners").doc(uid);
+    const partnerSnap = await ref.get();
+    const partner = partnerSnap.data() || {};
+
+    const partnerName = partner.businessName || partner.name || businessName || "Partner";
+    const partnerEmail = partner.email || decoded.email || "-";
+
     await ref.set(
       {
         kyc: {
-          aadhaarUrl,
-          panUrl,
-          gstUrl,
-          businessName: businessName || "",
+          aadhaarUrl: aadhaarUrl || partner.kyc?.aadhaarUrl || "",
+          panUrl: panUrl || partner.kyc?.panUrl || "",
+          gstUrl: gstUrl || partner.kyc?.gstUrl || "",
+          businessName: businessName || partner.businessName || "",
           status: "pending",
           submittedAt: new Date(),
         },
@@ -41,6 +50,45 @@ export async function POST(req: Request) {
       },
       { merge: true }
     );
+
+    // --- Emails ---
+    // Admin notify
+    try {
+      await sendEmail(
+        "admin@bharatcomfort11.com",
+        `🪪 New KYC Submitted: ${partnerName}`,
+        `
+          <h2>New KYC Submission</h2>
+          <p><b>Partner:</b> ${partnerName}</p>
+          <p><b>Email:</b> ${partnerEmail}</p>
+          <ul>
+            ${aadhaarUrl ? `<li><a href="${aadhaarUrl}">Aadhaar</a></li>` : ""}
+            ${panUrl ? `<li><a href="${panUrl}">PAN</a></li>` : ""}
+            ${gstUrl ? `<li><a href="${gstUrl}">GST</a></li>` : ""}
+          </ul>
+          <p>Review at: <b>Admin &raquo; KYC</b></p>
+        `
+      );
+    } catch (e) {
+      console.warn("Admin KYC email failed:", e);
+    }
+
+    // Partner confirm
+    try {
+      if (partnerEmail && partnerEmail !== "-") {
+        await sendEmail(
+          partnerEmail,
+          "✅ KYC Submitted — BharatComfort11",
+          `
+            <h3>Thanks, ${partnerName}!</h3>
+            <p>Your KYC has been submitted successfully and is now pending review.</p>
+            <p>We’ll notify you once it’s approved or if we need more details.</p>
+          `
+        );
+      }
+    } catch (e) {
+      console.warn("Partner confirmation email failed:", e);
+    }
 
     return NextResponse.json({
       success: true,

@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  addDoc,
-  updateDoc,
-  collection,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore"; // ✅ Admin timestamps
 import { sendEmail } from "@/lib/email";
 
 /**
@@ -25,6 +18,7 @@ import { sendEmail } from "@/lib/email";
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Authentication check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -52,22 +46,22 @@ export async function POST(req: Request) {
       );
     }
 
-    // Check if settlement exists
-    const settlementRef = doc(db, "settlements", settlementId);
-    const settlementSnap = await getDoc(settlementRef);
+    // ✅ Check if settlement exists using Admin SDK
+    const settlementRef = db.collection("settlements").doc(settlementId);
+    const settlementSnap = await settlementRef.get();
 
-    if (!settlementSnap.exists()) {
+    if (!settlementSnap.exists) {
       return NextResponse.json(
         { error: "Settlement not found" },
         { status: 404 }
       );
     }
 
-    const settlement = settlementSnap.data();
+    const settlement = settlementSnap.data() || {};
 
-    // Create dispute entry
-    const disputesRef = collection(db, "settlement_disputes");
-    const disputeDoc = await addDoc(disputesRef, {
+    // ✅ Create dispute entry
+    const disputesRef = db.collection("settlement_disputes");
+    const disputeDoc = await disputesRef.add({
       settlementId,
       partnerId: uid,
       partnerEmail: decoded.email || "",
@@ -76,20 +70,20 @@ export async function POST(req: Request) {
       description,
       fileUrl,
       status: "open",
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
       adminRemark: "",
       partnerReplies: [],
       slaEscalated: false,
     });
 
-    // Update settlement to mark dispute
-    await updateDoc(settlementRef, {
+    // ✅ Update settlement to mark dispute
+    await settlementRef.update({
       hasDispute: true,
-      updatedAt: serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // Send email notification to admin
+    // ✅ Send email notification to admin
     try {
       await sendEmail(
         "admin@bharatcomfort11.com",
@@ -109,7 +103,7 @@ export async function POST(req: Request) {
         `
       );
     } catch (e) {
-      console.warn("Admin email notification failed:", e);
+      console.warn("⚠️ Admin email notification failed:", e);
     }
 
     return NextResponse.json({
@@ -117,7 +111,7 @@ export async function POST(req: Request) {
       disputeId: disputeDoc.id,
     });
   } catch (error) {
-    console.error("Dispute creation error:", error);
+    console.error("❌ Dispute creation error:", error);
     return NextResponse.json(
       { error: "Failed to raise dispute" },
       { status: 500 }

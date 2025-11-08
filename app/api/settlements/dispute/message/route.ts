@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  collection,
-  addDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { sendEmail } from "@/lib/email";
 
 /**
@@ -24,17 +17,18 @@ import { sendEmail } from "@/lib/email";
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const token = authHeader.replace("Bearer ", "");
     const decoded = await getAuth().verifyIdToken(token);
-    const role = (decoded as any).role || "partner";
+    const role = ((decoded as any).role as string) || "partner";
     const uid = decoded.uid;
 
+    // ✅ Input
     const { disputeId, text = "", fileUrl = "" } = await req.json();
-
     if (!disputeId || (!text && !fileUrl)) {
       return NextResponse.json(
         { error: "disputeId and (text or fileUrl) are required" },
@@ -42,44 +36,40 @@ export async function POST(req: Request) {
       );
     }
 
-    // Verify dispute exists
-    const disputeRef = doc(db, "settlement_disputes", disputeId);
-    const disputeSnap = await getDoc(disputeRef);
-    if (!disputeSnap.exists()) {
+    // ✅ Verify dispute exists (Admin SDK)
+    const disputeRef = db.collection("settlement_disputes").doc(disputeId);
+    const disputeSnap = await disputeRef.get();
+    if (!disputeSnap.exists) {
       return NextResponse.json({ error: "Dispute not found" }, { status: 404 });
     }
+    const dispute = disputeSnap.data() || {};
 
-    const dispute = disputeSnap.data();
-
-    // Add message to subcollection
-    const messagesRef = collection(disputeRef, "messages");
-    await addDoc(messagesRef, {
+    // ✅ Add message to subcollection
+    const messagesRef = disputeRef.collection("messages");
+    await messagesRef.add({
       text,
       fileUrl,
       uid,
       role,
-      createdAt: serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
 
-    // Update parent dispute
+    // ✅ Update parent dispute
     const newStatus =
-      dispute.status === "open" && role === "admin"
-        ? "in_review"
-        : dispute.status;
-    await updateDoc(disputeRef, {
-      updatedAt: serverTimestamp(),
+      dispute.status === "open" && role === "admin" ? "in_review" : dispute.status;
+
+    await disputeRef.update({
+      updatedAt: FieldValue.serverTimestamp(),
       status: newStatus,
     });
 
-    // Notify counterparty
+    // ✅ Notify counterparty (best-effort)
     try {
       const isPartner = role === "partner";
       const subject = isPartner
         ? `New Message from Partner - Dispute ${disputeId}`
         : `Update on Your Dispute ${disputeId}`;
-      const recipient = isPartner
-        ? "admin@bharatcomfort11.com"
-        : dispute.partnerEmail || "";
+      const recipient = isPartner ? "admin@bharatcomfort11.com" : (dispute.partnerEmail || "");
 
       if (recipient) {
         const html = `
@@ -90,11 +80,7 @@ export async function POST(req: Request) {
               ? `<p><b>Message:</b> ${text}</p>`
               : "<p><b>Attachment:</b> Attached file received.</p>"
           }
-          ${
-            fileUrl
-              ? `<p><a href="${fileUrl}" target="_blank">View Attachment</a></p>`
-              : ""
-          }
+          ${fileUrl ? `<p><a href="${fileUrl}" target="_blank">View Attachment</a></p>` : ""}
           <p>— BHARATCOMFORT11 Finance Portal</p>
         `;
         await sendEmail(recipient, subject, html);

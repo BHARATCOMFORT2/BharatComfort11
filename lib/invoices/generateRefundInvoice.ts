@@ -11,30 +11,32 @@ import {
 /**
  * 🔹 Generate Refund Invoice PDF
  * @param {Object} details
- * @param {string} details.refundId
- * @param {string} details.bookingId
- * @param {string} details.userId
- * @param {number} details.amount
- * @param {string} details.mode
- * @param {string} [details.reason]
  */
 export async function generateRefundInvoice({
   refundId,
   bookingId,
   userId,
+  userName = "User",
+  userEmail = "",
   amount,
-  mode,
+  mode = "razorpay",
   reason = "Booking cancelled as per policy",
+  invoiceId: providedInvoiceId,
+  createdAt = new Date(),
 }: {
   refundId: string;
   bookingId: string;
   userId: string;
+  userName?: string;
+  userEmail?: string;
   amount: number;
-  mode: string;
+  mode?: string;
   reason?: string;
+  invoiceId?: string;
+  createdAt?: Date;
 }) {
   try {
-    // Fetch refund and booking details
+    // Fetch refund + booking data
     const refundRef = doc(db, "refunds", refundId);
     const refundSnap = await getDoc(refundRef);
     const refund = refundSnap.exists() ? refundSnap.data() : {};
@@ -47,7 +49,7 @@ export async function generateRefundInvoice({
     const userSnap = await getDoc(userRef);
     const user = userSnap.exists() ? userSnap.data() : {};
 
-    const invoiceId = `INV-RF-${Date.now()}`;
+    const invoiceId = providedInvoiceId || `INV-RF-${Date.now()}`;
     const docBuffer: Buffer[] = [];
     const docPDF = new PDFDocument({ size: "A4", margin: 50 });
 
@@ -60,7 +62,7 @@ export async function generateRefundInvoice({
       await uploadBytes(fileRef, pdfData, { contentType: "application/pdf" });
       const downloadURL = await getDownloadURL(fileRef);
 
-      // Update Firestore
+      // Update Firestore with invoice info
       await updateDoc(refundRef, {
         invoiceId,
         invoiceUrl: downloadURL,
@@ -89,14 +91,14 @@ export async function generateRefundInvoice({
       .text(`Invoice ID: ${invoiceId}`)
       .text(`Refund ID: ${refundId}`)
       .text(`Booking ID: ${bookingId}`)
-      .text(`Date: ${new Date().toLocaleString("en-IN")}`)
+      .text(`Date: ${createdAt.toLocaleString("en-IN")}`)
       .moveDown(1);
 
     docPDF
       .fontSize(12)
       .text("Refund To:", { underline: true })
-      .text(user?.name || "User")
-      .text(user?.email || "")
+      .text(userName || user?.name || "User")
+      .text(userEmail || user?.email || "")
       .text(user?.phone || "")
       .moveDown(1);
 

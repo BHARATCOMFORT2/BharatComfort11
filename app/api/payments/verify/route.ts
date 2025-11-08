@@ -17,7 +17,7 @@ import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotifica
  *   bookingId
  * }
  *
- * ✅ Verifies signature
+ * ✅ Verifies Razorpay signature
  * ✅ Updates Firestore (payments + booking)
  * ✅ Confirms booking after success
  * ✅ Generates & emails invoice PDF
@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       bookingId,
     } = await req.json();
 
+    // ✅ 1️⃣ Validate input
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 1️⃣ Verify Razorpay signature
+    // ✅ 2️⃣ Verify Razorpay signature
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
@@ -61,9 +62,10 @@ export async function POST(req: Request) {
 
     console.log("✅ Razorpay signature verified for:", razorpay_payment_id);
 
-    // ✅ 2️⃣ Fetch booking
+    // ✅ 3️⃣ Fetch booking
     const bookingRef = doc(db, "bookings", bookingId);
     const bookingSnap = await getDoc(bookingRef);
+
     if (!bookingSnap.exists()) {
       return NextResponse.json(
         { success: false, error: "Booking not found" },
@@ -72,6 +74,7 @@ export async function POST(req: Request) {
     }
 
     const booking = bookingSnap.data();
+
     if (booking.paymentStatus === "paid") {
       return NextResponse.json({
         success: true,
@@ -79,7 +82,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ 3️⃣ Update /payments document
+    // ✅ 4️⃣ Update /payments document
     const paymentRef = doc(db, "payments", razorpay_order_id);
     await updateDoc(paymentRef, {
       status: "success",
@@ -93,7 +96,7 @@ export async function POST(req: Request) {
       console.warn("⚠️ Could not update /payments doc:", err.message)
     );
 
-    // ✅ 4️⃣ Update booking as confirmed
+    // ✅ 5️⃣ Update booking as confirmed
     await updateDoc(bookingRef, {
       paymentStatus: "paid",
       status: "confirmed",
@@ -104,7 +107,7 @@ export async function POST(req: Request) {
 
     console.log("✅ Booking confirmed:", bookingId);
 
-    // ✅ 5️⃣ Generate Invoice PDF
+    // ✅ 6️⃣ Generate Invoice PDF
     const invoiceId = `INV-BK-${Date.now()}`;
     const pdfBuffer = await generateBookingInvoice({
       bookingId,
@@ -119,26 +122,30 @@ export async function POST(req: Request) {
       createdAt: new Date(),
     });
 
-    // ✅ 6️⃣ Upload invoice PDF to Firebase Storage
-    const invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "booking");
+    // ✅ 7️⃣ Upload invoice PDF to Firebase Storage
+    const invoiceUrl = await uploadInvoiceToFirebase(
+      pdfBuffer,
+      invoiceId,
+      "booking"
+    );
 
-    // ✅ 7️⃣ Save invoice link to Firestore
+    // ✅ 8️⃣ Save invoice link to Firestore
     await updateDoc(bookingRef, {
       invoiceId,
       invoiceUrl,
       invoiceGeneratedAt: serverTimestamp(),
     });
 
-    // ✅ 8️⃣ Send invoice email to user
+    // ✅ 9️⃣ Send invoice email to user
     await sendInvoiceEmail({
       to: booking.userEmail,
       subject: `Your Booking Invoice - ${invoiceId}`,
       invoiceId,
-      invoiceUrl,
+      pdfUrl: invoiceUrl, // ✅ FIXED (renamed from invoiceUrl → pdfUrl)
       bookingDetails: booking,
     });
 
-    // ✅ 9️⃣ Push admin invoice notification
+    // ✅ 🔟 Push admin invoice notification
     await pushInvoiceNotification({
       type: "booking",
       invoiceId,

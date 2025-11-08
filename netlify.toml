@@ -1,11 +1,14 @@
 ######################################
-# 🚀 BHARATCOMFORT11 — Production Config
+# 🚀 BHARATCOMFORT11 — Production Config (Fixed)
 ######################################
 
 [build]
   command = "npm run build"
   publish = ".next"
 
+######################################
+# ⚙️ Netlify Function Settings
+######################################
 [functions]
   node_bundler = "esbuild"
   external_node_modules = [
@@ -16,11 +19,21 @@
     "jspdf",
     "jspdf-autotable"
   ]
-  included_files = ["lib/**/*", "app/api/**/*", "lib/invoices/**/*"]
+  included_files = [
+    "lib/**/*",
+    "app/api/**/*",
+    "lib/invoices/**/*"
+  ]
 
+######################################
+# 🧩 Next.js Plugin (Handles SSR + API Routes)
+######################################
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
+######################################
+# 🌍 Environment Settings
+######################################
 [build.environment]
   NODE_VERSION = "18"
   NEXT_DISABLE_ENV_INJECTION = "true"
@@ -28,25 +41,15 @@
   TZ = "Asia/Kolkata"
 
 ######################################
-# 🔐 Redirects for Next.js Routing
+# ✅ Notes
 ######################################
+# Do NOT add any [[redirects]] here.
+# The official Next.js Netlify plugin automatically sets up:
+#   • /api/* → /.netlify/functions/next_api
+#   • SSR + ISR routing
+# Custom redirects like "/* → /index.html" break dynamic routes and APIs.
 
-# All API routes handled by Next.js serverless functions
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/next_api"
-  status = 200
-
-# Send all unmatched routes to Next.js app
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
-  status = 200
-
-######################################
-# 🕒 Scheduled Cron Jobs (Optional)
-# For SLA dispute escalation / daily finance tasks
-######################################
-[[scheduled_functions]]
-  function = "api_settlements_dispute_sla"  # /app/api/settlements/dispute/sla/route.ts
-  cron = "0 9 * * *"  # every day at 9:00 AM IST
+# ✅ Example health endpoint test:
+# After deployment, visit:
+#   https://your-site.netlify.app/api/auth/session
+# Expected output: { "error": "Missing token" }

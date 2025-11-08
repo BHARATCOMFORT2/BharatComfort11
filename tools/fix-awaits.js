@@ -1,48 +1,29 @@
-/**
- * 🩹 BharatComfort11 Await Syntax Auto-Fixer
- * ---------------------------------------------------------
- * Fixes broken Firestore conversion issues introduced by regex:
- *   - `await somethingRef);` → `const somethingSnap = await somethingRef.get();`
- *   - `await somethingRef, {` → `await somethingRef.update({`
- */
+import fs from "fs";
+import path from "path";
+import fg from "fast-glob";
 
-const fs = require("fs");
-const path = require("path");
-const fg = require("fast-glob");
+const fixPatterns = [
+  { find: /await\s+([a-zA-Z0-9_]+)\);/g, replace: "await $1.get();" },
+  { find: /await\s+([a-zA-Z0-9_]+),\s*\{/g, replace: "await $1.update({" }
+];
 
-async function fixAwaitSyntax() {
-  const apiDir = path.join(process.cwd(), "app/api");
-  const files = await fg([`${apiDir}/**/*.ts`]);
+const files = fg.sync(["app/api/**/*.ts"]);
 
-  const patternGet = /await\s+([a-zA-Z_]+Ref\));/g;
-  const patternUpdate = /await\s+([a-zA-Z_]+Ref),/g;
+for (const file of files) {
+  let content = fs.readFileSync(file, "utf8");
+  let fixed = false;
 
-  for (const file of files) {
-    let content = fs.readFileSync(file, "utf8");
-    let changed = false;
-
-    // 🧩 Fix `.get()` mistakes
-    if (patternGet.test(content)) {
-      content = content.replace(patternGet, "const $1Snap = await $1.get();");
-      changed = true;
-    }
-
-    // 🧩 Fix `.update()` mistakes
-    if (patternUpdate.test(content)) {
-      content = content.replace(patternUpdate, "await $1.update(");
-      changed = true;
-    }
-
-    if (changed) {
-      fs.writeFileSync(file, content, "utf8");
-      console.log(`✅ Fixed await syntax in: ${path.relative(process.cwd(), file)}`);
+  for (const { find, replace } of fixPatterns) {
+    if (find.test(content)) {
+      content = content.replace(find, replace);
+      fixed = true;
     }
   }
 
-  console.log("\n🎉 All broken await() patterns fixed successfully!\n");
+  if (fixed) {
+    fs.writeFileSync(file, content, "utf8");
+    console.log("✅ Fixed:", path.relative(process.cwd(), file));
+  }
 }
 
-fixAwaitSyntax().catch((err) => {
-  console.error("❌ Fix failed:", err);
-  process.exit(1);
-});
+console.log("\n🎯 All broken 'await ref);' and 'await ref, {' patterns have been repaired.");

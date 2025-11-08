@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin"; // ✅ Use Admin SDK
-import { FieldValue } from "firebase-admin/firestore"; // ✅ For timestamps
+import { db } from "@/lib/firebaseadmin"; // ✅ Admin SDK instance
+import { FieldValue } from "firebase-admin/firestore"; // ✅ Server timestamp
 import crypto from "crypto";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
@@ -19,7 +19,7 @@ import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotifica
  *
  * ✅ Verifies Razorpay signature
  * ✅ Updates Firestore (payments + booking)
- * ✅ Confirms booking after success
+ * ✅ Confirms booking
  * ✅ Generates & emails invoice PDF
  * ✅ Pushes admin notification
  */
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
       bookingId,
     } = await req.json();
 
-    // ✅ 1️⃣ Validate input
+    // ✅ Validate inputs
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -45,7 +45,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ 2️⃣ Verify Razorpay signature
+    // ✅ Verify Razorpay signature
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
       .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
@@ -62,7 +62,7 @@ export async function POST(req: Request) {
 
     console.log("✅ Razorpay signature verified for:", razorpay_payment_id);
 
-    // ✅ 3️⃣ Fetch booking
+    // ✅ Fetch booking document
     const bookingRef = db.collection("bookings").doc(bookingId);
     const bookingSnap = await bookingRef.get();
 
@@ -73,8 +73,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const booking = bookingSnap.data();
+    const booking = bookingSnap.data() || {};
 
+    // ✅ Handle already-paid case
     if (booking.paymentStatus === "paid") {
       return NextResponse.json({
         success: true,
@@ -82,10 +83,10 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ 4️⃣ Update /payments document
+    // ✅ Update payment document
     const paymentRef = db.collection("payments").doc(razorpay_order_id);
-    await paymentRef
-      .update({
+    try {
+      await paymentRef.update({
         status: "success",
         razorpayPaymentId: razorpay_payment_id,
         verifiedAt: FieldValue.serverTimestamp(),
@@ -93,12 +94,12 @@ export async function POST(req: Request) {
         userId: booking.userId,
         partnerId: booking.partnerId,
         amount: booking.amount,
-      })
-      .catch((err) =>
-        console.warn("⚠️ Could not update /payments doc:", err.message)
-      );
+      });
+    } catch (err: any) {
+      console.warn("⚠️ Could not update /payments doc:", err.message);
+    }
 
-    // ✅ 5️⃣ Update booking as confirmed
+    // ✅ Mark booking as confirmed
     await bookingRef.update({
       paymentStatus: "paid",
       status: "confirmed",
@@ -109,7 +110,7 @@ export async function POST(req: Request) {
 
     console.log("✅ Booking confirmed:", bookingId);
 
-    // ✅ 6️⃣ Generate Invoice PDF
+    // ✅ Generate invoice
     const invoiceId = `INV-BK-${Date.now()}`;
     const pdfBuffer = await generateBookingInvoice({
       bookingId,
@@ -124,35 +125,37 @@ export async function POST(req: Request) {
       createdAt: new Date(),
     });
 
-    // ✅ 7️⃣ Upload invoice PDF to Firebase Storage
+    // ✅ Upload invoice to Firebase Storage
     const invoiceUrl = await uploadInvoiceToFirebase(
       pdfBuffer,
       invoiceId,
       "booking"
     );
 
-    // ✅ 8️⃣ Save invoice link to Firestore
+    // ✅ Save invoice URL in Firestore
     await bookingRef.update({
       invoiceId,
       invoiceUrl,
       invoiceGeneratedAt: FieldValue.serverTimestamp(),
     });
 
-    // ✅ 9️⃣ Send invoice email to user
-    await sendInvoiceEmail({
-      to: booking.userEmail,
-      pdfUrl: invoiceUrl,
-      invoiceId,
-      type: "booking",
-      details: {
-        name: booking.userName,
-        bookingId,
-        amount: booking.amount,
-        date: new Date().toLocaleDateString("en-IN"),
-      },
-    });
+    // ✅ Email invoice to user
+    if (booking.userEmail) {
+      await sendInvoiceEmail({
+        to: booking.userEmail,
+        pdfUrl: invoiceUrl,
+        invoiceId,
+        type: "booking",
+        details: {
+          name: booking.userName || "Guest",
+          bookingId,
+          amount: booking.amount,
+          date: new Date().toLocaleDateString("en-IN"),
+        },
+      });
+    }
 
-    // ✅ 🔟 Push admin invoice notification
+    // ✅ Push admin notification
     await pushInvoiceNotification({
       type: "booking",
       invoiceId,
@@ -164,7 +167,6 @@ export async function POST(req: Request) {
 
     console.log("✅ Invoice generated & emailed:", invoiceId);
 
-    // ✅ Final Response
     return NextResponse.json({
       success: true,
       message: "Payment verified, booking confirmed, and invoice emailed.",

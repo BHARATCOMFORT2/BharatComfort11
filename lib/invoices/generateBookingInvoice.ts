@@ -5,35 +5,49 @@ import { serverTimestamp, doc, updateDoc, getDoc } from "firebase/firestore";
 
 /**
  * 🔹 Generate Booking Invoice PDF
- * @param {Object} details
- * @param {string} details.bookingId
- * @param {string} details.userId
- * @param {string} details.paymentId
- * @param {number} [details.amount]
  */
 export async function generateBookingInvoice({
   bookingId,
   userId,
   paymentId,
   amount,
+  invoiceId, // ✅ Added
+  userName,
+  userEmail,
+  partnerName,
+  checkIn,
+  checkOut,
+  createdAt,
 }: {
   bookingId: string;
-  userId: string;
+  userId?: string;
   paymentId: string;
   amount?: number;
+  invoiceId?: string;
+  userName?: string;
+  userEmail?: string;
+  partnerName?: string;
+  checkIn?: string | Date;
+  checkOut?: string | Date;
+  createdAt?: Date;
 }) {
   try {
-    // Fetch booking details
+    // 🔹 Fetch booking details
     const bookingRef = doc(db, "bookings", bookingId);
     const bookingSnap = await getDoc(bookingRef);
     if (!bookingSnap.exists()) throw new Error("Booking not found");
 
     const booking = bookingSnap.data();
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
-    const user = userSnap.exists() ? userSnap.data() : {};
 
-    const invoiceId = `INV-BK-${Date.now()}`;
+    // 🔹 Fetch user if available
+    let user = { name: userName || "Guest", email: userEmail || "", phone: "" };
+    if (userId) {
+      const userRef = doc(db, "users", userId);
+      const userSnap = await getDoc(userRef);
+      if (userSnap.exists()) user = userSnap.data() as any;
+    }
+
+    const invoiceNumber = invoiceId || `INV-BK-${Date.now()}`;
     const docBuffer: Buffer[] = [];
     const docPDF = new PDFDocument({ size: "A4", margin: 50 });
 
@@ -41,19 +55,16 @@ export async function generateBookingInvoice({
     docPDF.on("end", async () => {
       const pdfData = Buffer.concat(docBuffer);
 
-      // Upload to Firebase Storage
-      const fileRef = ref(
-        storage,
-        `invoices/bookings/${invoiceId}.pdf`
-      );
+      // 🔹 Upload to Firebase Storage
+      const fileRef = ref(storage, `invoices/bookings/${invoiceNumber}.pdf`);
       await uploadBytes(fileRef, pdfData, {
         contentType: "application/pdf",
       });
       const downloadURL = await getDownloadURL(fileRef);
 
-      // Update Firestore
+      // 🔹 Update Firestore with invoice details
       await updateDoc(bookingRef, {
-        invoiceId,
+        invoiceId: invoiceNumber,
         invoiceUrl: downloadURL,
         invoiceGeneratedAt: serverTimestamp(),
       });
@@ -73,34 +84,31 @@ export async function generateBookingInvoice({
       })
       .moveDown(1);
 
-    docPDF
-      .fontSize(14)
-      .text("Booking Invoice", { align: "center" })
-      .moveDown();
+    docPDF.fontSize(14).text("Booking Invoice", { align: "center" }).moveDown();
 
     docPDF
       .fontSize(10)
-      .text(`Invoice ID: ${invoiceId}`)
+      .text(`Invoice ID: ${invoiceNumber}`)
       .text(`Booking ID: ${bookingId}`)
       .text(`Payment ID: ${paymentId}`)
-      .text(`Date: ${new Date().toLocaleString("en-IN")}`)
+      .text(`Date: ${(createdAt || new Date()).toLocaleString("en-IN")}`)
       .moveDown(1);
 
     docPDF
       .fontSize(12)
       .text("Billed To:", { underline: true })
-      .text(user?.name || "User")
-      .text(user?.email || "")
-      .text(user?.phone || "")
+      .text(user.name)
+      .text(user.email || "")
+      .text(user.phone || "")
       .moveDown(1);
 
     docPDF
       .fontSize(12)
       .text("Booking Details:", { underline: true })
       .text(`Listing: ${booking.listingName || "N/A"}`)
-      .text(`Partner: ${booking.partnerName || "N/A"}`)
-      .text(`Check-in: ${booking.checkIn || "-"}`)
-      .text(`Check-out: ${booking.checkOut || "-"}`)
+      .text(`Partner: ${partnerName || booking.partnerName || "N/A"}`)
+      .text(`Check-in: ${checkIn || booking.checkIn || "-"}`)
+      .text(`Check-out: ${checkOut || booking.checkOut || "-"}`)
       .moveDown(1);
 
     // Amount section
@@ -119,7 +127,7 @@ export async function generateBookingInvoice({
     docPDF
       .fontSize(10)
       .text("Payment Mode: Razorpay", { continued: true })
-      .text(` | Status: Paid`, { align: "right" })
+      .text(" | Status: Paid", { align: "right" })
       .moveDown(2);
 
     docPDF
@@ -129,9 +137,10 @@ export async function generateBookingInvoice({
         { align: "center", italics: true }
       )
       .moveDown(2)
-      .text("This is a computer-generated invoice and does not require a signature.", {
-        align: "center",
-      });
+      .text(
+        "This is a computer-generated invoice and does not require a signature.",
+        { align: "center" }
+      );
 
     docPDF.end();
   } catch (err) {

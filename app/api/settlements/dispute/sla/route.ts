@@ -1,12 +1,6 @@
 import { NextResponse } from "next/server";
 import { db } from "@/lib/firebaseadmin";
-import {
-  collection,
-  getDocs,
-  updateDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { sendEmail } from "@/lib/email";
 
 /**
@@ -19,19 +13,18 @@ import { sendEmail } from "@/lib/email";
  */
 export async function GET() {
   try {
-    const disputesRef = collection(db, "settlement_disputes");
-    const snapshot = await getDocs(disputesRef);
+    // ✅ Using Admin SDK methods — no `collection()` import needed
+    const disputesRef = db.collection("settlement_disputes");
+    const snapshot = await disputesRef.get();
+
     const now = Date.now();
     let escalated = 0;
 
     for (const docSnap of snapshot.docs) {
       const dispute = docSnap.data();
-      const createdAt = dispute.createdAt?.seconds
-        ? dispute.createdAt.seconds * 1000
-        : now;
-      const updatedAt = dispute.updatedAt?.seconds
-        ? dispute.updatedAt.seconds * 1000
-        : createdAt;
+
+      const createdAt = dispute.createdAt?.toMillis?.() || now;
+      const updatedAt = dispute.updatedAt?.toMillis?.() || createdAt;
       const daysSinceUpdate = (now - updatedAt) / (1000 * 60 * 60 * 24);
 
       let newStatus = null;
@@ -43,16 +36,16 @@ export async function GET() {
 
       if (!newStatus) continue;
 
-      // Update Firestore document
-      const ref = doc(db, "settlement_disputes", docSnap.id);
-      await updateDoc(ref, {
+      // ✅ Update Firestore document (Admin SDK style)
+      const ref = db.collection("settlement_disputes").doc(docSnap.id);
+      await ref.update({
         status: newStatus,
-        updatedAt: serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
         slaEscalated: true,
       });
       escalated++;
 
-      // Send escalation email
+      // ✅ Send escalation emails
       try {
         const partnerEmail = dispute.partnerEmail || "";
         const subject = `⚠️ Dispute ${docSnap.id} Escalated (${newStatus})`;
@@ -75,7 +68,7 @@ export async function GET() {
           recipients.map((email) => sendEmail(email, subject, html))
         );
       } catch (e) {
-        console.warn("Escalation email failed:", e);
+        console.warn("⚠️ Escalation email failed:", e);
       }
     }
 
@@ -85,7 +78,7 @@ export async function GET() {
       message: `${escalated} disputes escalated successfully.`,
     });
   } catch (error) {
-    console.error("SLA escalation job error:", error);
+    console.error("❌ SLA escalation job error:", error);
     return NextResponse.json(
       { error: "Failed to process SLA escalation." },
       { status: 500 }

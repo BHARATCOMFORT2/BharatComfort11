@@ -111,3 +111,9 @@
     ]
   }
 }
+"scripts": {
+  "dev": "next dev",
+  "build": "npm run fix-firestore && next build",
+  "fix-firestore": "node tools/fix-firestore-admin.js",
+  "start": "next start"
+}

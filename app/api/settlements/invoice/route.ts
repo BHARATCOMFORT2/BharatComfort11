@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { generateSettlementInvoice } from "@/lib/invoices/generateSettlementInvoice";
 
 /**
@@ -17,28 +12,43 @@ export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const settlementId = searchParams.get("id");
+
     if (!settlementId) {
-      return NextResponse.json({ error: "Missing settlementId" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing settlementId" },
+        { status: 400 }
+      );
     }
 
-    const ref = doc(db, "settlements", settlementId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      return NextResponse.json({ error: "Settlement not found" }, { status: 404 });
+    // ✅ Admin SDK syntax
+    const ref = db.collection("settlements").doc(settlementId);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      return NextResponse.json(
+        { error: "Settlement not found" },
+        { status: 404 }
+      );
     }
 
     const settlement = snap.data();
-    if (!settlement.invoiceUrl) {
+    if (!settlement?.invoiceUrl) {
       return NextResponse.json(
         { message: "Invoice not generated yet", invoiceUrl: null },
         { status: 200 }
       );
     }
 
-    return NextResponse.json({ success: true, invoiceUrl: settlement.invoiceUrl });
+    return NextResponse.json({
+      success: true,
+      invoiceUrl: settlement.invoiceUrl,
+    });
   } catch (error) {
-    console.error("Invoice fetch error:", error);
-    return NextResponse.json({ error: "Failed to fetch invoice" }, { status: 500 });
+    console.error("❌ Invoice fetch error:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch invoice" },
+      { status: 500 }
+    );
   }
 }
 
@@ -49,10 +59,10 @@ export async function GET(req: Request) {
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Auth check
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const token = authHeader.replace("Bearer ", "");
     const decoded = await getAuth().verifyIdToken(token);
@@ -65,15 +75,23 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Parse request
     const { settlementId } = await req.json();
-    if (!settlementId) {
-      return NextResponse.json({ error: "Missing settlementId" }, { status: 400 });
-    }
+    if (!settlementId)
+      return NextResponse.json(
+        { error: "Missing settlementId" },
+        { status: 400 }
+      );
 
-    const ref = doc(db, "settlements", settlementId);
-    const snap = await getDoc(ref);
-    if (!snap.exists()) {
-      return NextResponse.json({ error: "Settlement not found" }, { status: 404 });
+    // ✅ Admin SDK syntax
+    const ref = db.collection("settlements").doc(settlementId);
+    const snap = await ref.get();
+
+    if (!snap.exists) {
+      return NextResponse.json(
+        { error: "Settlement not found" },
+        { status: 404 }
+      );
     }
 
     const settlement = snap.data();
@@ -86,6 +104,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Generate invoice PDF
     const url = await generateSettlementInvoice(settlementId, {
       partnerName: settlement.partnerName,
       partnerEmail: settlement.partnerEmail,
@@ -101,9 +120,10 @@ export async function POST(req: Request) {
       );
     }
 
-    await updateDoc(ref, {
+    // ✅ Update settlement record
+    await ref.update({
       invoiceUrl: url,
-      updatedAt: serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({
@@ -112,7 +132,7 @@ export async function POST(req: Request) {
       invoiceUrl: url,
     });
   } catch (error) {
-    console.error("Invoice regeneration error:", error);
+    console.error("❌ Invoice regeneration error:", error);
     return NextResponse.json(
       { error: "Failed to regenerate invoice" },
       { status: 500 }

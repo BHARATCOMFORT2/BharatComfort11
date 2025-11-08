@@ -37,11 +37,9 @@ if (!projectId || !clientEmail || !privateKey) {
 let app: admin.app.App;
 
 if (admin.apps.length) {
-  // Reuse existing app (safe reload)
   app = admin.app();
   console.log("♻️ Firebase Admin reused existing instance");
 } else {
-  // Initialize new app (first time only)
   app = admin.initializeApp({
     credential: admin.credential.cert({
       projectId,
@@ -56,25 +54,30 @@ if (admin.apps.length) {
 /* ============================================================
    🔥 SERVICES
 ============================================================ */
-export const adminApp = app;
-export const adminAuth = admin.auth(app);
-export const adminDb = admin.firestore(app);
-export const adminStorage = admin.storage(app);
+const adminAuth = admin.auth(app);
+const adminDb = admin.firestore(app);
+const adminStorage = admin.storage(app);
 
 /* ============================================================
    🧩 ACCESSOR FUNCTION
 ============================================================ */
 export function getFirebaseAdmin() {
-  return { admin, adminApp, adminAuth, adminDb, adminStorage };
+  return {
+    admin,
+    adminApp: app,
+    adminAuth,
+    db: adminDb,
+    storage: adminStorage,
+  };
 }
 
 /* ============================================================
-   💾 LEGACY EXPORTS (Backward Compatibility)
-   👉 Keeps old imports working, e.g. { admin }, { db }, { storage }
+   💾 COMMON EXPORTS (Universal Imports)
 ============================================================ */
-export { admin };               // Fixes "Attempted import error: 'admin'..."
-export const db = adminDb;      // Some routes import { db }
-export const storage = adminStorage; // Fixes "Attempted import error: 'storage'..."
+export { admin };
+export const db = adminDb;
+export const authAdmin = adminAuth; // alternate naming if needed
+export const storage = adminStorage;
 
 /* ============================================================
    🧠 DEV CONNECTION CHECK

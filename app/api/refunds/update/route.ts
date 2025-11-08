@@ -59,7 +59,9 @@ export async function POST(req: Request) {
     await refundRef.update({
       refundStatus: newStatus,
       updatedAt: FieldValue.serverTimestamp(),
-      ...(newStatus === "processed" && { processedAt: FieldValue.serverTimestamp() }),
+      ...(newStatus === "processed" && {
+        processedAt: FieldValue.serverTimestamp(),
+      }),
     });
 
     // ✅ Generate refund invoice if not exists
@@ -69,21 +71,24 @@ export async function POST(req: Request) {
     if (!invoiceUrl) {
       invoiceId = `INV-RF-${Date.now()}`;
       const pdfBuffer = await generateRefundInvoice({
-  refundId,
-  bookingId: refund.bookingId,
-  userId: refund.userId, // ✅ Added missing required property
-  invoiceId,
-  userName: refund.userName || "User",
-  userEmail: refund.userEmail || "",
-  amount: refund.amount,
-  mode: refund.paymentMode || "razorpay",
-  reason: refund.notes || "Admin processed refund",
-  createdAt: new Date(),
-});
-
+        refundId,
+        bookingId: refund.bookingId,
+        userId: refund.userId,
+        invoiceId,
+        userName: refund.userName || "User",
+        userEmail: refund.userEmail || "",
+        amount: refund.amount,
+        mode: refund.paymentMode || "razorpay",
+        reason: refund.notes || "Admin processed refund",
+        createdAt: new Date(),
+      });
 
       // Upload PDF
-      invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
+      invoiceUrl = await uploadInvoiceToFirebase(
+        pdfBuffer,
+        invoiceId,
+        "refund"
+      );
 
       // Save invoice details
       await refundRef.update({
@@ -105,9 +110,10 @@ export async function POST(req: Request) {
         pdfUrl: invoiceUrl,
         type: "refund",
         details: {
+          name: refund.userName || "User",
           bookingId: refund.bookingId,
           amount: refund.amount,
-          reason: refund.notes,
+          date: new Date().toLocaleDateString("en-IN"), // ✅ fixed
         },
       });
     }

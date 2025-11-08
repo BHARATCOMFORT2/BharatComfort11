@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { sendEmail } from "@/lib/email"; // helper to send email notifications
 
 /**
@@ -23,6 +18,7 @@ import { sendEmail } from "@/lib/email"; // helper to send email notifications
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Verify Admin Auth
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -39,6 +35,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Parse Request Body
     const { settlementId, action, remark = "", utrNumber = "" } =
       await req.json();
 
@@ -49,11 +46,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const settlementRef = doc(db, "settlements", settlementId);
-    const settlementSnap = await getDoc(settlementRef);
+    // ✅ Fetch Settlement Record
+    const settlementRef = db.collection("settlements").doc(settlementId);
+    const settlementSnap = await settlementRef.get();
 
-    if (!settlementSnap.exists()) {
-      return NextResponse.json({ error: "Settlement not found" }, { status: 404 });
+    if (!settlementSnap.exists) {
+      return NextResponse.json(
+        { error: "Settlement not found" },
+        { status: 404 }
+      );
     }
 
     const settlement = settlementSnap.data();
@@ -63,6 +64,7 @@ export async function POST(req: Request) {
     let emailSubject = "";
     let emailMessage = "";
 
+    // ✅ Determine Action
     switch (action) {
       case "approve":
         status = "approved";
@@ -91,16 +93,16 @@ export async function POST(req: Request) {
         );
     }
 
-    // Update Firestore record
-    await updateDoc(settlementRef, {
+    // ✅ Update Firestore Record (Admin SDK)
+    await settlementRef.update({
       status,
       remark,
       utrNumber,
-      updatedAt: serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
       adminId: decoded.uid,
     });
 
-    // Optional email notification to partner
+    // ✅ Optional Email Notification
     if (partnerEmail) {
       try {
         await sendEmail(
@@ -117,13 +119,19 @@ export async function POST(req: Request) {
         `
         );
       } catch (e) {
-        console.warn("Email send failed:", e);
+        console.warn("⚠️ Email send failed:", e);
       }
     }
 
-    return NextResponse.json({ success: true, status });
-  } catch (error) {
-    console.error("Settlement action error:", error);
+    // ✅ Final Success Response
+    return NextResponse.json({
+      success: true,
+      message: `Settlement ${status} successfully.`,
+      status,
+      settlementId,
+    });
+  } catch (error: any) {
+    console.error("❌ Settlement action error:", error);
     return NextResponse.json(
       { error: "Failed to process settlement action" },
       { status: 500 }

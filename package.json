@@ -12,8 +12,8 @@
     "prepare": "husky install",
     "seed": "ts-node script/seed-sample-data.ts",
     "import:csv": "ts-node script/import-csv.ts",
-    "fix-firestore": "node tools/fix-firestore-admin.js"
-    "fix-awaits": "node tools/fix-awaits.js",
+    "fix-firestore": "node tools/fix-firestore-admin.js",
+    "fix-awaits": "node tools/fix-awaits.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",

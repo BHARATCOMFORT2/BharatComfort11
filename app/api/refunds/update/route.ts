@@ -108,14 +108,14 @@ export async function POST(req: Request) {
     }
 
     // ✅ Push admin notification
-    await pushInvoiceNotification({
-      type: "refund",
-      invoiceId,
-      invoiceUrl,
-      userId: refund.userId,
-      amount: refund.amount,
-      relatedId: refund.bookingId,
-    });
+   await pushInvoiceNotification({
+  type: "refund",
+  invoiceId,
+  invoiceUrl,
+  userId: refund.userId,
+  amount: refund.amount,
+  relatedId: refund.bookingId,
+} as any);
 
     console.log(`✅ Refund ${refundId} marked as ${newStatus}`);
 

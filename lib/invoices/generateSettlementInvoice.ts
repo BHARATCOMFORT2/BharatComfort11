@@ -1,16 +1,26 @@
 import { db, storage } from "@/lib/firebaseadmin";
-import { doc, updateDoc } from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 
 /**
  * Generate Settlement Invoice PDF
- * @param settlementId - Firestore document ID
- * @param data - { partnerName, partnerEmail, amount, status, utrNumber, date }
- * @returns invoice download URL
+ * @param settlementId Firestore document ID
+ * @param data { partnerName, partnerEmail, amount, status, utrNumber, date }
+ * @returns invoice download URL (string)
  */
-export async function generateSettlementInvoice(settlementId: string, data: any) {
+export async function generateSettlementInvoice(
+  settlementId: string,
+  data: {
+    partnerName?: string;
+    partnerEmail?: string;
+    amount?: number;
+    status?: string;
+    utrNumber?: string;
+    date?: string;
+  }
+): Promise<string> {
   try {
     if (!settlementId || !data) throw new Error("Missing invoice data.");
 
@@ -28,7 +38,7 @@ export async function generateSettlementInvoice(settlementId: string, data: any)
     const gst = commission * gstRate;
     const netPayable = amount - commission - gst;
 
-    // Generate PDF
+    // ✅ Generate PDF
     const doc = new jsPDF({ unit: "pt", format: "a4" });
     doc.setFontSize(18);
     doc.text("BHARATCOMFORT11", 40, 50);
@@ -42,7 +52,7 @@ export async function generateSettlementInvoice(settlementId: string, data: any)
     doc.text(`Name: ${partnerName}`, 60, 170);
     doc.text(`Email: ${partnerEmail}`, 60, 190);
 
-    // Table Data
+    // Table
     const rows = [
       ["Total Amount", `₹${amount.toLocaleString("en-IN")}`],
       ["Commission (10%)", `₹${commission.toLocaleString("en-IN")}`],
@@ -62,35 +72,39 @@ export async function generateSettlementInvoice(settlementId: string, data: any)
     });
 
     // Footer
+    const finalY = (doc as any).lastAutoTable.finalY || 300;
     doc.setFontSize(10);
     doc.text(
       "This is a system-generated invoice. No signature required.",
       40,
-      doc.lastAutoTable.finalY + 40
+      finalY + 40
     );
-    doc.text("Thank you for partnering with BHARATCOMFORT11!", 40, doc.lastAutoTable.finalY + 60);
+    doc.text(
+      "Thank you for partnering with BHARATCOMFORT11!",
+      40,
+      finalY + 60
+    );
 
-    // Convert to Blob
-    const pdfBlob = doc.output("blob");
-    const storageRef = ref(storage, `invoices/settlements/${settlementId}.pdf`);
+    // ✅ Convert PDF to buffer (server-friendly)
+    const pdfBuffer = Buffer.from(doc.output("arraybuffer"));
 
-    // Upload to Firebase Storage
-    await uploadBytes(storageRef, pdfBlob, {
-      contentType: "application/pdf",
-    });
-    const url = await getDownloadURL(storageRef);
+    // ✅ Upload to Firebase Storage
+    const fileRef = ref(storage, `invoices/settlements/${settlementId}.pdf`);
+    await uploadBytes(fileRef, pdfBuffer, { contentType: "application/pdf" });
+    const url = await getDownloadURL(fileRef);
 
-    // Update settlement document
-    const settlementRef = doc(db, "settlements", settlementId);
-    await updateDoc(settlementRef, {
+    // ✅ Update settlement in Firestore (Admin SDK)
+    const settlementRef = db.collection("settlements").doc(settlementId);
+    await settlementRef.update({
       invoiceUrl: url,
-      updatedAt: new Date(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     console.log(`✅ Invoice generated for ${settlementId}`);
     return url;
   } catch (error) {
     console.error("❌ Invoice generation failed:", error);
-    return null;
+    // ❗ Always return a string (empty fallback), never null
+    return "";
   }
 }

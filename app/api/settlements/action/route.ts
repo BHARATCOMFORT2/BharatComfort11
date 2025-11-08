@@ -2,19 +2,11 @@ import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
-import { sendEmail } from "@/lib/email"; // helper to send email notifications
+import { sendEmail } from "@/lib/email";
 
 /**
  * POST /api/settlements/action
  * Admin updates the status of a settlement.
- *
- * Body:
- * {
- *   settlementId: string,
- *   action: "approve" | "reject" | "hold" | "markPaid",
- *   remark?: string,
- *   utrNumber?: string
- * }
  */
 export async function POST(req: Request) {
   try {
@@ -57,10 +49,25 @@ export async function POST(req: Request) {
       );
     }
 
-    const settlement = settlementSnap.data();
-    const partnerEmail = settlement.partnerEmail || "";
+    // ✅ Explicitly define type to avoid undefined issues
+    const settlement = settlementSnap.data() as {
+      partnerEmail?: string;
+      partnerName?: string;
+      status?: string;
+      amount?: number;
+    } | null;
 
-    let status = settlement.status;
+    if (!settlement) {
+      return NextResponse.json(
+        { error: "Settlement data is missing" },
+        { status: 500 }
+      );
+    }
+
+    const partnerEmail = settlement.partnerEmail ?? "";
+    const partnerName = settlement.partnerName ?? "Partner";
+
+    let status = settlement.status ?? "pending";
     let emailSubject = "";
     let emailMessage = "";
 
@@ -112,7 +119,7 @@ export async function POST(req: Request) {
           <h3>${emailSubject}</h3>
           <p><b>Settlement ID:</b> ${settlementId}</p>
           <p><b>Status:</b> ${status}</p>
-          <p><b>Amount:</b> ₹${settlement.amount}</p>
+          <p><b>Amount:</b> ₹${settlement.amount ?? "N/A"}</p>
           ${remark ? `<p><b>Remark:</b> ${remark}</p>` : ""}
           ${utrNumber ? `<p><b>UTR Number:</b> ${utrNumber}</p>` : ""}
           <p>— BHARATCOMFORT11 Finance Team</p>

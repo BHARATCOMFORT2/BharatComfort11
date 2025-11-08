@@ -69,16 +69,18 @@ export async function POST(req: Request) {
     if (!invoiceUrl) {
       invoiceId = `INV-RF-${Date.now()}`;
       const pdfBuffer = await generateRefundInvoice({
-        refundId,
-        bookingId: refund.bookingId,
-        invoiceId,
-        userName: refund.userName || "User",
-        userEmail: refund.userEmail || "",
-        amount: refund.amount,
-        mode: refund.paymentMode || "razorpay", // ✅ FIXED property name
-        reason: refund.notes || "Admin processed refund",
-        createdAt: new Date(),
-      });
+  refundId,
+  bookingId: refund.bookingId,
+  userId: refund.userId, // ✅ Added missing required property
+  invoiceId,
+  userName: refund.userName || "User",
+  userEmail: refund.userEmail || "",
+  amount: refund.amount,
+  mode: refund.paymentMode || "razorpay",
+  reason: refund.notes || "Admin processed refund",
+  createdAt: new Date(),
+});
+
 
       // Upload PDF
       invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");

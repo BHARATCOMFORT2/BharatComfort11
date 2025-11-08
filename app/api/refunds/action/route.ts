@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore"; // ✅ Correct server timestamp import
 import { razorpay } from "@/lib/payments-razorpay";
 import { sendEmail } from "@/lib/email";
 
@@ -22,6 +17,7 @@ import { sendEmail } from "@/lib/email";
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Authorization
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -45,32 +41,33 @@ export async function POST(req: Request) {
       );
     }
 
-    const refundRef = doc(db, "refunds", refundId);
-    const refundSnap = await getDoc(refundRef);
-    if (!refundSnap.exists()) {
+    // ✅ Use Admin SDK methods
+    const refundRef = db.collection("refunds").doc(refundId);
+    const refundSnap = await refundRef.get();
+
+    if (!refundSnap.exists) {
       return NextResponse.json({ error: "Refund not found" }, { status: 404 });
     }
 
     const refundData = refundSnap.data();
-    const bookingId = refundData.bookingId;
-    const bookingRef = doc(db, "bookings", bookingId);
-    const bookingSnap = await getDoc(bookingRef);
+    const bookingId = refundData?.bookingId;
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingSnap = await bookingRef.get();
 
-    if (!bookingSnap.exists()) {
+    if (!bookingSnap.exists) {
       return NextResponse.json({ error: "Booking not found" }, { status: 404 });
     }
 
     const booking = bookingSnap.data();
 
-    // Approve refund
+    // ✅ Approve refund
     if (action === "approve") {
       console.log("Approving refund:", refundId);
 
-      // Optional: trigger Razorpay refund API
+      // Optional Razorpay refund trigger
       if (refundData.paymentMode === "razorpay" && refundData.amount > 0) {
         try {
-          // Find Razorpay paymentId from booking (must be stored in booking)
-          const paymentId = booking.razorpayPaymentId;
+          const paymentId = booking?.razorpayPaymentId;
           if (razorpay && paymentId) {
             await razorpay.payments.refund(paymentId, {
               amount: Math.round(refundData.amount * 100),
@@ -81,27 +78,26 @@ export async function POST(req: Request) {
             console.warn("⚠️ Razorpay refund skipped (no paymentId)");
           }
         } catch (err) {
-          console.error("Razorpay refund failed:", err);
+          console.error("❌ Razorpay refund failed:", err);
         }
       }
 
-      // Update refund status
-      await updateDoc(refundRef, {
+      // Update refund + booking
+      await refundRef.update({
         refundStatus: "processed",
-        processedAt: serverTimestamp(),
+        processedAt: FieldValue.serverTimestamp(),
         processedBy: decoded.email || "system@bharatcomfort11",
       });
 
-      // Update linked booking
-      await updateDoc(bookingRef, {
+      await bookingRef.update({
         status: "cancelled_by_user",
         refundStatus: "processed",
-        updatedAt: serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
 
-      // Email user (optional)
+      // Email user
       try {
-        const userEmail = booking.userEmail || "";
+        const userEmail = booking?.userEmail || "";
         if (userEmail) {
           await sendEmail(
             userEmail,
@@ -124,21 +120,21 @@ export async function POST(req: Request) {
       });
     }
 
-    // Reject refund
+    // ✅ Reject refund
     if (action === "reject") {
-      await updateDoc(refundRef, {
+      await refundRef.update({
         refundStatus: "rejected",
-        processedAt: serverTimestamp(),
+        processedAt: FieldValue.serverTimestamp(),
         processedBy: decoded.email || "system@bharatcomfort11",
       });
 
-      await updateDoc(bookingRef, {
+      await bookingRef.update({
         refundStatus: "rejected",
-        updatedAt: serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
 
       try {
-        const userEmail = booking.userEmail || "";
+        const userEmail = booking?.userEmail || "";
         if (userEmail) {
           await sendEmail(
             userEmail,
@@ -161,7 +157,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Refund action error:", error);
     return NextResponse.json(
       { error: "Failed to process refund action" },

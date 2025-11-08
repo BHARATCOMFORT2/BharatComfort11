@@ -1,23 +1,24 @@
 import nodemailer from "nodemailer";
 
 /**
- * 🔹 Send Invoice Email (Booking or Refund)
- * @param {Object} params
- * @param {string} params.to - recipient email
- * @param {string} params.type - "booking" | "refund"
- * @param {string} params.pdfUrl - public download link from Firebase
- * @param {Object} params.details - invoice metadata (user, amount, bookingId, etc.)
+ * 🔹 Send Invoice Email (Booking / Refund / Custom)
  */
 export async function sendInvoiceEmail({
   to,
-  type,
+  type = "booking",
+  subject,
   pdfUrl,
+  invoiceId,
+  bookingDetails,
   details,
 }: {
   to: string;
-  type: "booking" | "refund";
-  pdfUrl: string;
-  details: {
+  type?: "booking" | "refund";
+  subject?: string;
+  pdfUrl?: string;
+  invoiceId?: string;
+  bookingDetails?: any;
+  details?: {
     name?: string;
     bookingId?: string;
     refundId?: string;
@@ -26,7 +27,7 @@ export async function sendInvoiceEmail({
   };
 }) {
   try {
-    // ✅ Configure transporter (use your SMTP or Gmail App Password)
+    // ✅ Configure transporter
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
@@ -35,27 +36,28 @@ export async function sendInvoiceEmail({
       },
     });
 
-    // ✅ Dynamic Subject & Body
-    const subject =
-      type === "booking"
+    // ✅ Subject (fallback)
+    const emailSubject =
+      subject ||
+      (type === "booking"
         ? "Your BharatComfort11 Booking Invoice"
-        : "Your BharatComfort11 Refund Invoice";
+        : "Your BharatComfort11 Refund Invoice");
 
-    const greeting = `Hi ${details.name || "Guest"},`;
+    const booking = bookingDetails || details || {};
+    const greeting = `Hi ${booking.userName || booking.name || "Guest"},`;
 
+    // ✅ Dynamic Message
     const message =
       type === "booking"
         ? `
 ${greeting}
 
 Thank you for booking with BharatComfort11!  
-Your booking has been confirmed successfully.
+Your booking <b>${booking.bookingId || invoiceId}</b> has been confirmed successfully.
 
-Booking ID: ${details.bookingId}  
-Amount Paid: ₹${details.amount}
+Amount Paid: ₹${booking.amount || details?.amount}
 
-You can download your official invoice below:
-${pdfUrl}
+You can download your invoice here: ${pdfUrl}
 
 Warm regards,  
 Team BharatComfort11  
@@ -64,14 +66,12 @@ support@bharatcomfort11.com
         : `
 ${greeting}
 
-Your refund has been processed successfully as per BharatComfort11 policy.
+Your refund <b>${booking.refundId || details?.refundId}</b> has been processed successfully.
 
-Refund ID: ${details.refundId}  
-Booking ID: ${details.bookingId}  
-Amount Refunded: ₹${details.amount}
+Booking ID: ${booking.bookingId || details?.bookingId}  
+Amount Refunded: ₹${booking.amount || details?.amount}
 
-You can download your refund invoice below:
-${pdfUrl}
+Download your refund invoice here: ${pdfUrl}
 
 Regards,  
 Finance Team  
@@ -82,22 +82,25 @@ BharatComfort11
     await transporter.sendMail({
       from: `"BharatComfort11" <${process.env.MAIL_USER}>`,
       to,
-      subject,
-      text: message,
+      subject: emailSubject,
+      text: message.replace(/<\/?[^>]+(>|$)/g, ""), // remove HTML tags for text version
       html: `
         <div style="font-family:Arial, sans-serif;line-height:1.6;color:#333;">
-          <h2 style="color:#2563eb;">${subject}</h2>
+          <h2 style="color:#2563eb;">${emailSubject}</h2>
           <p>${greeting}</p>
           <p>${
             type === "booking"
-              ? `Your booking <b>${details.bookingId}</b> has been confirmed.`
-              : `Your refund <b>${details.refundId}</b> for booking <b>${details.bookingId}</b> has been processed.`
+              ? `Your booking <b>${booking.bookingId || invoiceId}</b> has been confirmed.`
+              : `Your refund <b>${booking.refundId || details?.refundId}</b> for booking <b>${booking.bookingId ||
+                  details?.bookingId}</b> has been processed.`
           }</p>
-          <p><b>Amount:</b> ₹${details.amount}</p>
-          <p><b>Date:</b> ${details.date || new Date().toLocaleDateString(
-            "en-IN"
-          )}</p>
-          <p>You can <a href="${pdfUrl}" target="_blank" style="color:#2563eb;text-decoration:underline;">download your invoice here</a>.</p>
+          <p><b>Amount:</b> ₹${booking.amount || details?.amount}</p>
+          <p><b>Date:</b> ${details?.date || new Date().toLocaleString("en-IN")}</p>
+          ${
+            pdfUrl
+              ? `<p>You can <a href="${pdfUrl}" target="_blank" style="color:#2563eb;text-decoration:underline;">download your invoice here</a>.</p>`
+              : ""
+          }
           <hr style="border:none;border-top:1px solid #ddd;margin:20px 0;">
           <p>Regards,<br><b>BharatComfort11 Team</b><br>
           support@bharatcomfort11.com<br>+91 98765 43210</p>
@@ -105,7 +108,7 @@ BharatComfort11
       `,
     });
 
-    console.log(`✅ ${type} invoice email sent to ${to}`);
+    console.log(`✅ Invoice email (${type}) sent to ${to}`);
     return { success: true };
   } catch (err) {
     console.error("❌ Failed to send invoice email:", err);

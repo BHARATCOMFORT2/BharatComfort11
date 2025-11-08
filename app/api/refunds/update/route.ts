@@ -50,7 +50,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const refund = refundSnap.data();
+    const refund = refundSnap.data()!;
 
     // ✅ Update refund status
     await refundRef.update({

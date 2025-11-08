@@ -31,8 +31,9 @@ export async function GET(req: Request) {
       );
     }
 
-    const settlement = snap.data();
-    if (!settlement?.invoiceUrl) {
+    const settlement = snap.data() || {}; // ✅ default fallback
+
+    if (!settlement.invoiceUrl) {
       return NextResponse.json(
         { message: "Invoice not generated yet", invoiceUrl: null },
         { status: 200 }
@@ -94,10 +95,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const settlement = snap.data();
+    const settlement = snap.data() || {}; // ✅ Prevent undefined
 
-    // Only regenerate if paid
-    if (settlement.status !== "paid") {
+    // ✅ Only regenerate if paid
+    if (!("status" in settlement) || settlement.status !== "paid") {
       return NextResponse.json(
         { error: "Invoice can only be generated for paid settlements" },
         { status: 400 }

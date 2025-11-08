@@ -1,9 +1,9 @@
 import { db } from "@/lib/firebaseadmin";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore";
 
 /**
  * Pushes an admin-facing notification when an invoice is generated.
- * type: "booking" | "refund"
+ * Supports both booking & refund invoice events.
  */
 export async function pushInvoiceNotification(params: {
   type: "booking" | "refund";
@@ -16,14 +16,14 @@ export async function pushInvoiceNotification(params: {
   const { type, invoiceId, invoiceUrl, userId, amount, relatedId } = params;
 
   try {
-    await addDoc(collection(db, "notifications"), {
+    await db.collection("notifications").add({
       kind: "invoice",
-      audience: "admin",            // filter admin view: where("audience", "==", "admin")
-      type,                         // booking | refund
+      audience: "admin", // for admin dashboard filtering
+      type, // booking | refund
       title:
         type === "booking"
-          ? "Booking invoice generated"
-          : "Refund invoice generated",
+          ? "Booking Invoice Generated"
+          : "Refund Invoice Generated",
       message:
         type === "booking"
           ? `Invoice ${invoiceId} created for Booking ${relatedId} (₹${amount}).`
@@ -36,10 +36,12 @@ export async function pushInvoiceNotification(params: {
         relatedId,
       },
       read: false,
-      createdAt: serverTimestamp(),
-      priority: "normal",           // "normal" | "high"
+      createdAt: FieldValue.serverTimestamp(),
+      priority: "normal", // "normal" | "high"
     });
+
+    console.log(`✅ Admin invoice notification pushed for ${type} ${invoiceId}`);
   } catch (e) {
-    console.warn("⚠️ Failed to push admin invoice notification:", e);
+    console.warn("⚠️ Failed to push admin invoice notification:", (e as Error).message);
   }
 }

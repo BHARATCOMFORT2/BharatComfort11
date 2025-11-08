@@ -1,12 +1,11 @@
 /**
- * 🔧 BHARATCOMFORT11 Firestore Auto-Fixer
- * Automatically converts /app/api/** Firestore client SDK syntax
- * (collection(), doc(), getDocs(), etc.) to Admin SDK syntax.
+ * 🔧 BHARATCOMFORT11 Firestore Auto-Fixer (CommonJS version)
+ * Compatible with Node 18 (Netlify / Vercel / CI)
  */
 
-import fs from "fs";
-import path from "path";
-import fg from "fast-glob";
+const fs = require("fs");
+const path = require("path");
+const fg = require("fast-glob");
 
 const apiDir = path.join(process.cwd(), "app/api");
 
@@ -40,7 +39,7 @@ function fixFile(file) {
     !content.includes('firebase-admin/firestore') &&
     content.includes('FieldValue.serverTimestamp()')
   ) {
-    content = `import { FieldValue } from "firebase-admin/firestore";\n${content}`;
+    content = `const { FieldValue } = require("firebase-admin/firestore");\n${content}`;
   }
 
   if (changed) {

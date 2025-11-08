@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import { FieldValue } from "firebase-admin/firestore"; // ✅ Correct server timestamp import
+import { FieldValue } from "firebase-admin/firestore";
 import { razorpay } from "@/lib/payments-razorpay";
 import { sendEmail } from "@/lib/email";
 
@@ -50,7 +50,14 @@ export async function POST(req: Request) {
     }
 
     const refundData = refundSnap.data();
-    const bookingId = refundData?.bookingId;
+    if (!refundData) {
+      return NextResponse.json(
+        { error: "Refund data missing" },
+        { status: 404 }
+      );
+    }
+
+    const bookingId = refundData.bookingId;
     const bookingRef = db.collection("bookings").doc(bookingId);
     const bookingSnap = await bookingRef.get();
 

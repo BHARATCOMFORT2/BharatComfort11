@@ -4,14 +4,15 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm run fix-firestore && next build",
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "prepare": "husky install",
     "seed": "ts-node script/seed-sample-data.ts",
-    "import:csv": "ts-node script/import-csv.ts"
+    "import:csv": "ts-node script/import-csv.ts",
+    "fix-firestore": "node tools/fix-firestore-admin.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",
@@ -111,10 +112,4 @@
       "prettier --write"
     ]
   }
-}
-"scripts": {
-  "dev": "next dev",
-  "build": "npm run fix-firestore && next build",
-  "fix-firestore": "node tools/fix-firestore-admin.js",
-  "start": "next start"
 }

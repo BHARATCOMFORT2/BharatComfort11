@@ -34,24 +34,29 @@ export async function POST(req: Request) {
     const decoded = await getAuth().verifyIdToken(token);
     const uid = decoded.uid;
     const role = (decoded as any).role || "partner";
-// 🔒 KYC Verification Check
-const partnerRef = db.collection("partners").doc(uid);
-const partnerSnap = await partnerRef.get();
 
-if (!partnerSnap.exists) {
-  return NextResponse.json({ error: "Partner profile not found" }, { status: 404 });
-}
+    // 🔒 KYC Verification Check
+    const partnerRef = db.collection("partners").doc(uid);
+    const partnerSnap = await partnerRef.get();
 
-const partnerData = partnerSnap.data();
-if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
-  return NextResponse.json(
-    {
-      error:
-        "KYC not verified. Please complete your KYC verification before requesting a settlement.",
-    },
-    { status: 403 }
-  );
-}
+    if (!partnerSnap.exists) {
+      return NextResponse.json(
+        { error: "Partner profile not found" },
+        { status: 404 }
+      );
+    }
+
+    const partnerData = partnerSnap.data() || {}; // ✅ Prevent undefined
+
+    if (!partnerData.kyc || partnerData.kyc?.status !== "approved") {
+      return NextResponse.json(
+        {
+          error:
+            "KYC not verified. Please complete your KYC verification before requesting a settlement.",
+        },
+        { status: 403 }
+      );
+    }
 
     if (role !== "partner") {
       return NextResponse.json(
@@ -69,7 +74,7 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
       );
     }
 
-    // Check duplicate request
+    // ✅ Check for duplicate requests
     const existingQuery = query(
       collection(db, "settlements"),
       where("partnerId", "==", uid),
@@ -77,16 +82,22 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
     );
     const existingSnap = await getDocs(existingQuery);
     const duplicate = existingSnap.docs.find((doc) =>
-      bookingIds.some((id: string) => (doc.data().bookingIds || []).includes(id))
+      bookingIds.some((id: string) =>
+        (doc.data().bookingIds || []).includes(id)
+      )
     );
+
     if (duplicate) {
       return NextResponse.json(
-        { error: "A settlement request for one or more bookings already exists." },
+        {
+          error:
+            "A settlement request for one or more bookings already exists.",
+        },
         { status: 409 }
       );
     }
 
-    // Verify bookings belong to this partner
+    // ✅ Verify bookings belong to this partner
     const bookingsRef = collection(db, "bookings");
     const q = query(bookingsRef, where("partnerId", "==", uid));
     const snap = await getDocs(q);
@@ -101,7 +112,7 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
       );
     }
 
-    // Create new settlement entry
+    // ✅ Create new settlement entry
     const settlementsRef = collection(db, "settlements");
     const settlementDoc = await addDoc(settlementsRef, {
       partnerId: uid,
@@ -117,7 +128,7 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
       invoiceUrl: "",
     });
 
-    // Mark all bookings as "settlement_requested"
+    // ✅ Mark all bookings as "settlement_requested"
     await Promise.all(
       bookingIds.map(async (bId: string) => {
         const ref = doc(db, "bookings", bId);
@@ -125,9 +136,12 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
       })
     );
 
-    // Auto-generate invoice if partner is verified and payment done
+    // ✅ Auto-generate invoice if all bookings are paid/completed
     let autoInvoiceUrl = "";
-    const allPaid = partnerBookings.every((b) => b.status === "completed" || b.paymentStatus === "paid");
+    const allPaid = partnerBookings.every(
+      (b) => b.status === "completed" || b.paymentStatus === "paid"
+    );
+
     if (allPaid) {
       autoInvoiceUrl = await generateSettlementInvoice(settlementDoc.id, {
         partnerName: decoded.name || "",
@@ -144,7 +158,7 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
       }
     }
 
-    // Send email to admin
+    // ✅ Send email to admin
     await sendEmail(
       "admin@bharatcomfort11.com",
       `🧾 New Settlement Request from ${decoded.email}`,
@@ -163,16 +177,18 @@ if (!partnerData.kyc || partnerData.kyc.status !== "approved") {
       `
     );
 
-    // Send confirmation email to partner
+    // ✅ Send confirmation email to partner
     await sendEmail(
       decoded.email,
       "✅ Settlement Request Received",
       `
         <h3>Settlement Request Submitted</h3>
         <p>Thank you, ${decoded.name || "Partner"}.</p>
-        <p>Your settlement request for <b>₹${Number(totalAmount).toLocaleString(
-          "en-IN"
-        )}</b> covering <b>${bookingIds.length}</b> bookings has been submitted successfully.</p>
+        <p>Your settlement request for <b>₹${Number(
+          totalAmount
+        ).toLocaleString("en-IN")}</b> covering <b>${
+        bookingIds.length
+      }</b> bookings has been submitted successfully.</p>
         <p>We will notify you once it’s approved or processed by the finance team.</p>
         ${
           autoInvoiceUrl

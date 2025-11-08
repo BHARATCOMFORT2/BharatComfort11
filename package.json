@@ -16,7 +16,9 @@
     "fix-awaits-final": "node tools/fix-awaits-final.js",
     "fix-awaits": "node tools/fix-awaits.js",
     "fix-awaits": "node tools/fix-firestore-awaits.js",
-    "build": "node tools/fix-firestore-syntax.js && next build"
+    "build": "node tools/fix-firestore-syntax.js && next build",
+    "fix:firestore": "node tools/fix-firestore-imports.js",
+  "build": "npm run fix:firestore"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",

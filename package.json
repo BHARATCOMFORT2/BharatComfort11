@@ -14,7 +14,8 @@
     "import:csv": "ts-node script/import-csv.ts",
     "fix-firestore": "node tools/fix-firestore-admin.js",
     "fix-awaits-final": "node tools/fix-awaits-final.js",
-    "fix-awaits": "node tools/fix-awaits.js"
+    "fix-awaits": "node tools/fix-awaits.js",
+    "fix-awaits": "node tools/fix-firestore-awaits.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",

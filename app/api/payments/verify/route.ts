@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { doc, updateDoc, serverTimestamp, getDoc } from "firebase/firestore";
+import { db } from "@/lib/firebaseadmin"; // ✅ Use Admin SDK
+import { FieldValue } from "firebase-admin/firestore"; // ✅ For timestamps
 import crypto from "crypto";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
@@ -63,10 +63,10 @@ export async function POST(req: Request) {
     console.log("✅ Razorpay signature verified for:", razorpay_payment_id);
 
     // ✅ 3️⃣ Fetch booking
-    const bookingRef = doc(db, "bookings", bookingId);
-    const bookingSnap = await getDoc(bookingRef);
+    const bookingRef = db.collection("bookings").doc(bookingId);
+    const bookingSnap = await bookingRef.get();
 
-    if (!bookingSnap.exists()) {
+    if (!bookingSnap.exists) {
       return NextResponse.json(
         { success: false, error: "Booking not found" },
         { status: 404 }
@@ -83,26 +83,28 @@ export async function POST(req: Request) {
     }
 
     // ✅ 4️⃣ Update /payments document
-    const paymentRef = doc(db, "payments", razorpay_order_id);
-    await updateDoc(paymentRef, {
-      status: "success",
-      razorpayPaymentId: razorpay_payment_id,
-      verifiedAt: serverTimestamp(),
-      bookingId,
-      userId: booking.userId,
-      partnerId: booking.partnerId,
-      amount: booking.amount,
-    }).catch((err) =>
-      console.warn("⚠️ Could not update /payments doc:", err.message)
-    );
+    const paymentRef = db.collection("payments").doc(razorpay_order_id);
+    await paymentRef
+      .update({
+        status: "success",
+        razorpayPaymentId: razorpay_payment_id,
+        verifiedAt: FieldValue.serverTimestamp(),
+        bookingId,
+        userId: booking.userId,
+        partnerId: booking.partnerId,
+        amount: booking.amount,
+      })
+      .catch((err) =>
+        console.warn("⚠️ Could not update /payments doc:", err.message)
+      );
 
     // ✅ 5️⃣ Update booking as confirmed
-    await updateDoc(bookingRef, {
+    await bookingRef.update({
       paymentStatus: "paid",
       status: "confirmed",
       razorpayOrderId: razorpay_order_id,
       razorpayPaymentId: razorpay_payment_id,
-      updatedAt: serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     });
 
     console.log("✅ Booking confirmed:", bookingId);
@@ -130,19 +132,24 @@ export async function POST(req: Request) {
     );
 
     // ✅ 8️⃣ Save invoice link to Firestore
-    await updateDoc(bookingRef, {
+    await bookingRef.update({
       invoiceId,
       invoiceUrl,
-      invoiceGeneratedAt: serverTimestamp(),
+      invoiceGeneratedAt: FieldValue.serverTimestamp(),
     });
 
     // ✅ 9️⃣ Send invoice email to user
     await sendInvoiceEmail({
       to: booking.userEmail,
-      subject: `Your Booking Invoice - ${invoiceId}`,
+      pdfUrl: invoiceUrl,
       invoiceId,
-      pdfUrl: invoiceUrl, // ✅ FIXED (renamed from invoiceUrl → pdfUrl)
-      bookingDetails: booking,
+      type: "booking",
+      details: {
+        name: booking.userName,
+        bookingId,
+        amount: booking.amount,
+        date: new Date().toLocaleDateString("en-IN"),
+      },
     });
 
     // ✅ 🔟 Push admin invoice notification

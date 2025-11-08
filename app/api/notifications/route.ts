@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/firebase";
-import { collection, addDoc, getDocs, query, where, orderBy } from "firebase/firestore";
+import { db } from "@/lib/firebaseadmin"; // ✅ Use Admin SDK
 
 // POST → Create new notification
 export async function POST(req: NextRequest) {
@@ -11,19 +10,24 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Missing fields" }, { status: 400 });
     }
 
-    const docRef = await addDoc(collection(db, "notifications"), {
+    const newNotification = {
       userId,
       type: type || "general",
       message,
       link: link || null,
       read: false,
       createdAt: Date.now(),
-    });
+    };
 
-    return NextResponse.json({ id: docRef.id });
+    const docRef = await db.collection("notifications").add(newNotification);
+
+    return NextResponse.json({ id: docRef.id, success: true });
   } catch (err: any) {
-    console.error("Error creating notification:", err.message);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("❌ Error creating notification:", err.message);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -37,21 +41,23 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "Missing userId" }, { status: 400 });
     }
 
-    const q = query(
-      collection(db, "notifications"),
-      where("userId", "==", userId),
-      orderBy("createdAt", "desc")
-    );
+    const snapshot = await db
+      .collection("notifications")
+      .where("userId", "==", userId)
+      .orderBy("createdAt", "desc")
+      .get();
 
-    const snapshot = await getDocs(q);
     const notifications = snapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
     }));
 
-    return NextResponse.json({ notifications });
+    return NextResponse.json({ success: true, notifications });
   } catch (err: any) {
-    console.error("Error fetching notifications:", err.message);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    console.error("❌ Error fetching notifications:", err.message);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import { FieldValue } from "firebase-admin/firestore"; // ✅ For serverTimestamp
+import { FieldValue } from "firebase-admin/firestore";
 import { generateRefundInvoice } from "@/lib/invoices/generateRefundInvoice";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { sendInvoiceEmail } from "@/lib/emails/sendInvoiceEmail";
@@ -14,7 +14,6 @@ import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotifica
  */
 export async function POST(req: Request) {
   try {
-    // ✅ Auth Check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -30,7 +29,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Input Validation
     const { refundId, newStatus } = await req.json();
     if (!refundId || !["approved", "processed"].includes(newStatus)) {
       return NextResponse.json(
@@ -39,7 +37,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Fetch Refund Record
     const refundRef = db.collection("refunds").doc(refundId);
     const refundSnap = await refundRef.get();
 
@@ -50,15 +47,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const refund = refundSnap.data()!;
+    const refund = refundSnap.data();
+    if (!refund) {
+      return NextResponse.json(
+        { error: "Refund data is missing" },
+        { status: 500 }
+      );
+    }
 
     // ✅ Update refund status
     await refundRef.update({
       refundStatus: newStatus,
       updatedAt: FieldValue.serverTimestamp(),
-      ...(newStatus === "processed" && {
-        processedAt: FieldValue.serverTimestamp(),
-      }),
+      ...(newStatus === "processed" && { processedAt: FieldValue.serverTimestamp() }),
     });
 
     // ✅ Generate refund invoice if not exists
@@ -67,7 +68,6 @@ export async function POST(req: Request) {
 
     if (!invoiceUrl) {
       invoiceId = `INV-RF-${Date.now()}`;
-
       const pdfBuffer = await generateRefundInvoice({
         refundId,
         bookingId: refund.bookingId,
@@ -75,15 +75,15 @@ export async function POST(req: Request) {
         userName: refund.userName || "User",
         userEmail: refund.userEmail || "",
         amount: refund.amount,
-        paymentMode: refund.paymentMode || "razorpay",
+        mode: refund.paymentMode || "razorpay", // ✅ FIXED property name
         reason: refund.notes || "Admin processed refund",
         createdAt: new Date(),
       });
 
-      // ✅ Upload PDF
+      // Upload PDF
       invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
 
-      // ✅ Save invoice details
+      // Save invoice details
       await refundRef.update({
         invoiceId,
         invoiceUrl,
@@ -91,42 +91,44 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ Send email to user (optional)
+    // ✅ Send email to user
     if (refund.userEmail) {
       await sendInvoiceEmail({
         to: refund.userEmail,
-        type: "refund",
-        pdfUrl: invoiceUrl,
+        subject:
+          newStatus === "approved"
+            ? `Refund Approved - ${invoiceId}`
+            : `Refund Processed - ${invoiceId}`,
         invoiceId,
+        pdfUrl: invoiceUrl,
+        type: "refund",
         details: {
           bookingId: refund.bookingId,
           amount: refund.amount,
-          date: new Date().toLocaleDateString("en-IN"),
           reason: refund.notes,
         },
       });
     }
 
     // ✅ Push admin notification
-   await pushInvoiceNotification({
-  type: "refund",
-  invoiceId,
-  invoiceUrl,
-  userId: refund.userId,
-  amount: refund.amount,
-  relatedId: refund.bookingId,
-} as any);
+    await pushInvoiceNotification({
+      type: "refund",
+      invoiceId,
+      invoiceUrl,
+      userId: refund.userId,
+      amount: refund.amount,
+      relatedId: refund.bookingId,
+    });
 
     console.log(`✅ Refund ${refundId} marked as ${newStatus}`);
 
-    // ✅ Response
     return NextResponse.json({
       success: true,
       message: `Refund ${newStatus} successfully.`,
       refundId,
       invoiceUrl,
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("❌ Refund update error:", error);
     return NextResponse.json(
       { error: "Failed to update refund" },

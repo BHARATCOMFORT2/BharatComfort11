@@ -1,8 +1,8 @@
 /**
- * 🔧 BharatComfort11 - Firestore Syntax Auto-Fix
- * Fixes all semicolon-related syntax errors caused by incorrect Firestore conversions.
+ * 🔧 BharatComfort11 Firestore Syntax Auto-Fix (CommonJS Version)
+ * Fixes corrupted Firestore calls that cause “Expected a semicolon” errors.
  *
- * It automatically replaces:
+ * Replaces:
  *   ❌ await ref);
  *   ✅ await ref.get();
  *
@@ -10,30 +10,27 @@
  *   ✅ await ref.update({ ... });
  */
 
-import fs from "fs";
-import path from "path";
-import fg from "fast-glob";
+const fs = require("fs");
+const path = require("path");
+const fg = require("fast-glob");
 
 const baseDir = path.join(process.cwd(), "app/api");
 
-// Regex patterns to fix syntax errors
+// Regex fix patterns
 const fixes = [
   {
     find: /await\s+([a-zA-Z0-9_]+)\s*\);/g,
     replace: "await $1.get();",
-    reason: "Fixes 'await ref);' to 'await ref.get();'",
   },
   {
     find: /await\s+([a-zA-Z0-9_]+)\s*,\s*\{/g,
     replace: "await $1.update({",
-    reason: "Fixes 'await ref, {' to 'await ref.update({'",
   },
 ];
 
 (async () => {
-  console.log("🧩 Scanning for Firestore syntax errors...");
+  console.log("🧩 Scanning Firestore API files...");
   const files = await fg(["app/api/**/*.ts"]);
-
   let total = 0;
 
   for (const file of files) {
@@ -55,8 +52,8 @@ const fixes = [
   }
 
   console.log(
-    total > 0
-      ? `🎉 Done! Fixed syntax errors in ${total} file(s).`
+    total
+      ? `🎯 Done! Fixed syntax errors in ${total} file(s).`
       : "✅ No syntax errors found."
   );
 })();

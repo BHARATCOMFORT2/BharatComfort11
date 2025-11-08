@@ -1,12 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  serverTimestamp,
-} from "firebase/firestore";
+import { FieldValue } from "firebase-admin/firestore"; // ✅ For serverTimestamp
 import { generateRefundInvoice } from "@/lib/invoices/generateRefundInvoice";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { sendInvoiceEmail } from "@/lib/emails/sendInvoiceEmail";
@@ -19,6 +14,7 @@ import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotifica
  */
 export async function POST(req: Request) {
   try {
+    // ✅ Auth Check
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -34,6 +30,7 @@ export async function POST(req: Request) {
       );
     }
 
+    // ✅ Input Validation
     const { refundId, newStatus } = await req.json();
     if (!refundId || !["approved", "processed"].includes(newStatus)) {
       return NextResponse.json(
@@ -42,9 +39,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const refundRef = doc(db, "refunds", refundId);
-    const refundSnap = await getDoc(refundRef);
-    if (!refundSnap.exists()) {
+    // ✅ Fetch Refund Record
+    const refundRef = db.collection("refunds").doc(refundId);
+    const refundSnap = await refundRef.get();
+
+    if (!refundSnap.exists) {
       return NextResponse.json(
         { error: "Refund record not found" },
         { status: 404 }
@@ -54,10 +53,12 @@ export async function POST(req: Request) {
     const refund = refundSnap.data();
 
     // ✅ Update refund status
-    await updateDoc(refundRef, {
+    await refundRef.update({
       refundStatus: newStatus,
-      updatedAt: serverTimestamp(),
-      ...(newStatus === "processed" && { processedAt: serverTimestamp() }),
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(newStatus === "processed" && {
+        processedAt: FieldValue.serverTimestamp(),
+      }),
     });
 
     // ✅ Generate refund invoice if not exists
@@ -66,6 +67,7 @@ export async function POST(req: Request) {
 
     if (!invoiceUrl) {
       invoiceId = `INV-RF-${Date.now()}`;
+
       const pdfBuffer = await generateRefundInvoice({
         refundId,
         bookingId: refund.bookingId,
@@ -78,30 +80,28 @@ export async function POST(req: Request) {
         createdAt: new Date(),
       });
 
-      // Upload PDF
+      // ✅ Upload PDF
       invoiceUrl = await uploadInvoiceToFirebase(pdfBuffer, invoiceId, "refund");
 
-      // Save invoice details
-      await updateDoc(refundRef, {
+      // ✅ Save invoice details
+      await refundRef.update({
         invoiceId,
         invoiceUrl,
-        invoiceGeneratedAt: serverTimestamp(),
+        invoiceGeneratedAt: FieldValue.serverTimestamp(),
       });
     }
 
-    // ✅ Send email to user
+    // ✅ Send email to user (optional)
     if (refund.userEmail) {
       await sendInvoiceEmail({
         to: refund.userEmail,
-        subject:
-          newStatus === "approved"
-            ? `Refund Approved - ${invoiceId}`
-            : `Refund Processed - ${invoiceId}`,
+        type: "refund",
+        pdfUrl: invoiceUrl,
         invoiceId,
-        invoiceUrl,
-        bookingDetails: {
+        details: {
           bookingId: refund.bookingId,
           amount: refund.amount,
+          date: new Date().toLocaleDateString("en-IN"),
           reason: refund.notes,
         },
       });
@@ -119,13 +119,14 @@ export async function POST(req: Request) {
 
     console.log(`✅ Refund ${refundId} marked as ${newStatus}`);
 
+    // ✅ Response
     return NextResponse.json({
       success: true,
       message: `Refund ${newStatus} successfully.`,
       refundId,
       invoiceUrl,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("❌ Refund update error:", error);
     return NextResponse.json(
       { error: "Failed to update refund" },

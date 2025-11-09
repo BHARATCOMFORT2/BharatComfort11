@@ -1,90 +1,240 @@
-// firestore.rules
 rules_version = '2';
+
 service cloud.firestore {
   match /databases/{database}/documents {
-    function isSignedIn() { return request.auth != null; }
-    function isAdmin() { return isSignedIn() && request.auth.token.role == "admin"; }
-    function isPartner() { return isSignedIn() && request.auth.token.role == "partner"; }
-    function isStaff() { return isSignedIn() && request.auth.token.role == "staff"; }
-    function isVerifiedUser() {
+
+    /* ───────────────────────────────
+       🔐 Helper Functions
+    ─────────────────────────────── */
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
       return isSignedIn() &&
-             request.auth.token.email_verified == true &&
-             (request.auth.token.phone_number != null);
+             ((request.auth.token.role == 'admin') ||
+              (request.auth.token.isAdmin == true));
     }
 
-    match /users/{userId} {
-      allow read: if true;
-      allow write, update, delete: if isVerifiedUser() && request.auth.uid == userId;
-      allow read, write, delete: if isAdmin();
+    function isPartner() {
+      return isSignedIn() &&
+             (request.auth.token.role == 'partner' || isAdmin());
     }
 
-    match /partners/{partnerId} {
+    function isSelf(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    /* ───────────────────────────────
+       👤 Users
+    ─────────────────────────────── */
+    match /users/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow create: if isSelf(uid);
+      allow update: if isSelf(uid)
+                    && !(("role" in request.resource.data) || ("isAdmin" in request.resource.data))
+                    && (request.resource.data.uid == uid)
+                    && (request.resource.data.email == resource.data.email);
+      allow delete: if isSelf(uid) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       🧑‍💼 Partners
+    ─────────────────────────────── */
+    match /partners/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow create: if isSelf(uid);
+      allow update: if isSelf(uid)
+                    && !(("role" in request.resource.data) || ("isAdmin" in request.resource.data));
+      allow delete: if isSelf(uid) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       📅 Bookings
+    ─────────────────────────────── */
+    match /bookings/{bookingId} {
+      function isBookingOwner() {
+        return isSignedIn() && request.auth.uid == resource.data.userId;
+      }
+      function isBookingPartner() {
+        return isSignedIn() && resource.data.partnerId == request.auth.uid;
+      }
+
+      allow read: if isBookingOwner() || isBookingPartner() || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if (isBookingOwner() &&
+                        request.resource.data.keys().hasOnly(['status', 'cancellationReason', 'updatedAt']))
+                    || (isBookingPartner() &&
+                        request.resource.data.keys().hasOnly(['status', 'checkIn', 'checkOut', 'updatedAt', 'notes']));
+      allow write: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       💳 Payments
+    ─────────────────────────────── */
+    match /payments/{paymentId} {
+      function isRelated() {
+        return isSignedIn() &&
+          (('userId' in resource.data && resource.data.userId == request.auth.uid) ||
+           ('partnerId' in resource.data && resource.data.partnerId == request.auth.uid));
+      }
+
+      allow read: if isRelated() || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       💸 Refunds
+    ─────────────────────────────── */
+    match /refunds/{refundId} {
+      function isRefundOwner() {
+        return isSignedIn() && resource.data.userId == request.auth.uid;
+      }
+      function isRefundPartner() {
+        return isSignedIn() && resource.data.partnerId == request.auth.uid;
+      }
+
+      allow read: if isRefundOwner() || isRefundPartner() || isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isRefundOwner() && request.resource.data.keys().hasOnly(['notes', 'updatedAt']);
+      allow write, delete: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       💰 Settlements
+    ─────────────────────────────── */
+    match /settlements/{settlementId} {
+      function isSettlementOwner() {
+        return isSignedIn() && resource.data.partnerId == request.auth.uid;
+      }
+
+      allow read: if isSettlementOwner() || isAdmin();
+      allow create: if isPartner() && request.resource.data.partnerId == request.auth.uid;
+      allow update: if isSettlementOwner() && request.resource.data.keys().hasOnly(['remark', 'updatedAt']);
+      allow write, delete: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       ⚖️ Settlement Disputes
+    ─────────────────────────────── */
+    match /settlement_disputes/{disputeId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.partnerId == request.auth.uid);
+      allow create: if isPartner() && request.resource.data.partnerId == request.auth.uid;
+      allow update: if isSignedIn() &&
+                    resource.data.partnerId == request.auth.uid &&
+                    request.resource.data.keys().hasOnly(['description', 'fileUrl', 'updatedAt']);
+      allow write, delete: if isAdmin();
+
+      match /messages/{msgId} {
+        allow read: if isAdmin()
+                    || (isSignedIn() &&
+                        get(/databases/$(database)/documents/settlement_disputes/$(disputeId)).data.partnerId == request.auth.uid);
+        allow create: if isAdmin() || (isSignedIn() && request.resource.data.uid == request.auth.uid);
+        allow update, delete: if isAdmin();
+      }
+    }
+
+    /* ───────────────────────────────
+       🔔 Notifications
+    ─────────────────────────────── */
+    match /notifications/{id} {
+      function isOwnerNotification() {
+        return isSignedIn() &&
+               ('userId' in resource.data) &&
+               resource.data.userId == request.auth.uid;
+      }
+
+      allow read: if isOwnerNotification() || isAdmin()
+                  || (isSignedIn() && resource.data.audience == 'admin' && isAdmin());
+      allow create: if false;
+      allow update: if isOwnerNotification() &&
+                    request.resource.data.keys().hasOnly(['read', 'updatedAt']);
+      allow write, delete: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       🧾 Admin Logs
+    ─────────────────────────────── */
+    match /admin_logs/{logId} {
+      allow read, write: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       ⭐ Reviews / Stories
+    ─────────────────────────────── */
+    match /reviews/{reviewId} {
       allow read: if true;
-      allow write, update: if isPartner() && isVerifiedUser() && request.auth.uid == partnerId;
-      allow read, write, delete: if isAdmin();
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if isAdmin();
+    }
+
+    match /stories/{storyId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow write: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       🎁 Refer & Earn System
+    ─────────────────────────────── */
+    match /refer_and_earn/{referralId} {
+      function isReferrer() {
+        return isSignedIn() && resource.data.referrerId == request.auth.uid;
+      }
+      function isReferred() {
+        return isSignedIn() && resource.data.referredUserId == request.auth.uid;
+      }
+
+      allow read: if isReferrer() || isReferred() || isAdmin();
+      allow create: if isSignedIn() &&
+                    request.resource.data.referrerId == request.auth.uid &&
+                    !("rewardStatus" in request.resource.data) &&
+                    !("rewardAmount" in request.resource.data) &&
+                    request.resource.data.keys().hasAll(["referrerId", "referredEmail", "createdAt"]);
+      allow update, delete: if isAdmin();
+    }
+
+    match /referral_codes/{uid} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow create: if isSelf(uid) &&
+                    !(exists(/databases/$(database)/documents/referral_codes/$(uid))) &&
+                    request.resource.data.uid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /rewards/{rewardId} {
+      function isRewardOwner() {
+        return isSignedIn() && resource.data.userId == request.auth.uid;
+      }
+      allow read: if isRewardOwner() || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    match /users/{uid}/wallet/{entryId} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /* ───────────────────────────────
+       🏠 Homepage / Listings (Public)
+    ─────────────────────────────── */
+    match /homepage/{docId} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /listings/{listingId} {
       allow read: if true;
-      allow create: if (isPartner() && isVerifiedUser() &&
-                        request.auth.uid == request.resource.data.createdBy) || isAdmin();
-      allow update, delete: if (isPartner() && isVerifiedUser() &&
-                                request.auth.uid == resource.data.createdBy) ||
-                             isAdmin() || isStaff();
+      allow create, update, delete: if isAdmin();
     }
 
-    match /stays/{stayId} {
+    match /featured_listings/{docId} {
       allow read: if true;
-      allow create: if isPartner() && isVerifiedUser() &&
-                     request.auth.uid == request.resource.data.partnerId;
-      allow update, delete: if (isPartner() && isVerifiedUser() &&
-                                request.auth.uid == resource.data.partnerId) ||
-                             isAdmin() || isStaff();
+      allow write, delete: if isAdmin();
     }
-
-    match /bookings/{bookingId} {
-      allow read: if isAdmin() || isStaff();
-      allow read: if isPartner() && request.auth.uid == resource.data.partnerId;
-      allow read: if isSignedIn() && request.auth.uid == resource.data.userId;
-      allow create: if (isVerifiedUser() && request.auth.uid == request.resource.data.userId) || isAdmin();
-      allow update: if (isPartner() && isVerifiedUser() &&
-                        request.auth.uid == resource.data.partnerId) || isAdmin();
-      allow delete: if isAdmin();
-    }
-
-    match /payments/{paymentId} {
-      allow create, read: if isVerifiedUser();
-      allow update, delete: if isAdmin() || isStaff();
-    }
-
-    match /notifications/{notifId} {
-      allow read: if isSignedIn() &&
-        (resource.data.userId == request.auth.uid ||
-         resource.data.userId == "all" || isAdmin() || isStaff());
-      allow create: if isVerifiedUser();
-      allow update, delete: if isAdmin() || isStaff();
-    }
-
-    match /homepage/{sectionId} {
-      allow read: if true;
-      allow create, write, update, delete: if isAdmin() || isStaff();
-    }
-
-    match /stories/{id} { allow read: if true; }
-    match /destinations/{id} { allow read: if true; }
-    match /promotions/{id} { allow read: if true; }
-    match /offers/{id} { allow read: if true; }
-    match /banners/{id} { allow read: if true; }
-    match /faqs/{id} { allow read: if true; }
-    match /pages/{id} { allow read: if true; }
-
-    match /admin/{docId} { allow read, write, delete: if isAdmin(); }
-
-    match /staffs/{staffId} {
-      allow read: if isAdmin() || (isStaff() && request.auth.uid == staffId);
-      allow write, update, delete: if isAdmin();
-    }
-
-    match /{document=**} { allow read, write: if false; }
   }
 }

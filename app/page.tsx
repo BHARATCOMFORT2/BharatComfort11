@@ -7,6 +7,7 @@ import "@/lib/payments/register";
 
 import { auth, db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
+import HiringForm from "@/components/sections/HiringForm";
 
 // 🧱 Lazy imports for heavy components (boosts performance)
 const Hero = dynamic(() => import("@/components/home/Hero"));
@@ -159,7 +160,14 @@ export default function HomePage() {
       >
         <NewsletterSignup />
       </motion.section>
+export default function HomePage() {
+  return (
+    <main>
+      {/* Existing homepage sections */}
+      {/* ... */}
 
+      {/* 💼 Hiring / Job Application Section */}
+      <HiringForm />
       {/* Footer */}
       <Footer />
     </main>

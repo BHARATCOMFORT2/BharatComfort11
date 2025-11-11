@@ -85,3 +85,5 @@ export async function notifySlack({ title, message, type = "info", meta }: Slack
     console.error("🚨 Slack notify error:", err);
   }
 }
+// add this at the very bottom
+export const sendSlackAlert = notifySlack;

@@ -96,3 +96,19 @@ export function isToday(date: string | Date) {
     d.getFullYear() === today.getFullYear()
   )
 }
+/**
+ * Cursor-based pagination helper for Firestore
+ * Example: getNextPage(snapshot, 10)
+ */
+export function getNextPage<T>(
+  docs: T[],
+  limit: number
+): { nextCursor: T | null; hasMore: boolean } {
+  if (!Array.isArray(docs) || docs.length === 0) {
+    return { nextCursor: null, hasMore: false };
+  }
+
+  const hasMore = docs.length >= limit;
+  const nextCursor = hasMore ? docs[docs.length - 1] : null;
+  return { nextCursor, hasMore };
+}

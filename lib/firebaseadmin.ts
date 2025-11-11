@@ -55,7 +55,7 @@ if (admin.apps.length) {
    🔥 SERVICES
 ============================================================ */
 const adminAuth = admin.auth(app);
-const adminDb = admin.firestore(app);
+const firestoreAdmin = admin.firestore(app);
 const adminStorage = admin.storage(app);
 
 /* ============================================================
@@ -66,7 +66,7 @@ export function getFirebaseAdmin() {
     admin,
     adminApp: app,
     adminAuth,
-    db: adminDb,
+    db: firestoreAdmin,
     storage: adminStorage,
   };
 }
@@ -76,9 +76,8 @@ export function getFirebaseAdmin() {
 ============================================================ */
 export { admin };
 
-// ✅ Standardized exports
-export const db = adminDb;
-export const adminDb = db; // alias for backward compatibility
+export const db = firestoreAdmin;
+export const adminDb = firestoreAdmin; // ✅ alias for compatibility
 export const authAdmin = adminAuth;
 export const storage = adminStorage;
 
@@ -88,7 +87,7 @@ export const storage = adminStorage;
 if (process.env.NODE_ENV !== "production") {
   (async () => {
     try {
-      await adminDb.listCollections();
+      await firestoreAdmin.listCollections();
       console.log("✅ Firestore Admin connected (dev check)");
     } catch (err: any) {
       console.error("⚠️ Firestore Admin connection issue:", err.message);

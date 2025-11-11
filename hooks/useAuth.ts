@@ -44,8 +44,6 @@ export interface AppUser {
 
 /* ============================================================
    🔥 Hook: useAuth()
-   - Syncs Firebase auth state + Firestore user profile
-   - Keeps session cookie in sync with backend
 ============================================================ */
 export function useAuth() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
@@ -68,6 +66,7 @@ export function useAuth() {
             email: user.email,
             displayName: user.displayName,
             role: "user",
+            emailVerified: user.emailVerified,
           };
 
           if (snap.exists()) {
@@ -76,7 +75,7 @@ export function useAuth() {
 
           setProfile(userData);
 
-          // 🔁 Ensure server session cookie is valid
+          // 🔁 Keep backend session cookie in sync
           try {
             const token = await getIdToken(user, true);
             await fetch("/api/auth/session", {
@@ -85,14 +84,17 @@ export function useAuth() {
               body: JSON.stringify({ token }),
             });
           } catch (err) {
-            console.warn("⚠️ Failed to sync session cookie:", err);
+            console.warn("⚠️ Session cookie sync failed:", err);
           }
         } catch (err) {
           console.error("❌ Error fetching Firestore user:", err);
           setProfile(null);
         }
       } else {
+        // user logged out
         setProfile(null);
+        // clear cookie locally just in case
+        document.cookie = "__session=; Max-Age=0; path=/;";
       }
 
       setLoading(false);
@@ -107,7 +109,8 @@ export function useAuth() {
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
-      await fetch("/api/auth/logout", { method: "POST" }); // clear session cookie
+      await fetch("/api/auth/logout", { method: "POST" });
+      document.cookie = "__session=; Max-Age=0; path=/;"; // ✅ clear locally too
     } catch (err) {
       console.error("⚠️ Sign out failed:", err);
     } finally {

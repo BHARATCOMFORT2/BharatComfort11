@@ -1,11 +1,13 @@
 // app/api/payments/create-order/route.ts
+export const runtime = "nodejs"; // ✅ Required for crypto & Razorpay SDK
+
 import { NextRequest, NextResponse } from "next/server";
 import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import admin from "firebase-admin";
 
 /* ============================================================
-   🧠 INITIALIZE FIREBASE ADMIN
+   🔥 Initialize Firebase Admin
 ============================================================ */
 const { adminDb } = getFirebaseAdmin();
 
@@ -28,9 +30,11 @@ export async function POST(req: NextRequest) {
     }
 
     const idToken = authHeader.split("Bearer ")[1];
-    const decoded = await admin.auth().verifyIdToken(idToken).catch(() => null);
-
-    if (!decoded?.uid) {
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken);
+    } catch (err) {
+      console.warn("⚠️ Invalid Firebase token:", err);
       return NextResponse.json(
         { success: false, error: "Unauthorized: Invalid or expired token" },
         { status: 403 }
@@ -50,11 +54,11 @@ export async function POST(req: NextRequest) {
     }
 
     /* --------------------------------------------------------
-       ⚙️ Initialize Razorpay Server
+       ⚙️ Initialize Razorpay Server Instance
     -------------------------------------------------------- */
     const razorpay = getRazorpayServerInstance();
     if (!razorpay) {
-      console.error("❌ Razorpay not initialized");
+      console.error("❌ Razorpay instance not initialized");
       return NextResponse.json(
         { success: false, error: "Server misconfiguration" },
         { status: 500 }
@@ -72,32 +76,34 @@ export async function POST(req: NextRequest) {
     });
 
     /* --------------------------------------------------------
-       📦 Store Payment Record in Firestore
+       💾 Store Payment Record in Firestore
     -------------------------------------------------------- */
-    const orderRef = adminDb.collection("payments").doc(order.id);
-    await orderRef.set({
+    await adminDb.collection("payments").doc(order.id).set({
       userId,
       listingId: listingId || null,
       amount,
       currency: "INR",
-      status: "pending",
+      status: "created",
       razorpayOrderId: order.id,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
+
+    console.log(`✅ Razorpay order created: ${order.id} for ₹${amount}`);
 
     /* --------------------------------------------------------
        ✅ Respond to Client
     -------------------------------------------------------- */
     return NextResponse.json({
       success: true,
-      id: order.id,
+      orderId: order.id,
       amount: order.amount,
       currency: order.currency,
+      key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
     });
-  } catch (err: any) {
-    console.error("❌ Payment creation error:", err);
+  } catch (error: any) {
+    console.error("❌ Payment creation error:", error);
     return NextResponse.json(
-      { success: false, error: err.message || "Internal Server Error" },
+      { success: false, error: error.message || "Internal Server Error" },
       { status: 500 }
     );
   }

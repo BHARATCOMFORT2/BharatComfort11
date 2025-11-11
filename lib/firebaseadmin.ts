@@ -59,7 +59,7 @@ const adminDb = admin.firestore(app);
 const adminStorage = admin.storage(app);
 
 /* ============================================================
-   🧩 ACCESSOR FUNCTION
+   🧩 ACCESSOR FUNCTION (if needed elsewhere)
 ============================================================ */
 export function getFirebaseAdmin() {
   return {
@@ -72,15 +72,18 @@ export function getFirebaseAdmin() {
 }
 
 /* ============================================================
-   💾 COMMON EXPORTS (Universal Imports)
+   💾 UNIVERSAL EXPORTS (Safe Global Imports)
 ============================================================ */
 export { admin };
+
+// ✅ Standardized exports
 export const db = adminDb;
-export const authAdmin = adminAuth; // alternate naming if needed
+export const adminDb = db; // alias for backward compatibility
+export const authAdmin = adminAuth;
 export const storage = adminStorage;
 
 /* ============================================================
-   🧠 DEV CONNECTION CHECK
+   🧠 DEV CONNECTION CHECK (for local debugging)
 ============================================================ */
 if (process.env.NODE_ENV !== "production") {
   (async () => {

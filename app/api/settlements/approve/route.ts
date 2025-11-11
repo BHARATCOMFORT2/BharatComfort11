@@ -1,7 +1,8 @@
 // app/api/settlements/approve/route.ts
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { db, admin } from "@/lib/firebaseadmin";
+import { db } from "@/lib/firebaseadmin";
+import admin from "firebase-admin";
 import { sendEmail } from "@/lib/email";
 
 /**
@@ -36,47 +37,72 @@ export async function POST(req: Request) {
     const snap = await ref.get();
 
     if (!snap.exists)
-      return NextResponse.json({ error: "Settlement not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Settlement not found" },
+        { status: 404 }
+      );
 
     const data = snap.data()!;
-    if (data.status !== "pending") {
+    if (data.status !== "requested") {
       return NextResponse.json(
         { error: `Cannot ${action} settlement already marked as ${data.status}` },
         { status: 400 }
       );
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = new Date();
     const newStatus = action === "approve" ? "approved" : "rejected";
 
-    await ref.update({
+    const updateData: Record<string, any> = {
       status: newStatus,
-      remark: remark || (action === "approve" ? "Approved by admin" : "Rejected by admin"),
+      remark:
+        remark ||
+        (action === "approve"
+          ? "Approved by admin"
+          : "Rejected by admin"),
       updatedAt: now,
+    };
+
+    if (action === "approve") updateData.approvedAt = now;
+    else updateData.rejectedAt = now;
+
+    await ref.update(updateData);
+
+    // ✅ Log in system logs
+    await db.collection("system_logs").add({
+      type: `settlement_${action}`,
+      settlementId,
+      adminId: decoded.uid,
+      remark: remark || "",
+      createdAt: now,
     });
 
-    // Send notification emails
+    // ✅ Send notification emails
     const partnerEmail = data.partnerEmail || "";
     const partnerName = data.partnerName || "Partner";
 
     if (partnerEmail) {
-      await sendEmail(
-        partnerEmail,
-        `Your settlement has been ${newStatus}`,
-        `
-          <h3>Settlement ${newStatus}</h3>
-          <p>Hello ${partnerName},</p>
-          <p>Your settlement request for <b>₹${Number(
-            data.amount
-          ).toLocaleString("en-IN")}</b> has been <b>${newStatus}</b> by the admin.</p>
-          <p>Remark: ${remark || "(no remark)"}</p>
-          ${
-            newStatus === "approved"
-              ? `<p>It will be processed soon for payout.</p>`
-              : `<p>You can contact support if you believe this was an error.</p>`
-          }
-        `
-      );
+      try {
+        await sendEmail(
+          partnerEmail,
+          `Your settlement has been ${newStatus}`,
+          `
+            <h3>Settlement ${newStatus}</h3>
+            <p>Hello ${partnerName},</p>
+            <p>Your settlement request for <b>₹${Number(
+              data.amountRequested || 0
+            ).toLocaleString("en-IN")}</b> has been <b>${newStatus}</b> by the admin.</p>
+            <p><b>Remark:</b> ${remark || "(no remark)"}</p>
+            ${
+              newStatus === "approved"
+                ? `<p>💰 It will be processed soon for payout.</p>`
+                : `<p>⚠️ You can contact support if you believe this was an error.</p>`
+            }
+          `
+        );
+      } catch (emailErr) {
+        console.warn("⚠️ Email send failed:", emailErr);
+      }
     }
 
     return NextResponse.json({

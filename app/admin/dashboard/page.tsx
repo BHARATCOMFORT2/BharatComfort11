@@ -1,6 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef, DragEvent, ChangeEvent } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  DragEvent,
+  ChangeEvent,
+  useCallback,
+} from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/useAuth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -20,14 +27,22 @@ import DataList from "@/components/dashboard/DataList";
 
 /* ============================================================
    🖼️ Advanced Image Upload (Multiple + Drag-Drop + Reorder)
+   - Adds Authorization header to /api/uploads
+   - Keeps XHR for progress
 ============================================================ */
 type ImageUploadProps = {
   images: string[];
   onChange: (urls: string[]) => void;
   maxFiles?: number;
+  token?: string;
 };
 
-const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 5 }) => {
+const ImageUpload: React.FC<ImageUploadProps> = ({
+  images,
+  onChange,
+  maxFiles = 5,
+  token,
+}) => {
   const [uploading, setUploading] = useState(false);
   const [progressMap, setProgressMap] = useState<Record<string, number>>({});
   const [dragOver, setDragOver] = useState(false);
@@ -35,17 +50,19 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleFiles = async (files: FileList | File[]) => {
-    const validFiles = Array.from(files).slice(0, maxFiles - images.length);
-    if (validFiles.length === 0) return;
+    const valid = Array.from(files).slice(0, Math.max(0, maxFiles - images.length));
+    if (!valid.length) return;
+
     setUploading(true);
     const uploadedUrls: string[] = [];
 
-    for (const file of validFiles) {
+    for (const file of valid) {
       const formData = new FormData();
       formData.append("file", file);
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/uploads", true);
+      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
 
       xhr.upload.onprogress = (event) => {
         if (event.lengthComputable) {
@@ -54,17 +71,19 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 
         }
       };
 
-      const responsePromise = new Promise<{ url?: string; error?: string }>((resolve) => {
-        xhr.onload = () => {
-          try {
-            const res = JSON.parse(xhr.responseText);
-            resolve(res);
-          } catch {
-            resolve({ error: "Invalid response" });
-          }
-        };
-        xhr.onerror = () => resolve({ error: "Upload failed" });
-      });
+      const responsePromise = new Promise<{ url?: string; error?: string }>(
+        (resolve) => {
+          xhr.onload = () => {
+            try {
+              const res = JSON.parse(xhr.responseText);
+              resolve(res);
+            } catch {
+              resolve({ error: "Invalid response from upload API" });
+            }
+          };
+          xhr.onerror = () => resolve({ error: "Upload failed (network)" });
+        }
+      );
 
       xhr.send(formData);
       const { url } = await responsePromise;
@@ -84,28 +103,23 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 
     e.preventDefault();
     setDragOver(true);
   };
-
   const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
   };
-
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
-    const files = e.dataTransfer.files;
-    if (files.length) handleFiles(files);
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
   };
 
-  const removeImage = (url: string) => {
-    onChange(images.filter((img) => img !== url));
-  };
+  const removeImage = (url: string) => onChange(images.filter((u) => u !== url));
 
   const handleReorder = (fromIndex: number, toIndex: number) => {
-    const updated = [...images];
-    const [moved] = updated.splice(fromIndex, 1);
-    updated.splice(toIndex, 0, moved);
-    onChange(updated);
+    const arr = [...images];
+    const [moved] = arr.splice(fromIndex, 1);
+    arr.splice(toIndex, 0, moved);
+    onChange(arr);
   };
 
   return (
@@ -141,7 +155,10 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 
       {uploading && (
         <div className="space-y-1">
           {Object.entries(progressMap).map(([filename, percent]) => (
-            <div key={filename} className="flex items-center gap-2 text-sm text-gray-600">
+            <div
+              key={filename}
+              className="flex items-center gap-2 text-sm text-gray-600"
+            >
               <span className="truncate w-24">{filename}</span>
               <div className="flex-1 bg-gray-200 rounded-full h-2">
                 <div
@@ -176,6 +193,8 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ images, onChange, maxFiles = 
             <button
               onClick={() => removeImage(url)}
               className="absolute top-1 right-1 bg-red-600 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition"
+              aria-label="Remove image"
+              title="Remove image"
             >
               ×
             </button>
@@ -201,19 +220,27 @@ const SectionEditor: React.FC<SectionEditorProps> = ({ sectionId, token }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    const ac = new AbortController();
     const loadSection = async () => {
-      const res = await fetch(`/api/admin/homepage?section=${sectionId}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success && data.section) {
-        setTitle(data.section.title || "");
-        setSubtitle(data.section.subtitle || "");
-        setImages(data.section.images || []);
+      try {
+        const res = await fetch(`/api/admin/homepage?section=${sectionId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: ac.signal,
+        });
+        const data = await res.json();
+        if (data.success && data.section) {
+          setTitle(data.section.title || "");
+          setSubtitle(data.section.subtitle || "");
+          setImages(data.section.images || []);
+        }
+      } catch (_e) {
+        // ignore aborted/failed silently for UX
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
     loadSection();
+    return () => ac.abort();
   }, [sectionId, token]);
 
   const handleSave = async () => {
@@ -251,7 +278,7 @@ const SectionEditor: React.FC<SectionEditorProps> = ({ sectionId, token }) => {
       </label>
       <label className="block">
         Images
-        <ImageUpload images={images} onChange={setImages} />
+        <ImageUpload images={images} onChange={setImages} token={token} />
       </label>
       <Button onClick={handleSave}>Save Changes</Button>
     </div>
@@ -261,51 +288,107 @@ const SectionEditor: React.FC<SectionEditorProps> = ({ sectionId, token }) => {
 /* ============================================================
    🧮 Admin Dashboard
 ============================================================ */
+type Summary = {
+  totalUsers?: number;
+  totalPartners?: number;
+  totalListings?: number;
+  totalStaffs?: number;
+  totalBookings?: number;
+  totalSettlements?: number;
+  totalRevenue?: number;
+};
+
 export default function AdminDashboardPage() {
   const { firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
   const [token, setToken] = useState<string>("");
-  const [stats, setStats] = useState({ users: 0, partners: 0, listings: 0, staffs: 0 });
+  const [stats, setStats] = useState({
+    users: 0,
+    partners: 0,
+    listings: 0,
+    staffs: 0,
+  });
   const [chartData, setChartData] = useState<any[]>([]);
   const [activeSection, setActiveSection] = useState<string | null>(null);
   const [selectedStat, setSelectedStat] = useState<string | null>(null);
 
+  // gate: only admin/superadmin
   useEffect(() => {
-    if (!loading && (!firebaseUser || profile?.role !== "admin")) {
+    if (loading) return;
+    const isAdmin =
+      profile?.role === "admin" || profile?.role === "superadmin";
+    if (!firebaseUser || !isAdmin) {
       alert("❌ Not authorized");
       router.push("/");
-    } else if (firebaseUser) {
-      firebaseUser.getIdToken().then((t) => setToken(t));
+      return;
     }
+    firebaseUser.getIdToken().then((t) => setToken(t));
   }, [firebaseUser, profile, loading, router]);
 
-  const authFetch = async (url: string, options: any = {}) => {
-    const headers = {
-      ...(options.headers || {}),
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    };
-    return fetch(url, { ...options, headers });
-  };
+  const authFetch = useCallback(
+    async (url: string, options: RequestInit = {}) => {
+      const headers = {
+        ...(options.headers || {}),
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      };
+      return fetch(url, { ...options, headers });
+    },
+    [token]
+  );
 
+  // fetch reports (summary + charts)
   useEffect(() => {
-    if (!token || !profile || profile.role !== "admin") return;
-    const fetchReports = async () => {
-      const res = await authFetch("/api/reports");
-      const data = await res.json();
-      if (data.success) {
-        const s = data.summary;
-        setStats({
-          users: s.totalBookings || 0,
-          partners: s.totalPartners || 0,
-          listings: s.totalSettlements || 0,
-          staffs: s.totalRevenue ? Math.floor(s.totalRevenue / 1000) : 0,
-        });
-        setChartData(data.charts.last7Bookings || []);
+    if (!token) return;
+    const ac = new AbortController();
+    const load = async () => {
+      try {
+        const res = await authFetch("/api/reports", { signal: ac.signal });
+        const data = await res.json();
+
+        if (data.success) {
+          const s: Summary = data.summary || {};
+          // map flexibly to prevent UI mismatch if backend keys vary
+          setStats({
+            users:
+              s.totalUsers ??
+              s.totalBookings /* fallback */ ??
+              0,
+            partners: s.totalPartners ?? 0,
+            listings:
+              s.totalListings ??
+              s.totalSettlements /* fallback */ ??
+              0,
+            staffs:
+              s.totalStaffs ??
+              (s.totalRevenue ? Math.floor((s.totalRevenue || 0) / 1000) : 0),
+          });
+
+          const chart = Array.isArray(data.charts?.last7Bookings)
+            ? data.charts.last7Bookings
+            : [];
+          // chart fallback to avoid empty UI
+          setChartData(
+            chart.length
+              ? chart
+              : [
+                  { date: "Day 1", count: 0 },
+                  { date: "Day 2", count: 0 },
+                  { date: "Day 3", count: 0 },
+                  { date: "Day 4", count: 0 },
+                  { date: "Day 5", count: 0 },
+                  { date: "Day 6", count: 0 },
+                  { date: "Day 7", count: 0 },
+                ]
+          );
+        }
+      } catch (_e) {
+        // ignore for UX; page still renders with defaults
       }
     };
-    fetchReports();
-  }, [token, profile]);
+    load();
+    return () => ac.abort();
+  }, [token, authFetch]);
 
   if (loading || !profile)
     return <p className="text-center py-12">Loading dashboard...</p>;
@@ -322,12 +405,15 @@ export default function AdminDashboardPage() {
 
   return (
     <DashboardLayout title="Admin Dashboard" profile={profile}>
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
         {Object.entries(stats).map(([key, value]) => (
           <div
             key={key}
             onClick={() => setSelectedStat(key)}
             className="p-6 bg-white shadow rounded-lg text-center hover:shadow-lg transition cursor-pointer"
+            role="button"
+            aria-label={`Open ${key} details`}
           >
             <h2 className="text-2xl font-bold">{value}</h2>
             <p className="text-gray-600 capitalize">{key}</p>
@@ -335,6 +421,7 @@ export default function AdminDashboardPage() {
         ))}
       </div>
 
+      {/* Homepage Sections */}
       <section className="mb-12">
         <h3 className="font-semibold mb-4">Homepage Sections</h3>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
@@ -350,6 +437,7 @@ export default function AdminDashboardPage() {
         </div>
       </section>
 
+      {/* Chart */}
       <section className="bg-white shadow rounded-lg p-6 mb-12">
         <h3 className="font-semibold mb-4">Bookings (Last 7 Days)</h3>
         <ResponsiveContainer width="100%" height={250}>
@@ -363,28 +451,42 @@ export default function AdminDashboardPage() {
         </ResponsiveContainer>
       </section>
 
+      {/* Listings Manager */}
       <section className="mt-12">
         <h3 className="text-lg font-semibold mb-4">Manage All Listings</h3>
         <ListingsManager />
       </section>
 
+      {/* Compliance Shortcuts */}
       <section className="mb-12">
         <h3 className="font-semibold mb-4">Partner Compliance</h3>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-          <a href="/admin/dashboard/kyc" className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block">
+          <a
+            href="/admin/dashboard/kyc"
+            className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block"
+          >
             🧾 Partner KYC Verification
           </a>
-          <a href="/admin/dashboard/settlements" className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block">
+          <a
+            href="/admin/dashboard/settlements"
+            className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block"
+          >
             💰 Settlements & Payouts
           </a>
-          <a href="/admin/dashboard/disputes" className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block">
+          <a
+            href="/admin/dashboard/disputes"
+            className="p-4 bg-white rounded shadow hover:shadow-lg text-center transition block"
+          >
             ⚠️ Disputes & SLA
           </a>
         </div>
       </section>
 
+      {/* Modals */}
       <Modal isOpen={!!activeSection} onClose={() => setActiveSection(null)}>
-        {activeSection && token && <SectionEditor sectionId={activeSection} token={token} />}
+        {activeSection && token && (
+          <SectionEditor sectionId={activeSection} token={token} />
+        )}
       </Modal>
 
       <Modal isOpen={!!selectedStat} onClose={() => setSelectedStat(null)}>

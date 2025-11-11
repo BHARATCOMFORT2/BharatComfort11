@@ -32,23 +32,18 @@ import {
 } from "recharts";
 import { exportFinanceCSV, exportFinancePDF } from "@/lib/utils/exportFinanceReport";
 
-/* =========================================================
-   🔹 TYPES
-========================================================= */
 type PartnerType = "individual" | "company" | "firm" | "llp";
-
 interface SettlementRecord {
   id: string;
   partnerId?: string;
+  partnerName?: string;
   partnerType?: PartnerType;
   amount?: number;
-  status?: "pending" | "paid" | "failed";
+  amountRequested?: number;
+  status?: "requested" | "approved" | "paid";
   createdAt?: Timestamp;
 }
 
-/* =========================================================
-   🔹 Modal Component
-========================================================= */
 function Modal({
   isOpen,
   title,
@@ -60,15 +55,7 @@ function Modal({
   onClose: () => void;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [isOpen, onClose]);
-
   if (!isOpen) return null;
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
@@ -85,31 +72,10 @@ function Modal({
   );
 }
 
-/* =========================================================
-   🔹 Helper Functions
-========================================================= */
 const money = (n: number) => `₹${(n || 0).toLocaleString("en-IN")}`;
+const tdsRateFor = (partnerType?: PartnerType) =>
+  partnerType === "company" ? 0.05 : 0.01;
 
-const tdsRateFor = (partnerType?: PartnerType) => {
-  return partnerType === "company" ? 0.05 : 0.01;
-};
-
-const toPartnerType = (v: any): PartnerType => {
-  switch (String(v || "").toLowerCase()) {
-    case "company":
-      return "company";
-    case "firm":
-      return "firm";
-    case "llp":
-      return "llp";
-    default:
-      return "individual";
-  }
-};
-
-/* =========================================================
-   🔹 Main Component
-========================================================= */
 export default function AdminFinancePage() {
   const [loading, setLoading] = useState(true);
   const [settlements, setSettlements] = useState<SettlementRecord[]>([]);
@@ -122,20 +88,17 @@ export default function AdminFinancePage() {
     totalSettlements: 0,
     totalPayouts: 0,
   });
-
   const [gstSummary, setGstSummary] = useState({
     totalCommission: 0,
     gstCollected: 0,
     gstPayable: 0,
   });
-
   const [tdsSummary, setTdsSummary] = useState({
     tdsDeducted: 0,
     tdsPayable: 0,
     tdsDeposited: 0,
     pendingTds: 0,
   });
-
   const [dateRange, setDateRange] = useState<"today" | "week" | "month">("month");
 
   useEffect(() => {
@@ -145,22 +108,16 @@ export default function AdminFinancePage() {
   const getDateRange = () => {
     const now = new Date();
     const startDate = new Date();
-
     if (dateRange === "today") startDate.setHours(0, 0, 0, 0);
     else if (dateRange === "week") startDate.setDate(now.getDate() - 7);
-    else if (dateRange === "month") startDate.setDate(1);
-
-    return {
-      start: Timestamp.fromDate(startDate),
-      end: Timestamp.fromDate(now),
-    };
+    else if (dateRange === "month") startDate.setDate(now.getDate() - 30);
+    return { start: Timestamp.fromDate(startDate), end: Timestamp.fromDate(now) };
   };
 
   async function loadFinanceData() {
     setLoading(true);
     try {
       const { start, end } = getDateRange();
-
       const settleSnap = await getDocs(
         query(
           collection(db, "settlements"),
@@ -169,46 +126,14 @@ export default function AdminFinancePage() {
           orderBy("createdAt", "desc")
         )
       );
-
-      // ✅ Fix duplicate ID and normalize partnerType
-      let settlementsData: SettlementRecord[] = settleSnap.docs.map((d) => {
-        const data = d.data() as SettlementRecord;
-        return { ...data, id: data.id || d.id };
-      });
-
-      const partnerIds = Array.from(
-        new Set(settlementsData.map((s) => s.partnerId).filter(Boolean))
-      ) as string[];
-
-      const partnersById: Record<string, { partnerType: PartnerType }> = {};
-
-      if (partnerIds.length) {
-        const batchSize = 10;
-        for (let i = 0; i < partnerIds.length; i += batchSize) {
-          const chunk = partnerIds.slice(i, i + batchSize);
-          const ps = await getDocs(
-            query(collection(db, "partners"), where("uid", "in", chunk))
-          );
-          ps.docs.forEach((p) => {
-            const data = p.data() as any;
-            partnersById[data.uid] = {
-              partnerType: toPartnerType(data.partnerType || data.type),
-            };
-          });
-        }
-      }
-
-      // ✅ Normalize partnerType
-      settlementsData = settlementsData.map((s) => ({
-        ...s,
-        partnerType:
-          partnersById[s.partnerId || ""]?.partnerType ||
-          toPartnerType(s.partnerType),
-      }));
+      const settlementsData = settleSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })) as SettlementRecord[];
 
       const paid = settlementsData.filter((s) => s.status === "paid");
       const totalSettlements = paid.reduce(
-        (a, b) => a + (Number(b.amount) || 0),
+        (a, b) => a + (Number(b.amount || b.amountRequested) || 0),
         0
       );
       const totalCommission = Math.round(totalSettlements * 0.1);
@@ -218,30 +143,29 @@ export default function AdminFinancePage() {
       let tdsDeducted = 0;
       for (const s of paid) {
         const rate = tdsRateFor(s.partnerType);
-        tdsDeducted += Math.round((Number(s.amount) || 0) * rate);
+        tdsDeducted += Math.round((Number(s.amount || s.amountRequested) || 0) * rate);
       }
 
-      const tdsPayable = tdsDeducted;
-      const tdsDeposited = Math.round(tdsPayable * 0.9);
-      const pendingTds = tdsPayable - tdsDeposited;
-
+      const tdsDeposited = Math.round(tdsDeducted * 0.9);
       const grouped = settlementsData.reduce((acc: any[], cur) => {
         const date = cur.createdAt?.toDate().toLocaleDateString("en-IN");
+        const amt = Number(cur.amount || cur.amountRequested) || 0;
         const ex = acc.find((x) => x.date === date);
-        const amt = Number(cur.amount) || 0;
         if (ex) ex.total += amt;
         else acc.push({ date, total: amt });
         return acc;
       }, []);
-      grouped.sort(
-        (a, b) => new Date(a.date as any).getTime() - new Date(b.date as any).getTime()
-      );
 
       setSettlements(settlementsData);
       setChartData(grouped);
       setSummary({ totalSettlements, totalPayouts: totalSettlements });
       setGstSummary({ totalCommission, gstCollected, gstPayable });
-      setTdsSummary({ tdsDeducted, tdsPayable, tdsDeposited, pendingTds });
+      setTdsSummary({
+        tdsDeducted,
+        tdsPayable: tdsDeducted,
+        tdsDeposited,
+        pendingTds: tdsDeducted - tdsDeposited,
+      });
     } catch (err) {
       console.error("Finance load error:", err);
     } finally {
@@ -262,7 +186,7 @@ export default function AdminFinancePage() {
 
   const exportFullTaxReport = () => {
     const reportData = settlements.map((r) => {
-      const gross = Number(r.amount) || 0;
+      const gross = Number(r.amount || r.amountRequested) || 0;
       const commission = Math.round(gross * 0.1);
       const gst = Math.round(commission * 0.18);
       const tds = Math.round(gross * tdsRateFor(r.partnerType));
@@ -285,12 +209,10 @@ export default function AdminFinancePage() {
     exportFinancePDF({ ...summary, ...gstSummary, ...tdsSummary }, reportData);
   };
 
-  /* =========================================================
-     🔹 JSX Rendering
-  ========================================================= */
+  if (loading) return <p className="text-center py-12 text-gray-500">Loading finance data...</p>;
+
   return (
     <div className="p-6">
-      {/* Header */}
       <div className="flex flex-col md:flex-row justify-between mb-5 gap-3">
         <h2 className="text-2xl font-bold flex items-center gap-2">
           <Wallet className="text-green-600" /> Finance Analytics + Tax Center
@@ -305,7 +227,7 @@ export default function AdminFinancePage() {
                   dateRange === r ? "bg-blue-600 text-white" : "text-gray-700"
                 }`}
               >
-                {r === "today" ? "Today" : r === "week" ? "This Week" : "This Month"}
+                {r === "today" ? "Today" : r === "week" ? "This Week" : "Last 30 Days"}
               </button>
             ))}
           </div>
@@ -342,9 +264,7 @@ export default function AdminFinancePage() {
             <p className="font-semibold">
               Pending TDS:{" "}
               <span
-                className={
-                  tdsSummary.pendingTds > 0 ? "text-red-600" : "text-green-600"
-                }
+                className={tdsSummary.pendingTds > 0 ? "text-red-600" : "text-green-600"}
               >
                 {money(tdsSummary.pendingTds)}
               </span>
@@ -373,7 +293,7 @@ export default function AdminFinancePage() {
         </CardContent>
       </Card>
 
-      {/* Daily Modal */}
+      {/* Modal */}
       <Modal
         isOpen={showDayModal}
         title={`Day-wise Tax Breakdown (${selectedDate})`}
@@ -395,14 +315,14 @@ export default function AdminFinancePage() {
             </thead>
             <tbody>
               {dailyRecords.map((r) => {
-                const gross = Number(r.amount) || 0;
+                const gross = Number(r.amount || r.amountRequested) || 0;
                 const commission = Math.round(gross * 0.1);
                 const gst = Math.round(commission * 0.18);
                 const tds = Math.round(gross * tdsRateFor(r.partnerType));
                 const net = gross - (commission + gst + tds);
                 return (
                   <tr key={r.id} className="border-b hover:bg-gray-50">
-                    <td className="p-3">{r.partnerId}</td>
+                    <td className="p-3">{r.partnerName || r.partnerId}</td>
                     <td className="p-3 capitalize">{r.partnerType || "individual"}</td>
                     <td className="p-3">{money(gross)}</td>
                     <td className="p-3 text-yellow-700">{money(commission)}</td>

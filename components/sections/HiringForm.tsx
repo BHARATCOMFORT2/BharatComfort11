@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Loader2, Headphones, Briefcase, Users, PhoneCall } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
+import { Textarea } from "@/components/ui/Textarea";
+import { Label } from "@/components/ui/Label";
 import {
   Select,
   SelectTrigger,

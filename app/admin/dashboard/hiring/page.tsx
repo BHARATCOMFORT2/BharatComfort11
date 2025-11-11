@@ -10,9 +10,9 @@ import {
   updateDoc,
   doc,
 } from "firebase/firestore";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
+import { Input } from "@/components/ui/Input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Loader2, FileDown, CheckCircle, XCircle, Search } from "lucide-react";
 import { Download } from "lucide-react";

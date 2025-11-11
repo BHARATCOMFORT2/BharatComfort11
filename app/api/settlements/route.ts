@@ -1,35 +1,31 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { adminDb } from "@/lib/firebaseadmin";
-import * as admin from "firebase-admin";
+import { db } from "@/lib/firebaseadmin";
+import admin from "firebase-admin";
 
 /**
  * GET /api/settlements
  * - Admin: lists all settlements
- * - Partner: lists settlements belonging to the logged-in partner
+ * - Partner: lists settlements belonging to logged-in partner
  */
 export async function GET(req: Request) {
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const token = authHeader.replace("Bearer ", "");
     const decoded = await getAuth().verifyIdToken(token);
     const uid = decoded.uid;
     const role = (decoded as any).role || "partner";
 
-    let q;
-
-    if (role === "admin") {
-      q = adminDb.collection("settlements").orderBy("createdAt", "desc");
-    } else {
-      q = adminDb
-        .collection("settlements")
-        .where("partnerId", "==", uid)
-        .orderBy("createdAt", "desc");
-    }
+    const q =
+      role === "admin"
+        ? db.collection("settlements").orderBy("createdAt", "desc")
+        : db
+            .collection("settlements")
+            .where("partnerId", "==", uid)
+            .orderBy("createdAt", "desc");
 
     const snap = await q.get();
     const settlements = snap.docs.map((d) => ({
@@ -55,9 +51,8 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
 
     const token = authHeader.replace("Bearer ", "");
     const decoded = await getAuth().verifyIdToken(token);
@@ -73,34 +68,31 @@ export async function POST(req: Request) {
     const { partnerId, amount, remark = "", status = "approved" } =
       await req.json();
 
-    if (!partnerId || !amount) {
+    if (!partnerId || !amount)
       return NextResponse.json(
         { error: "partnerId and amount are required" },
         { status: 400 }
       );
-    }
 
-    // ✅ Create settlement record
-    const newDocRef = adminDb.collection("settlements").doc();
+    const newDocRef = db.collection("settlements").doc();
     await newDocRef.set({
       id: newDocRef.id,
       partnerId,
       amount: Number(amount),
       status,
       remark,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
-    // ✅ Log admin action (for system logs dashboard)
-    await adminDb.collection("system_logs").add({
+    await db.collection("system_logs").add({
       type: "manual_settlement_created",
       partnerId,
       amount: Number(amount),
       status,
       remark,
       adminId: decoded.uid,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: new Date(),
     });
 
     return NextResponse.json({

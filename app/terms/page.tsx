@@ -1,26 +1,112 @@
+"use client";
+
+import { motion } from "framer-motion";
+
 export default function TermsPage() {
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
-      <h1 className="text-3xl font-bold">Terms & Conditions</h1>
-      <p><strong>Effective Date:</strong> [Insert Date]</p>
+    <motion.div
+      className="min-h-screen bg-gray-50 p-6 max-w-5xl mx-auto space-y-10"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+    >
+      <div className="text-center">
+        <h1 className="text-4xl font-bold text-yellow-900 mb-4">
+          Terms & Conditions
+        </h1>
+        <p className="text-gray-700 text-lg max-w-3xl mx-auto">
+          These Terms & Conditions govern your use of{" "}
+          <strong>BHARATCOMFORT11</strong>. By accessing our platform, you agree
+          to these terms. Please read them carefully before using our services.
+        </p>
+      </div>
 
-      <h2 className="text-xl font-semibold mt-4">1. Accounts</h2>
-      <p>You must provide accurate details and keep your password secure.</p>
+      <section className="space-y-3">
+        <h2 className="text-2xl font-semibold text-yellow-900">
+          Use of Platform
+        </h2>
+        <ul className="list-disc list-inside text-gray-700 space-y-1">
+          <li>You must be at least 18 years old to register or transact.</li>
+          <li>
+            You agree not to misuse, hack, or attempt unauthorized access to the
+            platform.
+          </li>
+          <li>
+            BHARATCOMFORT11 reserves the right to suspend accounts violating
+            policies.
+          </li>
+        </ul>
+      </section>
 
-      <h2 className="text-xl font-semibold mt-4">2. Bookings & Payments</h2>
-      <p>Bookings are confirmed only after Razorpay payment. Refunds follow our Refund Policy.</p>
+      <section className="space-y-3">
+        <h2 className="text-2xl font-semibold text-yellow-900">
+          Bookings & Payments
+        </h2>
+        <ul className="list-disc list-inside text-gray-700 space-y-1">
+          <li>All bookings are subject to partner availability and approval.</li>
+          <li>Payments are processed securely through Razorpay.</li>
+          <li>BHARATCOMFORT11 does not store card details.</li>
+        </ul>
+      </section>
 
-      <h2 className="text-xl font-semibold mt-4">3. User Conduct</h2>
-      <p>No abusive content in chats, fraudulent bookings, or false reviews.</p>
+      <section className="space-y-3">
+        <h2 className="text-2xl font-semibold text-yellow-900">
+          Cancellations & Refunds
+        </h2>
+        <p className="text-gray-700 leading-relaxed">
+          All cancellations and refunds are governed by the{" "}
+          <strong>respective partner’s policy</strong>. BHARATCOMFORT11 acts as
+          a booking facilitator and does not control refund timelines or terms.
+          Travelers are advised to review partner-specific refund policies
+          before booking.
+        </p>
+        <ul className="list-disc list-inside text-gray-700 space-y-1 mt-2">
+          <li>
+            Refunds approved by partners are verified by the admin team and
+            processed within 5–7 business days.
+          </li>
+          <li>
+            In case of disputes, BHARATCOMFORT11 mediates fairly between users
+            and partners under SLA timelines.
+          </li>
+        </ul>
+      </section>
 
-      <h2 className="text-xl font-semibold mt-4">4. Partner Services</h2>
-      <p>We connect you with third-party partners (hotels, guides, transport). We are not liable for their delays or issues.</p>
+      <section className="space-y-3">
+        <h2 className="text-2xl font-semibold text-yellow-900">
+          Partner Obligations
+        </h2>
+        <ul className="list-disc list-inside text-gray-700 space-y-1">
+          <li>Partners must provide accurate listings and refund terms.</li>
+          <li>Fraudulent activity may result in permanent deactivation.</li>
+          <li>
+            Partners are responsible for honoring refund commitments stated in
+            their policy.
+          </li>
+        </ul>
+      </section>
 
-      <h2 className="text-xl font-semibold mt-4">5. Liability</h2>
-      <p>Services are provided "as is." We are not liable for indirect losses or third-party issues.</p>
+      <section className="space-y-3">
+        <h2 className="text-2xl font-semibold text-yellow-900">
+          Liability Disclaimer
+        </h2>
+        <p className="text-gray-700 leading-relaxed">
+          BHARATCOMFORT11 acts as a technology intermediary connecting travelers
+          and partners. We are not responsible for partner negligence, delays,
+          or force majeure events but ensure all partners are verified and
+          disputes are resolved transparently.
+        </p>
+      </section>
 
-      <h2 className="text-xl font-semibold mt-4">6. Governing Law</h2>
-      <p>These terms are governed by Indian law.</p>
-    </div>
+      <section className="space-y-3">
+        <h2 className="text-2xl font-semibold text-yellow-900">
+          Governing Law
+        </h2>
+        <p className="text-gray-700 leading-relaxed">
+          These Terms are governed by the laws of India, and any disputes shall
+          be subject to the jurisdiction of Mumbai, Maharashtra.
+        </p>
+      </section>
+    </motion.div>
   );
 }

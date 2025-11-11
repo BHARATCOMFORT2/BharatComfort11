@@ -160,14 +160,21 @@ export default function HomePage() {
       >
         <NewsletterSignup />
       </motion.section>
-export default function HomePage() {
-  return (
-    <main>
-      {/* Existing homepage sections */}
-      {/* ... */}
 
       {/* 💼 Hiring / Job Application Section */}
-      <HiringForm />
+      <motion.section
+        className="py-20 container mx-auto px-4 bg-white/50 backdrop-blur-sm rounded-2xl shadow-lg"
+        initial={{ opacity: 0, y: 40 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.8 }}
+        viewport={{ once: true }}
+      >
+        <h2 className="text-4xl font-serif font-bold text-yellow-800 mb-8 text-center">
+          Join Our Team
+        </h2>
+        <HiringForm />
+      </motion.section>
+
       {/* Footer */}
       <Footer />
     </main>

@@ -8,6 +8,7 @@ import { db } from "@/lib/firebaseadmin";
 import { sendEmail } from "@/lib/email";
 // ❌ removed: import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
+import type { Refund } from "@/lib/types/refund";
 
 export async function POST(req: Request) {
   try {

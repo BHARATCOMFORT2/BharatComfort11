@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Loader2, FileDown, CheckCircle, XCircle, Search } from "lucide-react";
+import { Download } from "lucide-react";
 
 export default function HiringAdminPage() {
   const [applications, setApplications] = useState<any[]>([]);
@@ -23,6 +24,35 @@ export default function HiringAdminPage() {
   const [search, setSearch] = useState("");
   const [filterRole, setFilterRole] = useState("All");
   const [filterStatus, setFilterStatus] = useState("All");
+// CSV Export Function
+const exportToCSV = () => {
+  if (applications.length === 0) return;
+
+  const headers = ["Name", "Email", "Phone", "Role", "Experience", "Status", "Created At", "Resume URL"];
+  const csvRows = [
+    headers.join(","), // header row
+    ...applications.map(app =>
+      [
+        app.name,
+        app.email,
+        app.phone,
+        app.role,
+        app.experience,
+        app.status,
+        new Date(app.createdAt).toLocaleString("en-IN"),
+        app.resumeUrl || ""
+      ]
+        .map((v) => `"${(v || "").toString().replace(/"/g, '""')}"`)
+        .join(",")
+    ),
+  ];
+
+  const blob = new Blob([csvRows.join("\n")], { type: "text/csv;charset=utf-8;" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `BHARATCOMFORT11_Hiring_${new Date().toISOString().split("T")[0]}.csv`;
+  link.click();
+};
 
   useEffect(() => {
     const q = query(collection(db, "applications"), orderBy("createdAt", "desc"));
@@ -106,6 +136,14 @@ export default function HiringAdminPage() {
           </Select>
         </div>
       </div>
+<div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
+  {/* existing filters here */}
+  <div className="flex justify-end w-full md:w-auto">
+    <Button onClick={exportToCSV} variant="outline" className="flex items-center gap-2">
+      <Download className="w-4 h-4" /> Export CSV
+    </Button>
+  </div>
+</div>
 
       {/* Applications Table */}
       {filteredApps.length === 0 ? (

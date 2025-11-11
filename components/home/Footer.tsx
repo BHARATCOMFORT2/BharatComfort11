@@ -38,7 +38,7 @@ export default function Footer() {
           <h3 className="text-lg font-semibold text-yellow-800 mb-3">Support</h3>
           <ul className="space-y-2">
             {[
-              { label: "Help Center", href: "/help" },
+              { label: "Help Center", href: "/help-center" },
               { label: "Contact Us", href: "/contact" },
               { label: "FAQs", href: "/faqs" },
               { label: "Terms & Conditions", href: "/terms" },

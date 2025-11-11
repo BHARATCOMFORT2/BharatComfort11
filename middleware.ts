@@ -1,3 +1,4 @@
+// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { i18n } from "./app/i18n/settings";
 
@@ -20,14 +21,16 @@ function getLocale(request: NextRequest): string {
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const locale = getLocale(request);
+
   const REF_COOKIE = "bc_referral_code";
   const REF_COOKIE_TTL_DAYS = 30;
   const refFromQuery = request.nextUrl.searchParams.get("ref");
 
+  // Default response
   const response = NextResponse.next();
 
   /* --------------------------------------------------
-     🚫 Skip middleware for static / API / public files
+     🚫 Skip middleware for static / API / assets
   -------------------------------------------------- */
   if (
     pathname.startsWith("/_next") ||
@@ -41,18 +44,19 @@ export async function middleware(request: NextRequest) {
   }
 
   /* --------------------------------------------------
-     🌍 Locale enforcement (auto-redirect)
+     🌍 Locale Enforcement (auto-redirect)
   -------------------------------------------------- */
   if (!i18n.locales.some((loc) => pathname.startsWith(`/${loc}`))) {
     return NextResponse.redirect(new URL(`/${locale}${pathname}`, request.url));
   }
 
   /* --------------------------------------------------
-     💰 Referral Code Handling
+     💰 Referral Code Capture (bc_referral_code)
   -------------------------------------------------- */
   if (refFromQuery && /^[a-zA-Z0-9_-]{4,20}$/.test(refFromQuery)) {
     const expires = new Date();
     expires.setDate(expires.getDate() + REF_COOKIE_TTL_DAYS);
+
     response.cookies.set(REF_COOKIE, refFromQuery, {
       path: "/",
       expires,
@@ -63,21 +67,24 @@ export async function middleware(request: NextRequest) {
   }
 
   /* --------------------------------------------------
-     🔐 Auth Enforcement (Edge-safe)
+     🔐 Auth Enforcement (Session-based)
   -------------------------------------------------- */
   const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
   const isProtected = protectedPaths.some((p) => pathname.includes(p));
-  const sessionCookie = request.cookies.get("session")?.value || "";
 
-  // If no session and protected route → redirect to login
+  // Use consistent cookie name with /api/auth/session
+  const sessionCookie =
+    request.cookies.get("__session")?.value ||
+    request.cookies.get("session")?.value ||
+    "";
+
   if (isProtected && !sessionCookie) {
     const loginUrl = new URL(`/${locale}/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // (Optional) Edge-safe token check via cookie presence only.
-  // Deep verification happens inside Node API routes.
+  // ✅ Allow access — deeper verification happens in API routes (Node runtime)
   return response;
 }
 

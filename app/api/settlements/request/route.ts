@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
-import { FieldValue } from "firebase-admin/firestore";
+import admin from "firebase-admin";
 import { sendEmail } from "@/lib/email";
 import { generateSettlementInvoice } from "@/lib/invoices/generateSettlementInvoice";
 
@@ -20,42 +20,28 @@ export async function POST(req: Request) {
     const partnerRef = db.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
     if (!partnerSnap.exists)
-      return NextResponse.json(
-        { error: "Partner profile not found" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Partner profile not found" }, { status: 404 });
 
     const partnerData = partnerSnap.data() || {};
-    if (!partnerData.kyc || partnerData.kyc?.status !== "approved")
-      return NextResponse.json(
-        { error: "KYC not verified. Complete verification first." },
-        { status: 403 }
-      );
+    if (!partnerData.kyc || partnerData.kyc.status !== "approved")
+      return NextResponse.json({ error: "KYC not verified. Complete verification first." }, { status: 403 });
 
     if (role !== "partner")
-      return NextResponse.json(
-        { error: "Only partners can create settlement requests" },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "Only partners can create settlement requests" }, { status: 403 });
 
     const { bookingIds = [], totalAmount } = await req.json();
     if (!bookingIds.length || !totalAmount)
-      return NextResponse.json(
-        { error: "bookingIds and totalAmount are required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "bookingIds and totalAmount are required" }, { status: 400 });
 
     // ✅ Check for duplicates
     const existingSnap = await db
       .collection("settlements")
       .where("partnerId", "==", uid)
-      .where("status", "in", ["pending", "approved"])
+      .where("status", "in", ["requested", "approved"])
       .get();
 
     const duplicate = existingSnap.docs.find((doc) =>
-      bookingIds.some((id: string) =>
-        (doc.data().bookingIds || []).includes(id)
-      )
+      bookingIds.some((id: string) => (doc.data().bookingIds || []).includes(id))
     );
 
     if (duplicate)
@@ -80,31 +66,34 @@ export async function POST(req: Request) {
         { status: 403 }
       );
 
-    // ✅ Create settlement
-    const settlementRef = await db.collection("settlements").add({
+    // ✅ Create settlement record
+    const settlementRef = db.collection("settlements").doc();
+    await settlementRef.set({
+      id: settlementRef.id,
       partnerId: uid,
-      partnerName: decoded.name || "",
-      partnerEmail: decoded.email || "",
+      partnerName: partnerData.businessName || partnerData.name || "",
+      partnerEmail: partnerData.email || "",
       bookingIds,
-      amount: Number(totalAmount),
-      status: "pending",
+      amountRequested: Number(totalAmount),
+      status: "requested",
       remark: "Awaiting admin review",
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
+      createdAt: new Date(),
+      updatedAt: new Date(),
       hasDispute: false,
       invoiceUrl: "",
     });
 
-    // ✅ Mark bookings
+    // ✅ Lock bookings to this settlement
     await Promise.all(
-      bookingIds.map(async (bId: string) => {
-        await db.collection("bookings").doc(bId).update({
-          settlementStatus: "requested",
-        });
-      })
+      bookingIds.map((bId: string) =>
+        db.collection("bookings").doc(bId).update({
+          settlementLock: settlementRef.id,
+          updatedAt: new Date(),
+        })
+      )
     );
 
-    // ✅ Auto invoice
+    // ✅ Auto-generate invoice if all paid
     let autoInvoiceUrl = "";
     const allPaid = partnerBookings.every(
       (b) => b.status === "completed" || b.paymentStatus === "paid"
@@ -112,47 +101,40 @@ export async function POST(req: Request) {
 
     if (allPaid) {
       autoInvoiceUrl = await generateSettlementInvoice(settlementRef.id, {
-        partnerName: decoded.name || "",
-        partnerEmail: decoded.email || "",
+        partnerName: partnerData.businessName || "",
+        partnerEmail: partnerData.email || "",
         amount: Number(totalAmount),
-        status: "pending",
+        status: "requested",
         utrNumber: "-",
       });
 
-      if (autoInvoiceUrl) {
+      if (autoInvoiceUrl)
         await settlementRef.update({ invoiceUrl: autoInvoiceUrl });
-      }
     }
 
-    // ✅ Emails
-    await sendEmail(
-      "admin@bharatcomfort11.com",
-      `🧾 New Settlement Request from ${decoded.email}`,
-      `
-      <h3>New Settlement Request</h3>
-      <p><b>Partner:</b> ${decoded.name || "Unknown"} (${decoded.email})</p>
-      <p><b>Amount:</b> ₹${Number(totalAmount).toLocaleString("en-IN")}</p>
-      <p><b>Bookings:</b> ${bookingIds.join(", ")}</p>
-      <p>Status: Pending Admin Review</p>
-      ${
-        autoInvoiceUrl
-          ? `<p><b>Invoice:</b> <a href="${autoInvoiceUrl}" target="_blank">View PDF</a></p>`
-          : ""
-      }
-      `
-    );
+    // ✅ Notify admin & partner (best-effort)
+    try {
+      await sendEmail(
+        "finance@bharatcomfort11.com",
+        `🧾 New Settlement Request: ${partnerData.businessName || partnerData.email}`,
+        `<p>Partner <b>${partnerData.businessName || partnerData.email}</b> requested ₹${totalAmount.toLocaleString(
+          "en-IN"
+        )} for ${bookingIds.length} bookings.</p>
+         <p>Settlement ID: <b>${settlementRef.id}</b></p>
+         ${autoInvoiceUrl ? `<p><a href="${autoInvoiceUrl}">Invoice PDF</a></p>` : ""}`
+      );
 
-    await sendEmail(
-      decoded.email,
-      "✅ Settlement Request Received",
-      `
-      <h3>Thank you, ${decoded.name || "Partner"}!</h3>
-      <p>Your settlement request for ₹${Number(totalAmount).toLocaleString(
-        "en-IN"
-      )} covering ${bookingIds.length} bookings was submitted successfully.</p>
-      ${autoInvoiceUrl ? `<a href="${autoInvoiceUrl}">View Invoice</a>` : ""}
-      `
-    );
+      await sendEmail(
+        partnerData.email,
+        "✅ Settlement Request Received",
+        `<p>Your settlement request for ₹${totalAmount.toLocaleString(
+          "en-IN"
+        )} covering ${bookingIds.length} bookings has been submitted successfully.</p>
+         ${autoInvoiceUrl ? `<p><a href="${autoInvoiceUrl}">View Invoice</a></p>` : ""}`
+      );
+    } catch (e) {
+      console.warn("Email send failed:", e);
+    }
 
     return NextResponse.json({
       success: true,

@@ -4,20 +4,14 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "npm run fix-firestore && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "format": "prettier --write .",
     "type-check": "tsc --noEmit",
     "prepare": "husky install",
     "seed": "ts-node script/seed-sample-data.ts",
-    "import:csv": "ts-node script/import-csv.ts",
-    "fix-firestore": "node tools/fix-firestore-admin.js",
-    "fix-awaits-final": "node tools/fix-awaits-final.js",
-    "fix-awaits": "node tools/fix-awaits.js",
-    "fix-awaits": "node tools/fix-firestore-awaits.js",
-    "build": "node tools/fix-firestore-syntax.js && next build",
-    "fix:firestore": "node tools/fix-firestore-imports.js"
+    "import:csv": "ts-node script/import-csv.ts"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",
@@ -26,6 +20,7 @@
     "@heroicons/react": "^2.1.1",
     "@netlify/plugin-nextjs": "^5.14.0",
     "@radix-ui/react-label": "^2.1.7",
+    "@radix-ui/react-select": "^2.2.6",
     "@radix-ui/react-slot": "^1.2.3",
     "@sendgrid/mail": "^8.1.5",
     "@sentry/nextjs": "^10.22.0",

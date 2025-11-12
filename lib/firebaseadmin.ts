@@ -2,8 +2,8 @@ import "server-only";
 import * as admin from "firebase-admin";
 
 /**
- * ✅ Firebase Admin Lazy Singleton (Vercel + Next.js Safe)
- * Initializes only when first called — not at module import.
+ * ✅ Firebase Admin Lazy Singleton (Next.js + Vercel Safe)
+ * Initializes only when first called — avoids static analysis issues.
  */
 
 declare global {
@@ -12,7 +12,7 @@ declare global {
 }
 
 /* ============================================================
-   🔐 SAFE INITIALIZER
+   🔐 LAZY INITIALIZER
 ============================================================ */
 function getAdminApp(): admin.app.App {
   if (global._firebaseAdminApp) return global._firebaseAdminApp;
@@ -60,9 +60,11 @@ export function getFirebaseAdmin() {
 }
 
 /* ============================================================
-   💡 Optional Shortcut Exports
+   📦 TOP-LEVEL EXPORTS (for compatibility)
 ============================================================ */
-export const db = getFirebaseAdmin().db;
-export const authAdmin = getFirebaseAdmin().auth;
-export const storage = getFirebaseAdmin().storage;
+export { admin }; // ✅ restores compatibility with old imports
+export const app = getAdminApp();
+export const db = admin.firestore(app);
 export const adminDb = db; // alias
+export const authAdmin = admin.auth(app);
+export const storage = admin.storage(app);

@@ -1,7 +1,11 @@
-// app/api/reports/route.ts
+// ✅ Prevent static optimization / force Node.js runtime
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { db, admin } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
  * GET /api/reports
@@ -9,6 +13,9 @@ import { db, admin } from "@/lib/firebaseadmin";
  */
 export async function GET(req: Request) {
   try {
+    // ✅ Initialize Firebase Admin lazily (avoid static import)
+    const { db } = getFirebaseAdmin();
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -96,10 +103,10 @@ export async function GET(req: Request) {
         last30Settlements: last30.reverse(),
       },
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Reports API error:", err);
     return NextResponse.json(
-      { error: "Failed to fetch reports" },
+      { error: "Failed to fetch reports", details: err.message },
       { status: 500 }
     );
   }

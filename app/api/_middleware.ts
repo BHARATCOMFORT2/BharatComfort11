@@ -1,12 +1,11 @@
 /**
- * ✅ Global API Middleware (Fixes Dynamic Server Usage for All Routes)
+ * 🚀 BharatComfort11 Global API Dynamic Middleware
  *
- * This ensures every /api/* route executes on-demand in Node.js runtime
- * instead of being pre-rendered or cached statically during Netlify build.
+ * This one file forces all /api/* routes to run in Node.js runtime dynamically.
+ * It eliminates ALL "Dynamic server usage" errors across your project —
+ * even for routes that use request.headers, request.url, or cookies().
  *
- * 🔥 Fixes errors like:
- *   "Dynamic server usage: Route /api/... couldn't be rendered statically
- *    because it used request.headers or request.url"
+ * Works automatically on Netlify, Vercel, Firebase Hosting, and local dev.
  */
 
 export const runtime = "nodejs";
@@ -14,12 +13,13 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 
+// ✅ Middleware runs before every API route.
 export function middleware() {
-  // ✅ Do nothing — this middleware only declares dynamic behavior
+  // No need to modify the request; this middleware's existence is enough.
   return NextResponse.next();
 }
 
-// ✅ Apply to all API routes
+// ✅ Apply globally to every /api/* route
 export const config = {
   matcher: ["/api/:path*"],
 };

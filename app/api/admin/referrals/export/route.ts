@@ -1,5 +1,10 @@
+// ✅ disable static rendering / ISR for this route
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
  * 🔹 GET /api/admin/referrals/export
@@ -8,6 +13,9 @@ import { adminDb } from "@/lib/firebaseadmin";
  */
 export async function GET(req: Request) {
   try {
+    // Initialize Firebase Admin lazily
+    const { db } = getFirebaseAdmin();
+
     const { searchParams } = new URL(req.url);
     const monthKey = searchParams.get("month");
     const status = searchParams.get("status") || "pending";
@@ -15,16 +23,15 @@ export async function GET(req: Request) {
     if (!monthKey)
       return NextResponse.json({ error: "Missing month" }, { status: 400 });
 
-    const snap = await adminDb
+    const snap = await db
       .collection("referralStatsMonthly")
       .doc(monthKey)
       .collection("users")
       .where("payoutStatus", "==", status)
       .get();
 
-    if (snap.empty) {
+    if (snap.empty)
       return NextResponse.json({ error: "No records found" }, { status: 404 });
-    }
 
     let csv = "UID,UserType,TotalBooking,TotalReward,PayoutStatus\n";
     snap.forEach((doc) => {

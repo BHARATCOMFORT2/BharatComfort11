@@ -1,3 +1,8 @@
+// ✅ Force Node.js runtime (disable edge/static optimization)
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 // middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { i18n } from "./app/i18n/settings";
@@ -26,7 +31,6 @@ export async function middleware(request: NextRequest) {
   const REF_COOKIE_TTL_DAYS = 30;
   const refFromQuery = request.nextUrl.searchParams.get("ref");
 
-  // Default response
   const response = NextResponse.next();
 
   /* --------------------------------------------------
@@ -72,7 +76,6 @@ export async function middleware(request: NextRequest) {
   const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
   const isProtected = protectedPaths.some((p) => pathname.includes(p));
 
-  // Use consistent cookie name with /api/auth/session
   const sessionCookie =
     request.cookies.get("__session")?.value ||
     request.cookies.get("session")?.value ||
@@ -84,7 +87,6 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // ✅ Allow access — deeper verification happens in API routes (Node runtime)
   return response;
 }
 

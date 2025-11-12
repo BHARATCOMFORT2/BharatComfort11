@@ -3,11 +3,19 @@ const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
 
+  // ✅ Ensure Vercel runs dynamic routes correctly
+  output: "standalone",
+
+  // ✅ Fix redirect loops caused by trailing slashes
+  trailingSlash: false,
+
+  // ✅ Handle i18n safely (keep defaults if envs missing)
   i18n: {
     locales: process.env.NEXT_PUBLIC_SUPPORTED_LOCALES?.split(",") || ["en"],
     defaultLocale: process.env.NEXT_PUBLIC_DEFAULT_LOCALE || "en",
   },
 
+  // ✅ Remote image domains
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.firebaseapp.com" },
@@ -20,17 +28,11 @@ const nextConfig = {
     ],
   },
 
-  // ✅ Let build pass even if TypeScript finds type errors
-  typescript: {
-    ignoreBuildErrors: true,
-  },
+  // ✅ Ignore build warnings for TS & ESLint
+  typescript: { ignoreBuildErrors: true },
+  eslint: { ignoreDuringBuilds: true },
 
-  // ✅ Skip ESLint during CI builds
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
-
-  // ✅ Prevent client bundle from trying to polyfill Node core libs (Firestore Admin fix)
+  // ✅ Prevent Firestore admin polyfill issues
   webpack: (config) => {
     config.resolve.fallback = {
       ...(config.resolve.fallback || {}),
@@ -40,6 +42,15 @@ const nextConfig = {
       crypto: false,
     };
     return config;
+  },
+
+  // ✅ Optional: Improve caching & performance
+  experimental: {
+    turbo: {
+      rules: {
+        "*.tsx": ["babel-loader"],
+      },
+    },
   },
 };
 

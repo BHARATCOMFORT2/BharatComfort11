@@ -1,6 +1,11 @@
+// ✅ Force Node.js runtime and disable static optimization
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { db } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import {
   collection,
   doc,
@@ -20,6 +25,9 @@ import {
  */
 export async function GET(req: Request) {
   try {
+    // ✅ Initialize Firebase Admin lazily
+    const { db } = getFirebaseAdmin();
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -92,10 +100,10 @@ export async function GET(req: Request) {
         lastLogin: userData.lastLogin,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching users:", error);
     return NextResponse.json(
-      { error: "Failed to fetch user(s)" },
+      { error: "Failed to fetch user(s)", details: error.message },
       { status: 500 }
     );
   }
@@ -107,6 +115,9 @@ export async function GET(req: Request) {
  */
 export async function PUT(req: Request) {
   try {
+    // ✅ Lazy admin init
+    const { db } = getFirebaseAdmin();
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -123,7 +134,6 @@ export async function PUT(req: Request) {
       "aadharImageUrl",
     ];
 
-    // Filter out only allowed fields
     const updateData: Record<string, any> = {};
     for (const field of allowedFields) {
       if (body[field] !== undefined) updateData[field] = body[field];
@@ -147,10 +157,10 @@ export async function PUT(req: Request) {
     );
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating user:", error);
     return NextResponse.json(
-      { error: "Failed to update user" },
+      { error: "Failed to update user", details: error.message },
       { status: 500 }
     );
   }

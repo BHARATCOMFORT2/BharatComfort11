@@ -1,5 +1,10 @@
+// ✅ Prevent static optimization and force Node runtime
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
  * 🧾 System Logs API
@@ -13,12 +18,15 @@ import { adminDb } from "@/lib/firebaseadmin";
  */
 export async function GET(req: Request) {
   try {
+    // ✅ Initialize Firebase Admin lazily (not at import)
+    const { db } = getFirebaseAdmin();
+
     const { searchParams } = new URL(req.url);
     const type = searchParams.get("type");
     const limit = parseInt(searchParams.get("limit") || "50", 10);
     const since = searchParams.get("since");
 
-    let queryRef = adminDb.collection("system_logs").orderBy("createdAt", "desc");
+    let queryRef = db.collection("system_logs").orderBy("createdAt", "desc");
 
     if (type) queryRef = queryRef.where("type", "==", type);
     if (since) {

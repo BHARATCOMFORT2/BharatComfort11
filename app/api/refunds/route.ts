@@ -1,6 +1,11 @@
+// ✅ Disable static optimization and force Node.js runtime
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { db } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
  * GET /api/refunds
@@ -10,6 +15,9 @@ import { db } from "@/lib/firebaseadmin";
  */
 export async function GET(req: Request) {
   try {
+    // ✅ Initialize Firebase Admin lazily
+    const { db } = getFirebaseAdmin();
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -20,7 +28,6 @@ export async function GET(req: Request) {
     const uid = decoded.uid;
     const role = (decoded as any).role || "user";
 
-    // ✅ Use Admin SDK query methods
     const refundsRef = db.collection("refunds");
     let queryRef: FirebaseFirestore.Query<FirebaseFirestore.DocumentData>;
 

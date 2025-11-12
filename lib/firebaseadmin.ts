@@ -2,8 +2,8 @@ import "server-only";
 import * as admin from "firebase-admin";
 
 /**
- * ✅ Firebase Admin Singleton (Netlify + Next.js Safe)
- * Prevents duplicate initialization across serverless functions or build steps.
+ * ✅ Firebase Admin Singleton (Next.js + Netlify Safe)
+ * Prevents duplicate initialization across edge/serverless invocations.
  */
 
 declare global {
@@ -16,7 +16,7 @@ declare global {
 ============================================================ */
 function getPrivateKey(): string {
   const key = process.env.FIREBASE_PRIVATE_KEY;
-  if (!key) throw new Error("❌ Missing FIREBASE_PRIVATE_KEY in env vars.");
+  if (!key) throw new Error("❌ Missing FIREBASE_PRIVATE_KEY in environment variables.");
   return key.includes("\\n") ? key.replace(/\\n/g, "\n") : key;
 }
 
@@ -32,23 +32,33 @@ if (!projectId || !clientEmail || !privateKey) {
 }
 
 /* ============================================================
-   🚀 INITIALIZE ADMIN (Once per Function Scope)
+   🚀 INITIALIZE ADMIN (Once Per Function Scope)
 ============================================================ */
 let app: admin.app.App;
 
-if (admin.apps.length) {
-  app = admin.app();
-  console.log("♻️ Firebase Admin reused existing instance");
-} else {
-  app = admin.initializeApp({
-    credential: admin.credential.cert({
-      projectId,
-      clientEmail,
-      privateKey,
-    }),
-    storageBucket: `${projectId}.appspot.com`,
-  });
-  console.log("✅ Firebase Admin initialized");
+try {
+  if (global._firebaseAdminApp) {
+    app = global._firebaseAdminApp;
+    console.log("♻️ Firebase Admin reused global instance");
+  } else if (admin.apps.length) {
+    app = admin.app();
+    global._firebaseAdminApp = app;
+    console.log("♻️ Firebase Admin reused existing app instance");
+  } else {
+    app = admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey,
+      }),
+      storageBucket: `${projectId}.appspot.com`,
+    });
+    global._firebaseAdminApp = app;
+    console.log("✅ Firebase Admin initialized");
+  }
+} catch (error: any) {
+  console.error("🔥 Firebase Admin initialization failed:", error.message);
+  throw error;
 }
 
 /* ============================================================
@@ -59,8 +69,14 @@ const firestoreAdmin = admin.firestore(app);
 const adminStorage = admin.storage(app);
 
 /* ============================================================
-   🧩 ACCESSOR FUNCTION (if needed elsewhere)
+   🧩 EXPORTS
 ============================================================ */
+export { admin };
+export const db = firestoreAdmin;
+export const adminDb = firestoreAdmin; // alias for compatibility
+export const authAdmin = adminAuth;
+export const storage = adminStorage;
+
 export function getFirebaseAdmin() {
   return {
     admin,
@@ -70,16 +86,6 @@ export function getFirebaseAdmin() {
     storage: adminStorage,
   };
 }
-
-/* ============================================================
-   💾 UNIVERSAL EXPORTS (Safe Global Imports)
-============================================================ */
-export { admin };
-
-export const db = firestoreAdmin;
-export const adminDb = firestoreAdmin; // ✅ alias for compatibility
-export const authAdmin = adminAuth;
-export const storage = adminStorage;
 
 /* ============================================================
    🧠 DEV CONNECTION CHECK (for local debugging)

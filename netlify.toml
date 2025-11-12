@@ -1,5 +1,5 @@
 ######################################
-# 🚀 BHARATCOMFORT11 — Production Config (Fixed)
+# 🚀 BHARATCOMFORT11 — Production Config (Final Dynamic Fix)
 ######################################
 
 [build]
@@ -24,6 +24,10 @@
     "app/api/**/*",
     "lib/invoices/**/*"
   ]
+  # ✅ Enforce dynamic execution for all functions
+  node_bundler = "esbuild"
+  included_files = ["app/api/**/*", "lib/**/*"]
+  external_node_modules = ["firebase-admin", "firebase", "razorpay", "nodemailer"]
 
 ######################################
 # 🧩 Next.js Plugin (Handles SSR + API Routes)
@@ -32,7 +36,7 @@
   package = "@netlify/plugin-nextjs"
 
 ######################################
-# 🌍 Environment Settings
+# 🌍 Environment Settings (Dynamic Enforcer)
 ######################################
 [build.environment]
   NODE_VERSION = "18"
@@ -40,16 +44,31 @@
   FIREBASE_CONFIG = "true"
   TZ = "Asia/Kolkata"
 
-######################################
-# ✅ Notes
-######################################
-# Do NOT add any [[redirects]] here.
-# The official Next.js Netlify plugin automatically sets up:
-#   • /api/* → /.netlify/functions/next_api
-#   • SSR + ISR routing
-# Custom redirects like "/* → /index.html" break dynamic routes and APIs.
+  # 🧠 Force runtime execution everywhere
+  NEXT_FORCE_DYNAMIC = "true"
+  NEXT_DYNAMIC_NO_WARNING = "true"
+  NEXT_SKIP_BUILD_STATIC_GENERATION = "true"
+  NEXT_RUNTIME = "nodejs"
+  NEXT_SHARP_PATH = "/opt/buildhome/node_modules/sharp"
 
-# ✅ Example health endpoint test:
-# After deployment, visit:
+  # Optional but recommended
+  NODE_OPTIONS = "--max-old-space-size=4096"
+
+######################################
+# ✅ DO NOT ADD ANY CUSTOM REDIRECTS
+######################################
+# The @netlify/plugin-nextjs plugin already sets up all dynamic routing:
+#   /api/* → /.netlify/functions/next_api
+#   SSR + ISR for pages
+# Custom redirects can break API or SSR behavior.
+
+######################################
+# 🔍 Quick Test after Deploy:
+######################################
+# ✅ Visit:
+#   https://your-site.netlify.app/api/health
+# or
 #   https://your-site.netlify.app/api/auth/session
-# Expected output: { "error": "Missing token" }
+#
+# You should see a valid JSON response (no prerender warning)
+######################################

@@ -1,7 +1,6 @@
 /**
- * 🚀 BharatComfort11 — Ultimate Dynamic Fix for Vercel Builds
- * Forces all API routes to run dynamically with Node.js runtime.
- * Adds: runtime="nodejs", dynamic="force-dynamic", revalidate=0
+ * scripts/fix-dynamic-global.js
+ * Ensures every app/api/**/route.ts or route.js has Node dynamic headers.
  */
 
 import fs from "fs";
@@ -15,11 +14,12 @@ let already = 0;
 function injectHeader(filePath) {
   let content = fs.readFileSync(filePath, "utf8");
 
-  // Skip already dynamic or edge runtime
+  // Skip if already contains the dynamic header
   if (content.includes('export const dynamic = "force-dynamic"')) {
     already++;
     return;
   }
+  // Skip if edge runtime explicitly used
   if (content.includes('export const runtime = "edge"')) {
     skipped++;
     return;
@@ -33,7 +33,7 @@ export const revalidate = 0;
 
   fs.writeFileSync(filePath, header + content, "utf8");
   patched++;
-  console.log("🩵 Fixed:", filePath);
+  console.log("🩵 Patched:", filePath.replace(process.cwd() + path.sep, ""));
 }
 
 function walk(dir) {
@@ -43,20 +43,12 @@ function walk(dir) {
     const fullPath = path.join(dir, item);
     const stat = fs.statSync(fullPath);
     if (stat.isDirectory()) walk(fullPath);
-    else if (
-      (item.endsWith(".ts") || item.endsWith(".js")) &&
-      fullPath.includes(path.join("app", "api"))
-    ) {
+    else if ((item.endsWith(".ts") || item.endsWith(".js")) && fullPath.includes(path.join("app", "api"))) {
       injectHeader(fullPath);
     }
   }
 }
 
-console.log("🧩 Scanning app/api for static routes...");
+console.log("🔍 Scanning for /app/api route files...");
 walk(apiDir);
-
-console.log("\n🎯 Summary:");
-console.log(`🧩 Patched: ${patched}`);
-console.log(`⚡ Already OK: ${already}`);
-console.log(`⏭️ Skipped (edge runtime): ${skipped}`);
-console.log("✅ All API routes forced to dynamic runtime with revalidate=0.");
+console.log(`\n🎯 Summary: patched=${patched}, already=${already}, skipped(edge)=${skipped}`);

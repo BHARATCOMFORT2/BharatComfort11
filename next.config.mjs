@@ -1,17 +1,23 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  output: "standalone",           // for Netlify / serverless
+  // Run all routes at runtime – disables static export of /api/*
+  output: 'standalone',
   experimental: {
-    dynamicIO: true,              // new hint for dynamic routes
+    serverActions: { allowedOrigins: ['*'] },
   },
-  // 🔧 force dynamic execution for every route
-  generateStaticParams: async () => [],
-  generateBuildId: async () => Date.now().toString(),
-  headers: async () => [],
-  // most important flag:
+  // Disable static optimization of any route
   dynamicParams: true,
+  reactStrictMode: false,
+
+  // Tell Next: everything is dynamic
+  generateStaticParams: async () => [],
   dynamicIO: true,
-  trailingSlash: false,
+  compress: true,
+
+  // Netlify / Firebase compatible node runtime
+  env: {
+    NEXT_DYNAMIC_NO_WARNING: 'true',
+  },
 };
 
 export default nextConfig;

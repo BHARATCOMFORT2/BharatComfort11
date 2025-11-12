@@ -1,4 +1,3 @@
-// app/admin/dashboard/cms/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
@@ -231,6 +230,73 @@ export default function AdminCMSPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* === SAMPLE DATA TOOLS SECTION === */}
+      <div className="mt-12 border-t pt-10">
+        <h2 className="text-xl font-semibold mb-4 text-gray-800 flex items-center gap-2">
+          🧪 Sample Data Tools
+        </h2>
+
+        <p className="text-sm text-gray-600 mb-4">
+          Generate or delete <strong>realistic sample data</strong> (destinations, hotels,
+          stories, reviews, etc.) for testing and UI previews. <br />
+          <span className="text-red-600 font-medium">
+            All generated data includes <code>isSample: true</code> and <code>seedId</code> so
+            you can safely delete it later.
+          </span>
+        </p>
+
+        <div className="flex flex-col md:flex-row gap-4">
+          {/* Generate Sample Data */}
+          <button
+            onClick={async () => {
+              if (!confirm("⚠️ Generate homepage + ecosystem sample data?")) return;
+              try {
+                const home = await fetch("/api/admin/seed-homepage-sample?action=seed");
+                const homeData = await home.json();
+                const eco = await fetch("/api/admin/seed-sample-ecosystem?action=seed");
+                const ecoData = await eco.json();
+
+                alert(
+                  `✅ Sample data generated successfully!\n\nHomepage Seed ID: ${homeData.seedId}\nEcosystem Seed ID: ${ecoData.seedId}`
+                );
+              } catch (err: any) {
+                alert("Error generating sample data: " + err.message);
+              }
+            }}
+            className="bg-yellow-600 hover:bg-yellow-700 text-white font-medium px-4 py-2 rounded-lg shadow"
+          >
+            ⚡ Generate Sample Data
+          </button>
+
+          {/* Delete Sample Data */}
+          <button
+            onClick={async () => {
+              const seedId = prompt("Enter Seed ID to delete:");
+              if (!seedId) return;
+              if (!confirm(`Delete all sample data for Seed ID: ${seedId}?`)) return;
+              try {
+                const homeDel = await fetch(
+                  `/api/admin/seed-homepage-sample?action=delete&seedId=${seedId}`
+                );
+                const ecoDel = await fetch(
+                  `/api/admin/seed-sample-ecosystem?action=delete&seedId=${seedId}`
+                );
+                const homeJson = await homeDel.json();
+                const ecoJson = await ecoDel.json();
+                alert(
+                  `🗑️ Deleted sample data.\n\nHomepage: ${homeJson.message}\nEcosystem: ${ecoJson.message}`
+                );
+              } catch (err: any) {
+                alert("Error deleting sample data: " + err.message);
+              }
+            }}
+            className="bg-red-600 hover:bg-red-700 text-white font-medium px-4 py-2 rounded-lg shadow"
+          >
+            🗑️ Delete Sample Data
+          </button>
+        </div>
       </div>
     </DashboardLayout>
   );

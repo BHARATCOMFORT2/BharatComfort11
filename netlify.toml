@@ -24,10 +24,6 @@
     "app/api/**/*",
     "lib/invoices/**/*"
   ]
-  # ✅ Enforce dynamic execution for all functions
-  node_bundler = "esbuild"
-  included_files = ["app/api/**/*", "lib/**/*"]
-  external_node_modules = ["firebase-admin", "firebase", "razorpay", "nodemailer"]
 
 ######################################
 # 🧩 Next.js Plugin (Handles SSR + API Routes)

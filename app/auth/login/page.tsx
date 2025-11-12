@@ -134,11 +134,11 @@ export default function LoginPage() {
             alert("⚠️ Your partner account is pending admin approval.");
             router.push("/auth/verify");
           } else {
-            router.push("/(dashboard)/partner");
+            router.push("/partner/dashboard");
           }
           break;
         default:
-          router.push("/(dashboard)/user");
+          router.push("/user/dashboard");
       }
     } catch (err: any) {
       console.error("❌ Login error:", err);

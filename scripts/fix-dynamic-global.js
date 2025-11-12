@@ -1,17 +1,7 @@
 /**
- * 🚀 BharatComfort11 — Global Fix Script for Dynamic API Routes
- *
- * This ensures all Next.js App Router API endpoints run dynamically.
- *
- * It injects at the top of every `app/api/**/*.ts` or `.js` file:
- *   export const runtime = "nodejs";
- *   export const dynamic = "force-dynamic";
- *
- * ✅ Skips:
- *   - Files already containing dynamic/runtime exports
- *   - Files using edge runtime
- *
- * 🧩 Works automatically before Vercel build (hook in package.json)
+ * 🚀 BharatComfort11 — Ultimate Dynamic Fix for Vercel Builds
+ * Forces all API routes to run dynamically with Node.js runtime.
+ * Adds: runtime="nodejs", dynamic="force-dynamic", revalidate=0
  */
 
 import fs from "fs";
@@ -22,10 +12,10 @@ let patched = 0;
 let skipped = 0;
 let already = 0;
 
-function injectDynamicHeader(filePath) {
+function injectHeader(filePath) {
   let content = fs.readFileSync(filePath, "utf8");
 
-  // Skip files already dynamic or using edge runtime
+  // Skip already dynamic or edge runtime
   if (content.includes('export const dynamic = "force-dynamic"')) {
     already++;
     return;
@@ -37,6 +27,7 @@ function injectDynamicHeader(filePath) {
 
   const header = `export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 `;
 
@@ -56,7 +47,7 @@ function walk(dir) {
       (item.endsWith(".ts") || item.endsWith(".js")) &&
       fullPath.includes(path.join("app", "api"))
     ) {
-      injectDynamicHeader(fullPath);
+      injectHeader(fullPath);
     }
   }
 }
@@ -68,4 +59,4 @@ console.log("\n🎯 Summary:");
 console.log(`🧩 Patched: ${patched}`);
 console.log(`⚡ Already OK: ${already}`);
 console.log(`⏭️ Skipped (edge runtime): ${skipped}`);
-console.log("✅ All API routes forced to dynamic runtime for Node.js.");
+console.log("✅ All API routes forced to dynamic runtime with revalidate=0.");

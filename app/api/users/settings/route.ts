@@ -1,6 +1,11 @@
+// ✅ Force Node.js runtime and disable static optimization
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
-import { db } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import {
   doc,
   getDoc,
@@ -20,6 +25,9 @@ import {
  */
 export async function GET(req: Request) {
   try {
+    // ✅ Initialize Firebase Admin lazily
+    const { db } = getFirebaseAdmin();
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -81,10 +89,10 @@ export async function GET(req: Request) {
           : "",
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error fetching user settings:", error);
     return NextResponse.json(
-      { error: "Failed to fetch user settings" },
+      { error: "Failed to fetch user settings", details: error.message },
       { status: 500 }
     );
   }
@@ -96,6 +104,9 @@ export async function GET(req: Request) {
  */
 export async function PUT(req: Request) {
   try {
+    // ✅ Lazy admin init
+    const { db } = getFirebaseAdmin();
+
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -141,10 +152,10 @@ export async function PUT(req: Request) {
     await setDoc(userRef, updateData, { merge: true });
 
     return NextResponse.json({ success: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error updating user settings:", error);
     return NextResponse.json(
-      { error: "Failed to update user settings" },
+      { error: "Failed to update user settings", details: error.message },
       { status: 500 }
     );
   }

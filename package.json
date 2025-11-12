@@ -11,6 +11,7 @@
     "type-check": "tsc --noEmit",
     "prepare": "husky install",
     "seed": "ts-node script/seed-sample-data.ts",
+    "fix:dynamic": "node ./scripts/fix-dynamic-apis.js",
     "import:csv": "ts-node script/import-csv.ts"
   },
   "dependencies": {

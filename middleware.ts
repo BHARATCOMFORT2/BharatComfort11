@@ -3,7 +3,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-// middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 import { i18n } from "./app/i18n/settings";
 
@@ -49,9 +48,15 @@ export async function middleware(request: NextRequest) {
 
   /* --------------------------------------------------
      🌍 Locale Enforcement (auto-redirect)
+     Fix infinite redirect loop
   -------------------------------------------------- */
-  if (!i18n.locales.some((loc) => pathname.startsWith(`/${loc}`))) {
-    return NextResponse.redirect(new URL(`/${locale}${pathname}`, request.url));
+  const alreadyLocalized = i18n.locales.some(
+    (loc) => pathname === `/${loc}` || pathname.startsWith(`/${loc}/`)
+  );
+
+  if (!alreadyLocalized && !pathname.startsWith("/api")) {
+    const redirectUrl = new URL(`/${locale}${pathname}`, request.url);
+    return NextResponse.redirect(redirectUrl);
   }
 
   /* --------------------------------------------------
@@ -94,5 +99,5 @@ export async function middleware(request: NextRequest) {
    ⚙️ Middleware Matcher Configuration
 ============================================================ */
 export const config = {
-  matcher: ["/((?!_next|.*\\..*|api).*)"],
+  matcher: ["/((?!_next|favicon.ico|api|static|.*\\..*).*)"],
 };

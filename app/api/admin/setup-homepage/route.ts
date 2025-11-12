@@ -1,17 +1,50 @@
+// ✅ app/api/admin/setup-homepage/route.ts
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
- * 🔐 Admin Setup Route
- *  - Ensures your Firebase user has admin privileges
- *  - Creates all homepage Firestore documents if they don’t exist
- *  - Logs progress for transparency
+ * 🔐 Permanent Admin Lock Setup
+ * - Only assigns admin to fixed UID or email
+ * - Never overwrites or promotes anyone else
+ * - Safe to redeploy anytime
  */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 export async function GET() {
   try {
-    const { admin, adminDb, adminAuth } = getFirebaseAdmin();
+    const { admin, adminAuth, adminDb } = getFirebaseAdmin();
 
-    // --- 1️⃣ Define homepage sections
+    // 🧱 Locked admin identity
+    const FIXED_ADMIN_UID = "IRgFuvOL4cbWPIKQtv8STYmsrhh1";
+    const FIXED_ADMIN_EMAIL = "shrrajbhar12340@gmail.com";
+
+    // ✅ Get user by UID (preferred) or email
+    let user;
+    try {
+      user = await adminAuth.getUser(FIXED_ADMIN_UID);
+    } catch {
+      user = await adminAuth.getUserByEmail(FIXED_ADMIN_EMAIL);
+    }
+
+    if (!user) {
+      throw new Error("❌ Fixed admin user not found in Firebase Auth.");
+    }
+
+    const claims = user.customClaims || {};
+    // Only set if not already admin
+    if (claims.role !== "admin" || !claims.isAdmin) {
+      await adminAuth.setCustomUserClaims(user.uid, {
+        role: "admin",
+        isAdmin: true,
+        permanent: true,
+      });
+      console.log(`✅ Permanently granted admin to ${user.email} (${user.uid})`);
+    } else {
+      console.log(`ℹ️ ${user.email} already has permanent admin role`);
+    }
+
+    // 🏠 Optionally re-create homepage sections if missing
     const homepageSections = [
       { id: "hero", title: "Welcome to BharatComfort", subtitle: "Travel Smart, Stay Comfortable", images: [] },
       { id: "quickactions", title: "Quick Actions", subtitle: "Book your next journey instantly", images: [] },
@@ -22,61 +55,34 @@ export async function GET() {
       { id: "testimonials", title: "What Our Users Say", subtitle: "Hear from happy travelers", images: [] },
     ];
 
-    // --- 2️⃣ Get all users (for debugging and setting roles)
-    const users = await adminAuth.listUsers();
-    const adminEmail = process.env.FIREBASE_ADMIN_EMAIL; // Optional: set your own email in env
+    const created: string[] = [];
+    const existing: string[] = [];
 
-    let targetAdminUser = null;
-    if (adminEmail) {
-      targetAdminUser = users.users.find((u) => u.email === adminEmail);
-    } else {
-      targetAdminUser = users.users[0]; // fallback (first user)
-    }
-
-    if (!targetAdminUser) {
-      throw new Error("❌ No user found to assign admin role.");
-    }
-
-    // --- 3️⃣ Ensure admin role
-    const customClaims = (targetAdminUser.customClaims || {}) as any;
-    if (customClaims.role !== "admin") {
-      await adminAuth.setCustomUserClaims(targetAdminUser.uid, { role: "admin" });
-      console.log(`✅ Assigned admin role to ${targetAdminUser.email || targetAdminUser.uid}`);
-    } else {
-      console.log(`ℹ️ ${targetAdminUser.email || targetAdminUser.uid} is already admin`);
-    }
-
-    // --- 4️⃣ Create homepage documents
-    const createdDocs: string[] = [];
-    const existingDocs: string[] = [];
-
-    for (const section of homepageSections) {
-      const docRef = adminDb.collection("homepage").doc(section.id);
-      const docSnap = await docRef.get();
-
-      if (!docSnap.exists) {
+    for (const s of homepageSections) {
+      const docRef = adminDb.collection("homepage").doc(s.id);
+      const snap = await docRef.get();
+      if (!snap.exists) {
         await docRef.set({
-          title: section.title,
-          subtitle: section.subtitle,
-          images: section.images,
+          title: s.title,
+          subtitle: s.subtitle,
+          images: s.images,
           createdAt: admin.firestore.FieldValue.serverTimestamp(),
         });
-        createdDocs.push(section.id);
+        created.push(s.id);
       } else {
-        existingDocs.push(section.id);
+        existing.push(s.id);
       }
     }
 
-    // --- 5️⃣ Summary response
     return NextResponse.json({
       success: true,
-      message: "✅ Admin setup completed successfully!",
-      assignedAdmin: targetAdminUser.email || targetAdminUser.uid,
-      createdSections: createdDocs,
-      alreadyExistingSections: existingDocs,
+      message: "✅ Permanent admin confirmed and homepage initialized.",
+      assignedAdmin: user.email,
+      createdSections: created,
+      existingSections: existing,
     });
   } catch (err: any) {
-    console.error("🔥 Error in admin setup route:", err);
+    console.error("🔥 Permanent admin setup failed:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Unknown error" },
       { status: 500 }

@@ -1,26 +1,13 @@
-// ✅ Force Node.js runtime (disable edge/static optimization)
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
-import { i18n } from "./app/i18n/settings";
-
-function getLocale(request: NextRequest): string {
-  const { locales, defaultLocale } = i18n;
-  const pathLocale = request.nextUrl.pathname.split("/")[1];
-  if (locales.includes(pathLocale)) return pathLocale;
-
-  const acceptLang = request.headers.get("accept-language") || "";
-  const detected = locales.find((l) => acceptLang.toLowerCase().includes(l));
-  return detected || defaultLocale;
-}
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  const locale = getLocale(request);
 
-  // 🚫 Skip for assets & API
+  // 🚫 Skip assets & API
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
@@ -28,15 +15,6 @@ export async function middleware(request: NextRequest) {
     pathname.match(/\.(ico|png|jpg|jpeg|svg|css|js|woff2?|txt|xml)$/)
   ) {
     return NextResponse.next();
-  }
-
-  // 🌍 Locale enforcement — only redirect root ("/") once
-  const pathLocale = pathname.split("/")[1];
-  const isAlreadyLocalized = i18n.locales.includes(pathLocale);
-
-  if (!isAlreadyLocalized && pathname === "/") {
-    const redirectUrl = new URL(`/${locale}`, request.url);
-    return NextResponse.redirect(redirectUrl);
   }
 
   // 💰 Referral Code
@@ -57,7 +35,7 @@ export async function middleware(request: NextRequest) {
 
   // 🔐 Auth check
   const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
-  const isProtected = protectedPaths.some((p) => pathname.includes(p));
+  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
   const sessionCookie =
     request.cookies.get("__session")?.value ||
@@ -65,7 +43,7 @@ export async function middleware(request: NextRequest) {
     "";
 
   if (isProtected && !sessionCookie) {
-    const loginUrl = new URL(`/${locale}/auth/login`, request.url);
+    const loginUrl = new URL(`/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }

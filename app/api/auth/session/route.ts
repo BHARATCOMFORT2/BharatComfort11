@@ -2,37 +2,34 @@
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
+/* -------------------------------------------------------
+   FIXED: Always use the SAME cookie domain
+--------------------------------------------------------*/
+const COOKIE_DOMAIN =
+  process.env.NODE_ENV === "production"
+    ? ".bharatcomfort.online" // works for both www + root
+    : undefined;
+
+/* -------------------------------------------------------
+   Admin Helper
+--------------------------------------------------------*/
 function admin() {
   const { adminAuth } = getFirebaseAdmin();
   if (!adminAuth) throw new Error("Firebase Admin not initialized");
   return { adminAuth };
 }
 
-/** Helper: safe domain detection (skip domain for localhost) */
-function cookieDomainFromHost(hostHeader?: string) {
-  if (!hostHeader) return undefined;
-  // strip port
-  const host = hostHeader.split(":")[0].trim();
-  if (!host || host.includes("localhost") || host.includes("127.0.0.1")) {
-    return undefined;
-  }
-  // ensure leading dot for cross-subdomain availability
-  return host.startsWith(".") ? host : `.${host}`;
-}
-
-/* -----------------------------------------------------------
+/* -------------------------------------------------------
    POST → Create Session Cookie
------------------------------------------------------------- */
+--------------------------------------------------------*/
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const token = body?.token;
-    if (!token) {
+    const { token } = await req.json();
+    if (!token)
       return NextResponse.json({ error: "Missing token" }, { status: 400 });
-    }
 
     const { adminAuth } = admin();
-    const expiresIn = 7 * 24 * 60 * 60 * 1000; // 7 days (ms)
+    const expiresIn = 7 * 24 * 60 * 60 * 1000; // 7 days
 
     const sessionCookie = await adminAuth.createSessionCookie(token, {
       expiresIn,
@@ -40,66 +37,61 @@ export async function POST(req: Request) {
 
     const res = NextResponse.json({ success: true });
 
-    // determine domain from Host header (do NOT set domain on localhost)
-    const host = (req.headers.get("host") || "");
-    const domain = cookieDomainFromHost(host);
-
-    const cookieOptions: any = {
+    res.cookies.set("__session", sessionCookie, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       path: "/",
-      maxAge: Math.floor(expiresIn / 1000), // seconds
       sameSite: "lax",
-    };
+      maxAge: expiresIn / 1000,
+      domain: COOKIE_DOMAIN,
+    });
 
-    if (domain) cookieOptions.domain = domain;
+    console.log("SESSION COOKIE SET → DOMAIN:", COOKIE_DOMAIN);
 
-    // Set cookie
-    res.cookies.set("__session", sessionCookie, cookieOptions);
-
-    console.log("♻️ Session cookie set", { domain, secure: cookieOptions.secure });
     return res;
-  } catch (error: any) {
-    console.error("🔥 Session creation error:", error);
+  } catch (err: any) {
+    console.error("🔥 Session creation error:", err);
     return NextResponse.json(
-      { error: error.message || "Internal error" },
+      { error: err.message || "Internal error" },
       { status: 500 }
     );
   }
 }
 
-/* -----------------------------------------------------------
+/* -------------------------------------------------------
    GET → Validate Session Cookie
-   (expects cookie to be sent with credentials: 'include')
------------------------------------------------------------- */
+--------------------------------------------------------*/
 export async function GET(req: Request) {
   try {
     const { adminAuth } = admin();
-
-    // read cookie header robustly
     const cookieHeader = req.headers.get("cookie") || "";
-    const cookies = cookieHeader.split(";").map((c) => c.trim());
-    const sessionCookie =
-      cookies.find((c) => c.startsWith("__session="))?.split("=")[1] ||
-      cookies.find((c) => c.startsWith("session="))?.split("=")[1] ||
-      "";
 
-    if (!sessionCookie) {
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .find((c) => c.trim().startsWith("__session="))
+        ?.split("=")[1] || "";
+
+    if (!sessionCookie)
       return NextResponse.json({ authenticated: false }, { status: 401 });
-    }
 
     let decoded;
     try {
       decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    } catch (verifyErr: any) {
-      console.warn("⚠️ Invalid/expired session cookie:", verifyErr?.message || verifyErr);
-      // clear cookie in response (domain-aware)
-      const res = NextResponse.json({ authenticated: false }, { status: 401 });
-      const host = req.headers.get("host") || "";
-      const domain = cookieDomainFromHost(host);
-      const clearOpts: any = { path: "/", maxAge: 0, httpOnly: true };
-      if (domain) clearOpts.domain = domain;
-      res.cookies.set("__session", "", clearOpts);
+    } catch (err) {
+      // delete invalid cookie
+      const res = NextResponse.json(
+        { authenticated: false },
+        { status: 401 }
+      );
+
+      res.cookies.set("__session", "", {
+        httpOnly: true,
+        maxAge: 0,
+        path: "/",
+        domain: COOKIE_DOMAIN,
+      });
+
       return res;
     }
 
@@ -109,28 +101,26 @@ export async function GET(req: Request) {
       email: decoded.email,
       role: decoded.role || "user",
     });
-  } catch (error: any) {
-    console.error("🔥 Session validation error:", error);
-    const res = NextResponse.json({ authenticated: false }, { status: 401 });
-    // try to clear cookie defensively
-    res.cookies.set("__session", "", { path: "/", maxAge: 0, httpOnly: true });
-    return res;
+  } catch (err: any) {
+    console.error("🔥 Session validation error:", err);
+    return NextResponse.json({ authenticated: false }, { status: 401 });
   }
 }
 
-/* -----------------------------------------------------------
+/* -------------------------------------------------------
    DELETE → Logout
------------------------------------------------------------- */
-export async function DELETE(req: Request) {
+--------------------------------------------------------*/
+export async function DELETE() {
   const res = NextResponse.json({ success: true });
 
-  // clear with domain if present
-  const host = req.headers.get("host") || "";
-  const domain = cookieDomainFromHost(host);
-  const clearOpts: any = { httpOnly: true, path: "/", maxAge: 0 };
-  if (domain) clearOpts.domain = domain;
-  res.cookies.set("__session", "", clearOpts);
+  res.cookies.set("__session", "", {
+    httpOnly: true,
+    path: "/",
+    maxAge: 0,
+    domain: COOKIE_DOMAIN,
+  });
 
-  console.log("🔒 Logged out — session cookie cleared", { domain });
+  console.log("🔒 SESSION CLEARED — DOMAIN:", COOKIE_DOMAIN);
+
   return res;
 }

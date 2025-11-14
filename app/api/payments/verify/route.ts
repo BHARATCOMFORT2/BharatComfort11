@@ -1,28 +1,23 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin"; // ✅ Admin SDK instance
-import { FieldValue } from "firebase-admin/firestore"; // ✅ Server timestamp
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
 import crypto from "crypto";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 import { sendInvoiceEmail } from "@/lib/emails/sendInvoiceEmail";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
 
-/**
- * POST /api/payments/verify
- * Body:
- * {
- *   razorpay_order_id,
- *   razorpay_payment_id,
- *   razorpay_signature,
- *   bookingId
- * }
- *
- * ✅ Verifies Razorpay signature
- * ✅ Updates Firestore (payments + booking)
- * ✅ Confirms booking
- * ✅ Generates & emails invoice PDF
- * ✅ Pushes admin notification
- */
+/* --------------------------------------------------------
+   INITIALIZE ADMIN
+-------------------------------------------------------- */
+const { adminDb } = getFirebaseAdmin();
+
+/* --------------------------------------------------------
+   POST /api/payments/verify
+-------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
     const {
@@ -32,7 +27,9 @@ export async function POST(req: Request) {
       bookingId,
     } = await req.json();
 
-    // ✅ Validate inputs
+    /* --------------------------------------------------------
+       1️⃣ Validate Inputs
+    -------------------------------------------------------- */
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -40,30 +37,34 @@ export async function POST(req: Request) {
       !bookingId
     ) {
       return NextResponse.json(
-        { success: false, error: "Missing Razorpay fields" },
+        { success: false, error: "Missing payment fields" },
         { status: 400 }
       );
     }
 
-    // ✅ Verify Razorpay signature
-    const body = razorpay_order_id + "|" + razorpay_payment_id;
-    const expectedSignature = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET as string)
-      .update(body.toString())
+    /* --------------------------------------------------------
+       2️⃣ Validate Signature
+    -------------------------------------------------------- */
+    const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+    const expected = crypto
+      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+      .update(body)
       .digest("hex");
 
-    if (expectedSignature !== razorpay_signature) {
-      console.error("❌ Razorpay signature mismatch");
+    if (expected !== razorpay_signature) {
+      console.error("❌ Signature mismatch. Payment invalid.");
       return NextResponse.json(
         { success: false, error: "Invalid Razorpay signature" },
         { status: 400 }
       );
     }
 
-    console.log("✅ Razorpay signature verified for:", razorpay_payment_id);
+    console.log("✅ Razorpay signature verified.");
 
-    // ✅ Fetch booking document
-    const bookingRef = db.collection("bookings").doc(bookingId);
+    /* --------------------------------------------------------
+       3️⃣ Fetch Booking
+    -------------------------------------------------------- */
+    const bookingRef = adminDb.collection("bookings").doc(bookingId);
     const bookingSnap = await bookingRef.get();
 
     if (!bookingSnap.exists) {
@@ -73,33 +74,40 @@ export async function POST(req: Request) {
       );
     }
 
-    const booking = bookingSnap.data() || {};
+    const booking = bookingSnap.data()!;
+    const userId = booking.userId;
+    const partnerId = booking.partnerId;
 
-    // ✅ Handle already-paid case
+    /* --------------------------------------------------------
+       4️⃣ Idempotent check (avoid double-processing)
+    -------------------------------------------------------- */
     if (booking.paymentStatus === "paid") {
       return NextResponse.json({
         success: true,
-        message: "Booking already marked as paid.",
+        message: "Payment already processed.",
       });
     }
 
-    // ✅ Update payment document
-    const paymentRef = db.collection("payments").doc(razorpay_order_id);
-    try {
-      await paymentRef.update({
+    /* --------------------------------------------------------
+       5️⃣ Update /payments Document
+    -------------------------------------------------------- */
+    const paymentRef = adminDb.collection("payments").doc(razorpay_order_id);
+    await paymentRef.set(
+      {
         status: "success",
         razorpayPaymentId: razorpay_payment_id,
         verifiedAt: FieldValue.serverTimestamp(),
         bookingId,
-        userId: booking.userId,
-        partnerId: booking.partnerId,
+        userId,
+        partnerId,
         amount: booking.amount,
-      });
-    } catch (err: any) {
-      console.warn("⚠️ Could not update /payments doc:", err.message);
-    }
+      },
+      { merge: true }
+    );
 
-    // ✅ Mark booking as confirmed
+    /* --------------------------------------------------------
+       6️⃣ Mark booking as confirmed & paid
+    -------------------------------------------------------- */
     await bookingRef.update({
       paymentStatus: "paid",
       status: "confirmed",
@@ -108,38 +116,42 @@ export async function POST(req: Request) {
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    console.log("✅ Booking confirmed:", bookingId);
+    console.log("✅ Booking marked paid:", bookingId);
 
-    // ✅ Generate invoice
-    const invoiceId = `INV-BK-${Date.now()}`;
-    const pdfBuffer = await generateBookingInvoice({
+    /* --------------------------------------------------------
+       7️⃣ Generate Invoice (Unified format)
+    -------------------------------------------------------- */
+    const invoiceId = `INV-${bookingId}-${Date.now()}`;
+
+    const pdf = await generateBookingInvoice({
       bookingId,
-      invoiceId,
-      userName: booking.userName || "Guest",
-      userEmail: booking.userEmail || "",
-      partnerName: booking.partnerName || "",
-      amount: booking.amount,
-      checkIn: booking.checkIn,
-      checkOut: booking.checkOut,
+      userId: booking.userId,
       paymentId: razorpay_payment_id,
-      createdAt: new Date(),
+      amount: booking.amount,
     });
 
-    // ✅ Upload invoice to Firebase Storage
-    const invoiceUrl = await uploadInvoiceToFirebase(
-      pdfBuffer,
-      invoiceId,
-      "booking"
-    );
+    const invoiceUrl =
+      typeof pdf === "string"
+        ? pdf
+        : await uploadInvoiceToFirebase(pdf, invoiceId, "booking");
 
-    // ✅ Save invoice URL in Firestore
-    await bookingRef.update({
-      invoiceId,
+    /* --------------------------------------------------------
+       8️⃣ Store invoice record
+    -------------------------------------------------------- */
+    await adminDb.collection("invoices").add({
+      type: "booking",
+      bookingId,
+      userId,
+      partnerId,
+      amount: booking.amount,
       invoiceUrl,
-      invoiceGeneratedAt: FieldValue.serverTimestamp(),
+      paymentId: razorpay_payment_id,
+      createdAt: FieldValue.serverTimestamp(),
     });
 
-    // ✅ Email invoice to user
+    /* --------------------------------------------------------
+       9️⃣ Email user (if email exists)
+    -------------------------------------------------------- */
     if (booking.userEmail) {
       await sendInvoiceEmail({
         to: booking.userEmail,
@@ -155,29 +167,31 @@ export async function POST(req: Request) {
       });
     }
 
-    // ✅ Push admin notification
+    /* --------------------------------------------------------
+       🔟 Push admin/partner notification
+    -------------------------------------------------------- */
     await pushInvoiceNotification({
       type: "booking",
       invoiceId,
       invoiceUrl,
-      userId: booking.userId,
+      userId,
       amount: booking.amount,
       relatedId: bookingId,
     });
 
-    console.log("✅ Invoice generated & emailed:", invoiceId);
+    console.log("📄 Invoice generated & emailed:", invoiceId);
 
     return NextResponse.json({
       success: true,
-      message: "Payment verified, booking confirmed, and invoice emailed.",
       bookingId,
-      razorpay_payment_id,
+      paymentId: razorpay_payment_id,
       invoiceUrl,
+      message: "Payment verified and booking confirmed.",
     });
-  } catch (error: any) {
-    console.error("❌ Payment verification + invoice error:", error);
+  } catch (err: any) {
+    console.error("❌ Payment verification error:", err);
     return NextResponse.json(
-      { success: false, error: error.message || "Internal Server Error" },
+      { success: false, error: err.message || "Internal Server Error" },
       { status: 500 }
     );
   }

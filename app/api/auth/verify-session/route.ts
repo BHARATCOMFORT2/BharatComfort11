@@ -1,15 +1,30 @@
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   try {
-    const { session } = await req.json();
-    if (!session) return NextResponse.json({ valid: false });
-
     const { adminAuth } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifySessionCookie(session, true);
 
-    return NextResponse.json({ valid: true, role: decoded.role || "user" });
+    // Read session cookie directly
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split("; ")
+        .find((c) => c.startsWith("__session="))
+        ?.split("=")[1] || "";
+
+    if (!sessionCookie) {
+      return NextResponse.json({ valid: false });
+    }
+
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+
+    return NextResponse.json({
+      valid: true,
+      uid: decoded.uid,
+      email: decoded.email,
+      role: decoded.role || "user",
+    });
   } catch (error) {
     return NextResponse.json({ valid: false });
   }

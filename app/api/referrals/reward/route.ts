@@ -1,32 +1,38 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-/* ============================================================
-   🎁 Reward Trigger API
-   Called after a booking is successfully completed OR
-   a referred partner is approved.
-============================================================ */
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
+    const { adminDb, admin } = getFirebaseAdmin();
+
     const body = await req.json();
     const { referredUserId, bookingAmount, rewardType } = body;
-    // rewardType = "user_booking" | "partner_approval"
 
     if (!referredUserId || !rewardType) {
-      return NextResponse.json({ error: "Missing parameters" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing parameters" },
+        { status: 400 }
+      );
     }
 
-    // 1️⃣ Find pending referral for this user
-    const referralSnap = await db
-      .collection("referrals")
+    /* --------------------------------------
+       1️⃣ Find pending referral
+    -------------------------------------- */
+    const referralSnap = await adminDb
+      .collection("refer_and_earn")
       .where("referredUserId", "==", referredUserId)
       .where("status", "==", "pending")
       .limit(1)
       .get();
 
     if (referralSnap.empty) {
-      return NextResponse.json({ message: "No pending referral found" }, { status: 200 });
+      return NextResponse.json(
+        { message: "No pending referral found" },
+        { status: 200 }
+      );
     }
 
     const referralDoc = referralSnap.docs[0];
@@ -34,58 +40,70 @@ export async function POST(req: Request) {
     const referrerId = referralData.referrerId;
     const referredUserType = referralData.referredUserType;
 
-    // 2️⃣ Compute reward
+    /* --------------------------------------
+       2️⃣ Compute reward
+    -------------------------------------- */
     let rewardAmount = 0;
+
     if (rewardType === "user_booking" && bookingAmount) {
-      // 5% of first booking
       rewardAmount = Math.round(bookingAmount * 0.05);
     } else if (rewardType === "partner_approval") {
-      // ₹500 fixed reward for referring partner
-      rewardAmount = 500;
+      rewardAmount = 500; // fixed reward
     }
 
-    // 3️⃣ Credit reward to referrer wallet
-    const referrerRef = db.collection("users").doc(referrerId);
+    /* --------------------------------------
+       3️⃣ Credit reward to referrer wallet
+    -------------------------------------- */
+    const referrerRef = adminDb.collection("users").doc(referrerId);
     const referrerSnap = await referrerRef.get();
     const referrerData = referrerSnap.data() || {};
 
-    const oldBalance = referrerData.walletBalance || 0;
-    const newBalance = oldBalance + rewardAmount;
-
     await referrerRef.set(
       {
-        walletBalance: newBalance,
-        totalEarnings: (referrerData.totalEarnings || 0) + rewardAmount,
+        walletBalance:
+          (referrerData.walletBalance || 0) + rewardAmount,
+
+        totalEarnings:
+          (referrerData.totalEarnings || 0) + rewardAmount,
+
         referralStats: {
           successfulReferrals:
             (referrerData.referralStats?.successfulReferrals || 0) + 1,
         },
-        updatedAt: new Date(),
+
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
-    // 4️⃣ Mark referral as completed
+    /* --------------------------------------
+       4️⃣ Mark referral as completed
+    -------------------------------------- */
     await referralDoc.ref.set(
       {
         status: "completed",
         rewardAmount,
         bookingAmount: bookingAmount || null,
-        updatedAt: new Date(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
-    // 5️⃣ Update referred user (to prevent duplicate rewards)
-    await db.collection("users").doc(referredUserId).set(
+    /* --------------------------------------
+       5️⃣ Prevent duplicate rewards
+    -------------------------------------- */
+    await adminDb.collection("users").doc(referredUserId).set(
       {
         referralStatus: "completed",
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
-    // 6️⃣ Optional: Add entry in wallet history
-    await db
+    /* --------------------------------------
+       6️⃣ Add wallet transaction entry
+    -------------------------------------- */
+    await adminDb
       .collection("users")
       .doc(referrerId)
       .collection("wallet")
@@ -95,7 +113,7 @@ export async function POST(req: Request) {
         referredUserId,
         referredUserType,
         amount: rewardAmount,
-        createdAt: new Date(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       });
 
     return NextResponse.json({
@@ -103,10 +121,10 @@ export async function POST(req: Request) {
       message: "Referral reward credited successfully",
       rewardAmount,
     });
-  } catch (error) {
-    console.error("🔥 Error processing reward:", error);
+  } catch (error: any) {
+    console.error("🔥 Reward API Error:", error);
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: error.message || "Internal Server Error" },
       { status: 500 }
     );
   }

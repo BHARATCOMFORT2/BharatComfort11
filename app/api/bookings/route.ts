@@ -8,34 +8,32 @@ import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 
-/* ------------------ COOKIE AUTH HELPERS ------------------ */
+/* ---------------------------------------------
+   SESSION COOKIE HELPERS
+--------------------------------------------- */
 function extractSessionCookie(req: Request) {
   const cookieHeader = req.headers.get("cookie") || "";
   const cookies = cookieHeader.split(";").map((c) => c.trim());
-
-  return (
-    cookies.find((c) => c.startsWith("__session="))?.split("=")[1] || ""
-  );
+  return cookies.find((c) => c.startsWith("__session="))?.split("=")[1] || "";
 }
 
 async function verifySession(req: Request) {
   const { adminAuth } = getFirebaseAdmin();
-  const session = extractSessionCookie(req);
-  if (!session) return null;
+  const cookie = extractSessionCookie(req);
+  if (!cookie) return null;
 
   try {
-    return await adminAuth.verifySessionCookie(session, true);
+    return await adminAuth.verifySessionCookie(cookie, true);
   } catch {
     return null;
   }
 }
 
-function unauthorized() {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-}
-function forbidden() {
-  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-}
+const unauthorized = () =>
+  NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+const forbidden = () =>
+  NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
 /* ============================================================
    🔹 GET — Fetch Bookings (User / Partner / Admin)
@@ -46,6 +44,7 @@ export async function GET(req: Request) {
     if (!decoded) return unauthorized();
 
     const { adminDb } = getFirebaseAdmin();
+
     const uid = decoded.uid;
     const role = decoded.role || "user";
 
@@ -67,15 +66,16 @@ export async function GET(req: Request) {
 
     const snap = await query.get();
 
-    const bookings = snap.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    }));
-
-    return NextResponse.json({ success: true, bookings });
-  } catch (err: any) {
+    return NextResponse.json({
+      success: true,
+      bookings: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    });
+  } catch (err) {
     console.error("❌ GET bookings error:", err);
-    return NextResponse.json({ error: "Failed to fetch bookings" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to fetch bookings" },
+      { status: 500 }
+    );
   }
 }
 
@@ -91,8 +91,8 @@ export async function POST(req: Request) {
     const userEmail = decoded.email || "";
 
     const { adminDb, admin } = getFirebaseAdmin();
-
     const body = await req.json();
+
     const {
       listingId,
       partnerId,
@@ -104,10 +104,12 @@ export async function POST(req: Request) {
     } = body;
 
     if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
-      return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
-    // Validate listing
     const listingSnap = await adminDb.collection("listings").doc(listingId).get();
     if (!listingSnap.exists) {
       return NextResponse.json({ error: "Listing not found" }, { status: 404 });
@@ -125,8 +127,6 @@ export async function POST(req: Request) {
     }
 
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const status = paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid";
-    const paymentStatus = paymentMode === "razorpay" ? "pending" : "unpaid";
 
     const bookingData = {
       userId: uid,
@@ -137,8 +137,8 @@ export async function POST(req: Request) {
       checkIn,
       checkOut,
       paymentMode,
-      paymentStatus,
-      status,
+      paymentStatus: paymentMode === "razorpay" ? "pending" : "unpaid",
+      status: paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
       refundStatus: "none",
       razorpayOrderId,
       createdAt: now,
@@ -148,11 +148,9 @@ export async function POST(req: Request) {
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
 
-    // Pay-at-property invoice
+    /* invoice for pay-at-property */
     if (paymentMode !== "razorpay") {
-      const paymentId =
-        razorpayOrderId ||
-        `PAYLATER-${bookingId}`;
+      const paymentId = razorpayOrderId || `PAYLATER-${bookingId}`;
 
       const pdf = await generateBookingInvoice({
         bookingId,
@@ -161,9 +159,10 @@ export async function POST(req: Request) {
         amount: Number(amount),
       });
 
-      let invoiceUrl = "";
-      if (typeof pdf === "string") invoiceUrl = pdf;
-      else invoiceUrl = await uploadInvoiceToFirebase(pdf, `INV-${bookingId}`, "booking");
+      const invoiceUrl =
+        typeof pdf === "string"
+          ? pdf
+          : await uploadInvoiceToFirebase(pdf, `INV-${bookingId}`, "booking");
 
       await adminDb.collection("invoices").add({
         bookingId,
@@ -176,7 +175,6 @@ export async function POST(req: Request) {
         createdAt: now,
       });
 
-      // Send emails (wrapped in try)
       try {
         if (userEmail) {
           await sendEmail(
@@ -185,23 +183,29 @@ export async function POST(req: Request) {
             `Your booking is confirmed. Amount ₹${amount}.`
           );
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn("Email error", e);
+      }
     }
 
     return NextResponse.json({
       success: true,
       bookingId,
-      status,
+      status:
+        paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
       paymentMode,
     });
-  } catch (err: any) {
+  } catch (err) {
     console.error("❌ Create booking error:", err);
-    return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to create booking" },
+      { status: 500 }
+    );
   }
 }
 
 /* ============================================================
-   🔹 PUT — Update Booking (admin / partner)
+   🔹 PUT — Update Booking
 ============================================================ */
 export async function PUT(req: Request) {
   try {
@@ -212,11 +216,14 @@ export async function PUT(req: Request) {
     if (!["admin", "partner"].includes(role)) return forbidden();
 
     const { adminDb, admin } = getFirebaseAdmin();
-
-    const { bookingId, status, paymentStatus } = await req.json();
+    const body = await req.json();
+    const { bookingId, status, paymentStatus } = body;
 
     if (!bookingId) {
-      return NextResponse.json({ error: "bookingId required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "bookingId required" },
+        { status: 400 }
+      );
     }
 
     const updates: any = {
@@ -230,6 +237,9 @@ export async function PUT(req: Request) {
     return NextResponse.json({ success: true, updates });
   } catch (err) {
     console.error("❌ Update booking error:", err);
-    return NextResponse.json({ error: "Failed to update booking" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Failed to update booking" },
+      { status: 500 }
+    );
   }
 }

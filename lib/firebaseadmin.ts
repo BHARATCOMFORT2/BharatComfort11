@@ -1,19 +1,13 @@
 import "server-only";
 import * as admin from "firebase-admin";
 
-/**
- * 🔥 GLOBAL SINGLETON (Vercel-safe)
- */
 declare global {
   // eslint-disable-next-line no-var
-  var _firebaseAdmin: admin.app.App | undefined;
+  var _firebaseAdminApp: admin.app.App | undefined;
 }
 
-/**
- * 🔐 Initialize ONLY once (serverless safe)
- */
 function getAdminApp(): admin.app.App {
-  if (global._firebaseAdmin) return global._firebaseAdmin;
+  if (global._firebaseAdminApp) return global._firebaseAdminApp;
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -25,7 +19,7 @@ function getAdminApp(): admin.app.App {
 
   const privateKey = rawKey.replace(/\\n/g, "\n");
 
-  global._firebaseAdmin = admin.initializeApp({
+  global._firebaseAdminApp = admin.initializeApp({
     credential: admin.credential.cert({
       projectId,
       clientEmail,
@@ -34,38 +28,32 @@ function getAdminApp(): admin.app.App {
     storageBucket: `${projectId}.appspot.com`,
   });
 
-  return global._firebaseAdmin;
+  return global._firebaseAdminApp;
 }
 
-/**
- * 🚀 Create Singletons
- */
+// ---- SINGLETONS ----
 const app = getAdminApp();
 const db = admin.firestore(app);
 const auth = admin.auth(app);
 const storage = admin.storage(app);
 
-/**
- * ⭐ BACKWARD COMPATIBLE EXPORTS ⭐
- * So your entire project continues to work
- */
+// ---- EXPORTS + COMPATIBILITY LAYERS ----
 export {
-  admin,       // firebase-admin namespace
-  app,         // renamed "adminApp" previously
-  db,          // firestore
-  auth,        // auth
-  storage,     // storage
+  admin,
+  app,
+  db,
+  auth,
+  storage,
 
-  // BACKWARD COMPATIBILITY ALIASES
+  // compatibility exports
   app as adminApp,
   db as adminDb,
   auth as authAdmin,
+  auth as adminAuth,
   storage as adminStorage,
 };
 
-/**
- * 🧩 Optional accessor
- */
+// Accessor (optional)
 export function getFirebaseAdmin() {
   return {
     admin,
@@ -76,6 +64,7 @@ export function getFirebaseAdmin() {
     adminApp: app,
     adminDb: db,
     authAdmin: auth,
+    adminAuth: auth,
     adminStorage: storage,
   };
 }

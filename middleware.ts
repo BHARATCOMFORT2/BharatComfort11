@@ -1,16 +1,26 @@
-// Force Node.js runtime
+// middleware.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 import { NextRequest, NextResponse } from "next/server";
 
 export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  const host = request.headers.get("host") || "";
 
-  // -------------------------------------------------------
-  // 1️⃣ Skip static assets
-  // -------------------------------------------------------
+  /* -------------------------------
+     1️⃣ FORCE DOMAIN CONSISTENCY
+     Redirect root → www
+  --------------------------------*/
+  if (host === "bharatcomfort.online") {
+    return NextResponse.redirect(
+      `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
+    );
+  }
+
+  /* -------------------------------
+     2️⃣ SKIP STATIC / PUBLIC FILES
+  --------------------------------*/
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
@@ -19,56 +29,52 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // -------------------------------------------------------
-  // 2️⃣ Skip ALL API routes
-  // -------------------------------------------------------
+  /* -------------------------------
+     3️⃣ SKIP ALL API ROUTES
+  --------------------------------*/
   if (pathname.startsWith("/api")) {
     return NextResponse.next();
   }
 
-  // -------------------------------------------------------
-  // 3️⃣ Skip PUBLIC auth pages
-  // DO NOT skip all of /auth !
-  // -------------------------------------------------------
-  if (
-    pathname.startsWith("/auth/login") ||
-    pathname.startsWith("/auth/register") ||
-    pathname.startsWith("/auth/verify")
-  ) {
+  /* -------------------------------
+     4️⃣ SKIP AUTH ROUTES
+  --------------------------------*/
+  if (pathname.startsWith("/auth")) {
     return NextResponse.next();
   }
 
-  // -------------------------------------------------------
-  // 4️⃣ Referral Code Capture
-  // -------------------------------------------------------
+  /* -------------------------------
+     5️⃣ CAPTURE REFERRAL CODE
+  --------------------------------*/
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
     const response = NextResponse.next();
-    const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
     response.cookies.set("bc_referral_code", ref, {
       path: "/",
-      expires,
+      maxAge: 30 * 24 * 60 * 60,
+      httpOnly: false,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
-      httpOnly: false,
+      domain: ".bharatcomfort.online",
     });
-
     return response;
   }
 
-  // -------------------------------------------------------
-  // 5️⃣ Protected routes
-  // -------------------------------------------------------
-  const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
+  /* -------------------------------
+     6️⃣ PROTECTED ROUTES
+  --------------------------------*/
+  const protectedPaths = [
+    "/dashboard",
+    "/partner",
+    "/admin",
+    "/chat",
+    "/book",
+  ];
   const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
-  // MUST only read "__session" cookie
-  const sessionCookie = request.cookies.get("__session")?.value || "";
+  const sessionCookie =
+    request.cookies.get("__session")?.value || "";
 
-  // -------------------------------------------------------
-  // 6️⃣ Require login for protected pages
-  // -------------------------------------------------------
   if (isProtected && !sessionCookie) {
     const loginUrl = new URL(`/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
@@ -78,8 +84,11 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
+/* -------------------------------
+   MATCHER — only run on real pages
+--------------------------------*/
 export const config = {
   matcher: [
-    "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|.*\\..*).*)",
+    "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",
   ],
 };

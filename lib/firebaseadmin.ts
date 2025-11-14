@@ -1,24 +1,31 @@
+import "server-only";
 import * as admin from "firebase-admin";
 
+/** 
+ * 🔥 Global Singleton Fix (Required for Vercel)
+ * Prevents “Firebase app already exists” in serverless.
+ */
 declare global {
   // eslint-disable-next-line no-var
-  var _adminApp: admin.app.App | undefined;
+  var _firebaseAdmin: admin.app.App | undefined;
 }
 
 function getAdminApp(): admin.app.App {
-  if (global._adminApp) return global._adminApp;
+  if (global._firebaseAdmin) {
+    return global._firebaseAdmin;
+  }
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-  const privateKeyRaw = process.env.FIREBASE_PRIVATE_KEY;
+  const rawKey = process.env.FIREBASE_PRIVATE_KEY;
 
-  if (!projectId || !clientEmail || !privateKeyRaw) {
-    throw new Error("Missing Firebase Admin credentials.");
+  if (!projectId || !clientEmail || !rawKey) {
+    throw new Error("❌ Missing Firebase Admin credentials");
   }
 
-  const privateKey = privateKeyRaw.replace(/\\n/g, "\n");
+  const privateKey = rawKey.replace(/\\n/g, "\n");
 
-  const app = admin.initializeApp({
+  global._firebaseAdmin = admin.initializeApp({
     credential: admin.credential.cert({
       projectId,
       clientEmail,
@@ -27,18 +34,12 @@ function getAdminApp(): admin.app.App {
     storageBucket: `${projectId}.appspot.com`,
   });
 
-  global._adminApp = app;
-  return app;
+  return global._firebaseAdmin;
 }
 
-/** Main export for API routes */
-export function getFirebaseAdmin() {
-  const app = getAdminApp();
-  return {
-    admin,
-    app,
-    db: admin.firestore(app),
-    auth: admin.auth(app),
-    storage: admin.storage(app),
-  };
-}
+const app = getAdminApp();
+const db = admin.firestore(app);
+const auth = admin.auth(app);
+const storage = admin.storage(app);
+
+export { admin, app, db, auth, storage };

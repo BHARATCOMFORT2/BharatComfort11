@@ -1,37 +1,44 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
-import {
-  collection,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-} from "firebase/firestore";
 
-export function useBookings(userId?: string) {
+/**
+ * Fetches bookings through secure API (session cookie auth)
+ */
+export function useBookings() {
   const [bookings, setBookings] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    if (!userId) return;
+  async function loadBookings() {
+    try {
+      setLoading(true);
 
-    const q = query(
-      collection(db, "bookings"),
-      where("userId", "==", userId),
-      orderBy("createdAt", "desc")
-    );
+      const res = await fetch("/api/bookings", {
+        method: "GET",
+        credentials: "include", // 🔥 VERY IMPORTANT: sends __session cookie
+      });
 
-    const unsub = onSnapshot(q, (snap) => {
-      const list: any[] = [];
-      snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-      setBookings(list);
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        console.warn("Bookings API error:", data.error || data);
+        setBookings([]);
+        setLoading(false);
+        return;
+      }
+
+      setBookings(data.bookings || []);
+    } catch (e) {
+      console.error("Bookings fetch failed:", e);
+      setBookings([]);
+    } finally {
       setLoading(false);
-    });
+    }
+  }
 
-    return () => unsub();
-  }, [userId]);
+  useEffect(() => {
+    loadBookings();
+  }, []);
 
   return { bookings, loading };
 }

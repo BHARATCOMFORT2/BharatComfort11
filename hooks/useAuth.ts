@@ -75,10 +75,10 @@ export function useAuth() {
 
           setProfile(userData);
 
-          // 🔁 Keep backend session cookie in sync
+          // FIXED: Sync session cookie with CORRECT PATH
           try {
             const token = await getIdToken(user, true);
-            await fetch("/api/auth/session", {
+            await fetch("/api/session", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ token }),
@@ -91,9 +91,8 @@ export function useAuth() {
           setProfile(null);
         }
       } else {
-        // user logged out
+        // User logged out
         setProfile(null);
-        // clear cookie locally just in case
         document.cookie = "__session=; Max-Age=0; path=/;";
       }
 
@@ -104,13 +103,16 @@ export function useAuth() {
   }, []);
 
   /* ------------------------------------------------------------
-     🚪 Logout → Clear Firebase + Session Cookie
+     🚪 Logout → Firebase + Session Cookie
   ------------------------------------------------------------ */
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
-      await fetch("/api/auth/logout", { method: "POST" });
-      document.cookie = "__session=; Max-Age=0; path=/;"; // ✅ clear locally too
+
+      // FIXED: corrected backend logout path
+      await fetch("/api/logout", { method: "POST" });
+
+      document.cookie = "__session=; Max-Age=0; path=/;";
     } catch (err) {
       console.error("⚠️ Sign out failed:", err);
     } finally {

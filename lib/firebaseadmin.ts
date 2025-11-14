@@ -1,19 +1,19 @@
 import "server-only";
 import * as admin from "firebase-admin";
 
-/** 
- * 🔥 Global Singleton Fix (Required for Vercel)
- * Prevents “Firebase app already exists” in serverless.
+/**
+ * 🔥 GLOBAL SINGLETON (Vercel-safe)
  */
 declare global {
   // eslint-disable-next-line no-var
   var _firebaseAdmin: admin.app.App | undefined;
 }
 
+/**
+ * 🔐 Initialize ONLY once (serverless safe)
+ */
 function getAdminApp(): admin.app.App {
-  if (global._firebaseAdmin) {
-    return global._firebaseAdmin;
-  }
+  if (global._firebaseAdmin) return global._firebaseAdmin;
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
   const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
@@ -37,9 +37,45 @@ function getAdminApp(): admin.app.App {
   return global._firebaseAdmin;
 }
 
+/**
+ * 🚀 Create Singletons
+ */
 const app = getAdminApp();
 const db = admin.firestore(app);
 const auth = admin.auth(app);
 const storage = admin.storage(app);
 
-export { admin, app, db, auth, storage };
+/**
+ * ⭐ BACKWARD COMPATIBLE EXPORTS ⭐
+ * So your entire project continues to work
+ */
+export {
+  admin,       // firebase-admin namespace
+  app,         // renamed "adminApp" previously
+  db,          // firestore
+  auth,        // auth
+  storage,     // storage
+
+  // BACKWARD COMPATIBILITY ALIASES
+  app as adminApp,
+  db as adminDb,
+  auth as authAdmin,
+  storage as adminStorage,
+};
+
+/**
+ * 🧩 Optional accessor
+ */
+export function getFirebaseAdmin() {
+  return {
+    admin,
+    app,
+    db,
+    auth,
+    storage,
+    adminApp: app,
+    adminDb: db,
+    authAdmin: auth,
+    adminStorage: storage,
+  };
+}

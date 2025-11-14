@@ -11,11 +11,7 @@
     "type-check": "tsc --noEmit",
     "prepare": "husky install",
     "seed": "ts-node script/seed-sample-data.ts",
-    "fix:dynamic": "node ./scripts/fix-dynamic-apis.js",
-    "import:csv": "ts-node script/import-csv.ts",
-    "fix:all": "node ./scripts/fix-all-apis.js",
-    "fix:all": "node ./scripts/fix-everything.js",
-    "fix:dynamic-global": "node ./scripts/fix-dynamic-global.js"
+    "import:csv": "ts-node script/import-csv.ts"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",
@@ -72,6 +68,7 @@
     "react-i18next": "^13.5.0",
     "react-icons": "^5.5.0",
     "react-leaflet": "^4.2.1",
+    "react-qr-code": "^2.0.18",
     "recharts": "^3.3.0",
     "resend": "^6.4.0",
     "shadcn-ui": "^0.9.5",

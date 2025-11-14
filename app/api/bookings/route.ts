@@ -8,9 +8,9 @@ import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 
-/* ---------------------------------------------
+/* -------------------------------------------------------
    SESSION COOKIE HELPERS
---------------------------------------------- */
+------------------------------------------------------- */
 function extractSessionCookie(req: Request) {
   const cookieHeader = req.headers.get("cookie") || "";
   const cookies = cookieHeader.split(";").map((c) => c.trim());
@@ -30,21 +30,20 @@ async function verifySession(req: Request) {
 }
 
 const unauthorized = () =>
-  NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
 const forbidden = () =>
-  NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
 
-/* ============================================================
-   🔹 GET — Fetch Bookings (User / Partner / Admin)
-============================================================ */
+/* -------------------------------------------------------
+   GET — Fetch User/Partner/Admin Bookings
+------------------------------------------------------- */
 export async function GET(req: Request) {
   try {
     const decoded = await verifySession(req);
     if (!decoded) return unauthorized();
 
     const { adminDb } = getFirebaseAdmin();
-
     const uid = decoded.uid;
     const role = decoded.role || "user";
 
@@ -73,15 +72,15 @@ export async function GET(req: Request) {
   } catch (err) {
     console.error("❌ GET bookings error:", err);
     return NextResponse.json(
-      { error: "Failed to fetch bookings" },
+      { success: false, error: "Failed to fetch bookings" },
       { status: 500 }
     );
   }
 }
 
-/* ============================================================
-   🔹 POST — Create Booking
-============================================================ */
+/* -------------------------------------------------------
+   POST — Create Booking (Unified)
+------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
     const decoded = await verifySession(req);
@@ -103,31 +102,36 @@ export async function POST(req: Request) {
       razorpayOrderId = null,
     } = body;
 
+    /* ---------- VALIDATION ---------- */
     if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        {
+          success: false,
+          error: "Missing required fields",
+        },
         { status: 400 }
       );
     }
 
+    /* ---------- GET LISTING ---------- */
     const listingSnap = await adminDb.collection("listings").doc(listingId).get();
     if (!listingSnap.exists) {
-      return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: "Listing not found" },
+        { status: 404 }
+      );
     }
 
     const listing = listingSnap.data()!;
     const allowPayAtHotel = listing.allowPayAtHotel ?? false;
-    const allowPayAtRestaurant = listing.allowPayAtRestaurant ?? false;
 
-    if (
-      (paymentMode === "pay_at_hotel" && !allowPayAtHotel) ||
-      (paymentMode === "pay_at_restaurant" && !allowPayAtRestaurant)
-    ) {
+    if (paymentMode === "pay_at_hotel" && !allowPayAtHotel) {
       return forbidden();
     }
 
     const now = admin.firestore.FieldValue.serverTimestamp();
 
+    /* ---------- BOOKING DATA ---------- */
     const bookingData = {
       userId: uid,
       userEmail,
@@ -145,10 +149,13 @@ export async function POST(req: Request) {
       updatedAt: now,
     };
 
+    /* ---------- SAVE BOOKING ---------- */
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
 
-    /* invoice for pay-at-property */
+    /* ---------------------------------------------------
+       PAY-AT-HOTEL (Generate Invoice Immediately)
+    --------------------------------------------------- */
     if (paymentMode !== "razorpay") {
       const paymentId = razorpayOrderId || `PAYLATER-${bookingId}`;
 
@@ -175,38 +182,41 @@ export async function POST(req: Request) {
         createdAt: now,
       });
 
-      try {
-        if (userEmail) {
+      if (userEmail) {
+        try {
           await sendEmail(
             userEmail,
             "BHARATCOMFORT11 — Booking Confirmed",
             `Your booking is confirmed. Amount ₹${amount}.`
           );
+        } catch (e) {
+          console.warn("Email error", e);
         }
-      } catch (e) {
-        console.warn("Email error", e);
       }
     }
 
+    /* ---------------------------------------------------
+       RESPONSE
+    --------------------------------------------------- */
     return NextResponse.json({
       success: true,
       bookingId,
+      paymentMode,
       status:
         paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
-      paymentMode,
     });
   } catch (err) {
     console.error("❌ Create booking error:", err);
     return NextResponse.json(
-      { error: "Failed to create booking" },
+      { success: false, error: "Failed to create booking" },
       { status: 500 }
     );
   }
 }
 
-/* ============================================================
-   🔹 PUT — Update Booking
-============================================================ */
+/* -------------------------------------------------------
+   PUT — Update Booking (Admin/Partner)
+------------------------------------------------------- */
 export async function PUT(req: Request) {
   try {
     const decoded = await verifySession(req);
@@ -217,11 +227,12 @@ export async function PUT(req: Request) {
 
     const { adminDb, admin } = getFirebaseAdmin();
     const body = await req.json();
+
     const { bookingId, status, paymentStatus } = body;
 
     if (!bookingId) {
       return NextResponse.json(
-        { error: "bookingId required" },
+        { success: false, error: "bookingId required" },
         { status: 400 }
       );
     }
@@ -238,7 +249,7 @@ export async function PUT(req: Request) {
   } catch (err) {
     console.error("❌ Update booking error:", err);
     return NextResponse.json(
-      { error: "Failed to update booking" },
+      { success: false, error: "Failed to update booking" },
       { status: 500 }
     );
   }

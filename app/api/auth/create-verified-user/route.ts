@@ -1,11 +1,5 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseadmin";
-
-/**
- * ✅ create-verified-user API
- * Creates user documents in Firestore AFTER they’re verified.
- * Uses Firebase Admin SDK, so Firestore rules do NOT block it.
- */
+import { adminDb, admin } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
@@ -17,8 +11,8 @@ export async function POST(req: Request) {
       email,
       phone,
       role = "user",
-      referredBy = null,
-      referralCode = null,
+      referredBy = null,     // Referrer UID (if any)
+      referredByCode = null, // Referrer Code (if any)
     } = data;
 
     if (!uid || !email || !phone) {
@@ -28,9 +22,22 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Store user in Firestore
-    const userRef = adminDb.collection("users").doc(uid);
-    await userRef.set(
+    // ✔ Generate referral code for this new user
+    const referralCode = uid.slice(0, 6).toUpperCase();
+
+    // ------------------------------------------
+    // 1️⃣ Create REFERRAL CODE DOCUMENT
+    // ------------------------------------------
+    await adminDb.collection("referral_codes").doc(uid).set({
+      uid,
+      referralCode,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    // ------------------------------------------
+    // 2️⃣ Create USER DOCUMENT
+    // ------------------------------------------
+    await adminDb.collection("users").doc(uid).set(
       {
         uid,
         name,
@@ -41,16 +48,32 @@ export async function POST(req: Request) {
         emailVerified: true,
         phoneVerified: true,
         verified: true,
+
+        // Store referral metadata correctly
         referredBy,
-        referralCode,
-        createdAt: new Date(),
+        referredByCode,
+        referralCode, // <-- user’s own referral code
+
+        walletBalance: 0,
+        totalEarnings: 0,
+        referralStats: {
+          totalReferrals: 0,
+          successfulReferrals: 0,
+        },
+
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
     );
 
     console.log(`✅ Verified user stored: ${email}`);
 
-    return NextResponse.json({ success: true, message: "User created successfully." });
+    return NextResponse.json({
+      success: true,
+      message: "User created successfully.",
+      referralCode,
+    });
   } catch (err: any) {
     console.error("❌ Error creating verified user:", err);
     return NextResponse.json(

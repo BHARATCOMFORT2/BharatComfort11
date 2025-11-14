@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { toast } from "sonner";
-import { getFirebaseIdToken } from "@/lib/firebase-auth"; // your helper for user token
 
 interface Booking {
   id: string;
@@ -26,15 +25,24 @@ export default function UserBookingsPage() {
     fetchBookings();
   }, []);
 
+  /* -------------------------------------------------------
+     ✅ Fetch bookings using session cookie (no Bearer token)
+  ------------------------------------------------------- */
   const fetchBookings = async () => {
     try {
       setLoading(true);
-      const token = await getFirebaseIdToken();
+
       const res = await fetch("/api/bookings", {
-        headers: { Authorization: `Bearer ${token}` },
+        credentials: "include", // 👈 IMPORTANT
       });
+
       const data = await res.json();
-      if (data.success) setBookings(data.bookings || []);
+
+      if (data.success) {
+        setBookings(data.bookings || []);
+      } else {
+        toast.error(data.error || "Failed to load bookings");
+      }
     } catch (err) {
       console.error(err);
       toast.error("Failed to load bookings");
@@ -43,34 +51,38 @@ export default function UserBookingsPage() {
     }
   };
 
+  /* -------------------------------------------------------
+     ❗ Cancel Booking (session-based)
+  ------------------------------------------------------- */
   const handleCancel = async (bookingId: string) => {
-    const confirmCancel = confirm("Are you sure you want to cancel this booking?");
-    if (!confirmCancel) return;
+    if (!confirm("Are you sure you want to cancel this booking?")) return;
 
     try {
-      const token = await getFirebaseIdToken();
       const res = await fetch("/api/bookings/cancel", {
         method: "POST",
+        credentials: "include", // 👈 IMPORTANT
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ bookingId }),
       });
-      const data = await res.json();
 
+      const data = await res.json();
       if (data.success) {
-        toast.success(data.message || "Booking cancelled successfully");
+        toast.success(data.message || "Booking cancelled");
         fetchBookings();
       } else {
         toast.error(data.error || "Cancellation failed");
       }
-    } catch (error) {
-      console.error(error);
+    } catch (err) {
+      console.error(err);
       toast.error("Error cancelling booking");
     }
   };
 
+  /* -------------------------------------------------------
+     Invoice Actions
+  ------------------------------------------------------- */
   const handleInvoiceDownload = (url?: string) => {
     if (!url) {
       toast("Invoice not available yet.");
@@ -82,28 +94,28 @@ export default function UserBookingsPage() {
   const handleInvoiceResend = async (bookingId: string) => {
     try {
       setResending(bookingId);
-      const token = await getFirebaseIdToken();
 
       const res = await fetch("/api/invoices/send", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: "include", // 👈 IMPORTANT
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ type: "booking", id: bookingId }),
       });
 
       const data = await res.json();
-      if (data.success) toast.success("Invoice re-sent successfully!");
+      if (data.success) toast.success("Invoice re-sent!");
       else toast.error(data.error || "Failed to re-send invoice");
     } catch (err) {
-      console.error("Error re-sending invoice:", err);
+      console.error(err);
       toast.error("Error re-sending invoice");
     } finally {
       setResending(null);
     }
   };
 
+  /* -------------------------------------------------------
+     UI Rendering
+  ------------------------------------------------------- */
   if (loading) {
     return <p className="p-4 text-center text-gray-500">Loading your bookings...</p>;
   }
@@ -126,14 +138,17 @@ export default function UserBookingsPage() {
               <h2 className="font-semibold text-lg">
                 Booking ID: <span className="text-blue-600">{b.id}</span>
               </h2>
+
               <p className="text-sm text-gray-600">
                 Check-in: {new Date(b.checkIn).toLocaleString()} <br />
                 Check-out: {new Date(b.checkOut).toLocaleString()}
               </p>
+
               <p className="text-sm mt-1">
                 Amount: ₹{b.amount} &nbsp;|&nbsp; Mode:{" "}
                 <span className="font-medium capitalize">{b.paymentMode}</span>
               </p>
+
               <p className="text-sm text-gray-700">
                 Status:{" "}
                 <span
@@ -161,7 +176,6 @@ export default function UserBookingsPage() {
             </div>
 
             <div className="mt-3 md:mt-0 flex flex-col md:flex-row gap-2">
-              {/* Cancel button */}
               {b.status === "confirmed" || b.status === "confirmed_unpaid" ? (
                 <Button
                   variant="destructive"
@@ -178,7 +192,6 @@ export default function UserBookingsPage() {
                 </span>
               )}
 
-              {/* Invoice buttons */}
               {b.invoiceUrl ? (
                 <>
                   <Button
@@ -188,6 +201,7 @@ export default function UserBookingsPage() {
                   >
                     Download Invoice
                   </Button>
+
                   <Button
                     variant="ghost"
                     size="sm"

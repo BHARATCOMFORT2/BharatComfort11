@@ -3,8 +3,7 @@ export const dynamic = "force-dynamic";
 import "server-only";
 
 import { NextResponse } from "next/server";
-import { getAuth } from "firebase-admin/auth";
-import { adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
@@ -12,25 +11,55 @@ import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 type Role = "admin" | "partner" | "user";
 
 /**
+ * NOTE:
+ * - always use getFirebaseAdmin() to avoid cold-start undefined exports
+ * - use admin.firestore.FieldValue.serverTimestamp() for createdAt/updatedAt
+ * - detect Firestore "requires index" errors and return an actionable message
+ */
+
+/* -------------------------------------------------------------------------- */
+/*                                  HELPERS                                   */
+/* -------------------------------------------------------------------------- */
+function makeUnauthorized() {
+  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+}
+
+function makeForbidden() {
+  return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+}
+
+/* -------------------------------------------------------------------------- */
+/*                                   ROUTES                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
  * 🔹 GET /api/bookings
  * - Admin: all bookings
  * - Partner: their bookings
  * - User: their bookings
+ *
+ * Expects Authorization: Bearer <ID_TOKEN>
  */
 export async function GET(req: Request) {
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    const token = authHeader.replace("Bearer ", "");
-    const decoded = await getAuth().verifyIdToken(token);
-    const uid = decoded.uid;
-    const role = (decoded as any).role as Role || "user";
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return makeUnauthorized();
+
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return makeUnauthorized();
+
+    const decoded = await adminAuth.verifyIdToken(token);
+    const uid = (decoded as any).uid;
+    const role = ((decoded as any).role as Role) || "user";
 
     const col = adminDb.collection("bookings");
-    let q: FirebaseFirestore.Query<FirebaseFirestore.DocumentData> = col;
+
+    // Build query based on role
+    let q:
+      | FirebaseFirestore.Query<FirebaseFirestore.DocumentData>
+      | undefined = undefined;
 
     if (role === "admin") {
       q = col.orderBy("createdAt", "desc");
@@ -40,15 +69,40 @@ export async function GET(req: Request) {
       q = col.where("userId", "==", uid).orderBy("createdAt", "desc");
     }
 
+    // Execute and map results
     const snap = await q.get();
     const bookings = snap.docs.map((d) => {
       const data = d.data() || {};
+      // ensure id exists on returned object
       return { ...data, id: data.id || d.id };
     });
 
     return NextResponse.json({ success: true, bookings });
-  } catch (error) {
-    console.error("Error fetching bookings:", error);
+  } catch (err: any) {
+    console.error("Error fetching bookings:", err);
+
+    // Firestore composite index required -> surface helpful message (not just 500)
+    const msg = String(err.message || err);
+    if (msg.toLowerCase().includes("index")) {
+      // Return a 400 with guidance so you can click the console-provided link
+      return NextResponse.json(
+        {
+          error:
+            "Firestore requires a composite index for this query. Create the index in Firebase Console (see build logs / error message for the exact link).",
+          details: msg,
+        },
+        { status: 400 }
+      );
+    }
+
+    // Permission issues
+    if (msg.toLowerCase().includes("permission-denied")) {
+      return NextResponse.json(
+        { error: "Permission denied — check Firestore rules for this collection" },
+        { status: 403 }
+      );
+    }
+
     return NextResponse.json({ error: "Failed to fetch bookings" }, { status: 500 });
   }
 }
@@ -56,18 +110,21 @@ export async function GET(req: Request) {
 /**
  * 🔹 POST /api/bookings
  * Body: { listingId, partnerId, amount, checkIn, checkOut, paymentMode, razorpayOrderId? }
+ * Expects Authorization: Bearer <ID_TOKEN>
  */
 export async function POST(req: Request) {
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    const token = authHeader.replace("Bearer ", "");
-    const decoded = await getAuth().verifyIdToken(token);
-    const uid = decoded.uid;
-    const userEmail = decoded.email || "";
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return makeUnauthorized();
+
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return makeUnauthorized();
+
+    const decoded = await adminAuth.verifyIdToken(token);
+    const uid = (decoded as any).uid;
+    const userEmail = (decoded as any).email || "";
 
     const {
       listingId,
@@ -83,30 +140,34 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Validate listing + pay-at-property flags
+    // Validate listing exists
     const listingSnap = await adminDb.collection("listings").doc(listingId).get();
     if (!listingSnap.exists) {
       return NextResponse.json({ error: "Listing not found" }, { status: 404 });
     }
     const listing = listingSnap.data() as any;
-    const allowPayAtHotel = listing.allowPayAtHotel ?? false;
-    const allowPayAtRestaurant = listing.allowPayAtRestaurant ?? false;
+    const allowPayAtHotel = listing?.allowPayAtHotel ?? false;
+    const allowPayAtRestaurant = listing?.allowPayAtRestaurant ?? false;
 
     if (
       (paymentMode === "pay_at_hotel" && !allowPayAtHotel) ||
       (paymentMode === "pay_at_restaurant" && !allowPayAtRestaurant)
     ) {
       return NextResponse.json(
-        { error: "This listing does not allow the selected pay-at-property option" },
+        {
+          error:
+            "This listing does not allow the selected pay-at-property option",
+        },
         { status: 403 }
       );
     }
 
-    const now = new Date();
+    // Use server timestamps
+    const now = admin.firestore.FieldValue.serverTimestamp();
     const status = paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid";
     const paymentStatus = paymentMode === "razorpay" ? "pending" : "unpaid";
 
-    const bookingData = {
+    const bookingData: Record<string, any> = {
       userId: uid,
       userEmail,
       partnerId,
@@ -126,13 +187,12 @@ export async function POST(req: Request) {
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
 
-    // 🔹 Generate unpaid invoice for Pay-at-Property flows (type-safe call)
+    // Generate invoice for pay-at-property flows
     if (paymentMode === "pay_at_hotel" || paymentMode === "pay_at_restaurant") {
       const paymentId =
         (typeof razorpayOrderId === "string" && razorpayOrderId) ||
         `PAYLATER-${bookingId}`;
 
-      // NOTE: generator is typed/implemented to possibly return void | string | Buffer
       const out: any = await generateBookingInvoice({
         bookingId,
         userId: uid,
@@ -145,7 +205,6 @@ export async function POST(req: Request) {
         // returns a URL directly
         invoiceUrl = out;
       } else if (out && typeof out.byteLength === "number") {
-        // looks like a Buffer — upload it
         const invoiceId = `INV-BK-${Date.now()}`;
         invoiceUrl = await uploadInvoiceToFirebase(out as Buffer, invoiceId, "booking");
       }
@@ -161,14 +220,14 @@ export async function POST(req: Request) {
         createdAt: now,
       });
 
-      // Best-effort emails
+      // Best-effort emails (don't fail booking on email error)
       try {
         if (userEmail) {
           await sendEmail(
             userEmail,
             "BHARATCOMFORT11 — Booking Confirmed (Pay at Property)",
             `
-              <p>Your booking for <b>${listing.name}</b> has been confirmed.</p>
+              <p>Your booking for <b>${listing?.name || "listing"}</b> has been confirmed.</p>
               <p>You have chosen <b>${
                 paymentMode === "pay_at_hotel" ? "Pay at Hotel" : "Pay at Restaurant"
               }</b>.</p>
@@ -181,19 +240,19 @@ export async function POST(req: Request) {
             `
           );
         }
-        if (listing.partnerEmail) {
+        if (listing?.partnerEmail) {
           await sendEmail(
             listing.partnerEmail,
             "BHARATCOMFORT11 — New Pay-at-Property Booking",
             `
-              <p>New booking received for <b>${listing.name}</b>.</p>
+              <p>New booking received for <b>${listing?.name || "listing"}</b>.</p>
               <p>Booking ID: ${bookingId}</p>
               <p>User will pay at the property upon arrival.</p>
             `
           );
         }
-      } catch (err) {
-        console.warn("Email sending failed:", err);
+      } catch (emailErr) {
+        console.warn("Email sending failed:", emailErr);
       }
     }
 
@@ -207,8 +266,22 @@ export async function POST(req: Request) {
           ? "Booking created. Proceed to payment."
           : "Booking confirmed. Pay at property.",
     });
-  } catch (error) {
-    console.error("Error creating booking:", error);
+  } catch (err: any) {
+    console.error("Error creating booking:", err);
+
+    // detect Firestore index requirement messages
+    const message = String(err.message || err);
+    if (message.toLowerCase().includes("index")) {
+      return NextResponse.json(
+        {
+          error:
+            "Firestore requires a composite index for this operation. Create the recommended index in the Firebase Console (see build logs / error message link).",
+          details: message,
+        },
+        { status: 400 }
+      );
+    }
+
     return NextResponse.json({ error: "Failed to create booking" }, { status: 500 });
   }
 }
@@ -216,34 +289,40 @@ export async function POST(req: Request) {
 /**
  * 🔹 PUT /api/bookings
  * Used for admin/partner updates (mark paid, update status)
+ * Expects Authorization: Bearer <ID_TOKEN>
  */
 export async function PUT(req: Request) {
   try {
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    const token = authHeader.replace("Bearer ", "");
-    const decoded = await getAuth().verifyIdToken(token);
-    const role = (decoded as any).role as Role || "user";
-    if (!["admin", "partner"].includes(role)) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return makeUnauthorized();
+
+    const token = authHeader.replace("Bearer ", "").trim();
+    if (!token) return makeUnauthorized();
+
+    const decoded = await adminAuth.verifyIdToken(token);
+    const role = ((decoded as any).role as Role) || "user";
+    if (!["admin", "partner"].includes(role)) return makeForbidden();
 
     const { bookingId, status, paymentStatus } = await req.json();
     if (!bookingId) {
       return NextResponse.json({ error: "bookingId required" }, { status: 400 });
     }
 
-    const updates: Record<string, any> = { updatedAt: new Date() };
+    const updates: Record<string, any> = { updatedAt: admin.firestore.FieldValue.serverTimestamp() };
     if (status) updates.status = status;
     if (paymentStatus) updates.paymentStatus = paymentStatus;
 
     await adminDb.collection("bookings").doc(bookingId).update(updates);
     return NextResponse.json({ success: true, updates });
-  } catch (error) {
-    console.error("Error updating booking:", error);
+  } catch (err: any) {
+    console.error("Error updating booking:", err);
+
+    if (String(err.message || "").toLowerCase().includes("permission-denied")) {
+      return NextResponse.json({ error: "Permission denied" }, { status: 403 });
+    }
+
     return NextResponse.json({ error: "Failed to update booking" }, { status: 500 });
   }
 }

@@ -13,17 +13,21 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
  */
 export async function GET(req: Request) {
   try {
-    // ✅ Initialize Firebase Admin lazily
-    const { db } = getFirebaseAdmin();
+    // ⚡ Correct Firebase Admin imports
+    const { adminDb, adminAuth } = getFirebaseAdmin();
 
     const authHeader = req.headers.get("Authorization");
-    if (!authHeader)
-      return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+    if (!authHeader) {
+      return NextResponse.json(
+        { ok: false, error: "Unauthorized" },
+        { status: 401 }
+      );
+    }
 
-    const idToken = authHeader.replace("Bearer ", "");
-    const decoded = await getAuth().verifyIdToken(idToken);
+    const idToken = authHeader.replace("Bearer ", "").trim();
+    const decoded = await adminAuth.verifyIdToken(idToken);
 
-    const snap = await db
+    const snap = await adminDb
       .collection("bookings")
       .where("userId", "==", decoded.uid)
       .orderBy("createdAt", "desc")
@@ -39,7 +43,11 @@ export async function GET(req: Request) {
   } catch (error: any) {
     console.error("❌ Booking sync error:", error);
     return NextResponse.json(
-      { ok: false, error: "Failed to sync bookings", details: error.message },
+      {
+        ok: false,
+        error: "Failed to sync bookings",
+        details: error.message,
+      },
       { status: 500 }
     );
   }

@@ -1,190 +1,213 @@
-// app/api/payments/webhook/route.ts
-export const runtime = "nodejs"; // ✅ ensures crypto works on Netlify / Vercel
+export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { db } from "@/lib/firebaseadmin";
-import { sendEmail } from "@/lib/email";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-/**
- * 🔐 Razorpay Webhook Handler
- * Handles payment & refund updates securely.
- * Dashboard URL: https://bharatcomfort11.com/api/payments/webhook
- */
+/* --------------------------------------------------------
+   INIT
+-------------------------------------------------------- */
+const { adminDb } = getFirebaseAdmin();
 
+/* --------------------------------------------------------
+   WEBHOOK HANDLER
+-------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
-    const bodyText = await req.text();
+    const rawBody = await req.text();
     const signature = req.headers.get("x-razorpay-signature") || "";
-    const webhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
 
-    if (!webhookSecret) {
-      console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET env");
-      return NextResponse.json({ ok: false, error: "Webhook not configured" }, { status: 500 });
+    if (!secret) {
+      console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET");
+      return NextResponse.json(
+        { ok: false, error: "Webhook not configured" },
+        { status: 500 }
+      );
     }
 
-    // ✅ Step 1: Verify HMAC signature
+    /* --------------------------------------------------------
+       1️⃣ Verify Signature
+    -------------------------------------------------------- */
     const expected = crypto
-      .createHmac("sha256", webhookSecret)
-      .update(bodyText)
+      .createHmac("sha256", secret)
+      .update(rawBody)
       .digest("hex");
 
     if (expected !== signature) {
-      console.warn("⚠️ Invalid Razorpay webhook signature");
-      return NextResponse.json({ ok: false, error: "Invalid signature" }, { status: 401 });
+      console.warn("⚠️ Invalid Razorpay signature");
+      return NextResponse.json({ ok: false, error: "Invalid signature" });
     }
 
-    const event = JSON.parse(bodyText);
+    const event = JSON.parse(rawBody);
     const eventId = event.id;
     const eventType = event.event;
-    const payload = event.payload || {};
 
-    console.log(`⚡ Razorpay Event: ${eventType} (${eventId})`);
+    /* --------------------------------------------------------
+       2️⃣ Idempotency Check — Prevent Duplicate Processing
+    -------------------------------------------------------- */
+    const eventRef = adminDb.collection("webhook_events").doc(eventId);
+    const existing = await eventRef.get();
 
-    // ✅ Step 2: Idempotency check — skip duplicates
-    const eventRef = db.collection("webhook_events").doc(eventId);
-    const exists = await eventRef.get();
-    if (exists.exists) {
-      console.log(`⚠️ Duplicate event ignored: ${eventId}`);
+    if (existing.exists) {
+      console.log(`⚠️ Duplicate webhook skipped: ${eventId}`);
       return NextResponse.json({ ok: true, duplicate: true });
     }
 
     await eventRef.set({
-      id: eventId,
-      type: eventType,
+      eventId,
+      eventType,
       receivedAt: new Date(),
       processed: false,
-      payload: payload,
     });
 
-    // ✅ Step 3: Handle specific event types
+    console.log(`🚀 Webhook Event Received: ${eventType}`);
+
+    /* --------------------------------------------------------
+       3️⃣ Handle Razorpay Events
+    -------------------------------------------------------- */
     switch (eventType) {
-      /* -------------------------------
+      /* --------------------------------------------------------
          💰 PAYMENT CAPTURED
-      --------------------------------*/
+      -------------------------------------------------------- */
       case "payment.captured": {
-        const payment = payload.payment?.entity;
-        const { id, order_id, amount, email, notes } = payment;
-        const bookingId = notes?.bookingId || order_id;
+        const payment = event.payload.payment.entity;
 
-        if (bookingId) {
-          await db.collection("bookings").doc(bookingId).set(
-            {
-              paymentId: id,
-              paymentStatus: "paid",
-              paymentAmount: amount / 100,
-              status: "confirmed",
-              updatedAt: new Date(),
-            },
-            { merge: true }
-          );
+        const paymentId = payment.id;
+        const orderId = payment.order_id;
+        const amount = payment.amount / 100;
+        const notes = payment.notes || {};
+        const bookingId = notes.bookingId;
 
-          await db.collection("payments").doc(id).set({
-            id,
-            orderId: order_id,
-            amount: amount / 100,
-            currency: "INR",
-            email,
-            status: "captured",
-            createdAt: new Date(),
-          });
-
-          if (email) {
-            await sendEmail(
-              email,
-              "✅ Payment Confirmed - BharatComfort11",
-              `<p>Your payment for booking <b>${bookingId}</b> was successfully captured.</p>
-               <p>Amount: ₹${amount / 100}</p>`
-            );
-          }
-
-          console.log(`💰 Booking ${bookingId} marked as paid`);
-        }
-        break;
-      }
-
-      /* -------------------------------
-         ⚠️ PAYMENT FAILED
-      --------------------------------*/
-      case "payment.failed": {
-        const payment = payload.payment?.entity;
-        const { id, order_id, error_description, notes } = payment;
-        const bookingId = notes?.bookingId || order_id;
-
-        if (bookingId) {
-          await db.collection("bookings").doc(bookingId).set(
-            {
-              paymentStatus: "failed",
-              paymentId: id,
-              failureReason: error_description || "Unknown",
-              updatedAt: new Date(),
-            },
-            { merge: true }
-          );
-
-          await db.collection("payments").doc(id).set({
-            id,
-            orderId: order_id,
-            status: "failed",
-            errorDescription: error_description || "Unknown error",
-            createdAt: new Date(),
-          });
-
-          console.warn(`⚠️ Booking ${bookingId} payment failed`);
-        }
-        break;
-      }
-
-      /* -------------------------------
-         ↩️ REFUND PROCESSED
-      --------------------------------*/
-      case "refund.processed": {
-        const refund = payload.refund?.entity;
-        const { id, payment_id, amount } = refund;
-
-        const bookingSnap = await db
-          .collection("bookings")
-          .where("paymentId", "==", payment_id)
-          .get();
-
-        for (const doc of bookingSnap.docs) {
-          await doc.ref.update({
-            refundId: id,
-            refundStatus: "processed",
-            refundAmount: amount / 100,
-            updatedAt: new Date(),
-          });
+        if (!bookingId) {
+          console.warn("⚠️ Missing bookingId in payment notes");
+          break;
         }
 
-        await db.collection("refunds").doc(id).set(
+        console.log("💰 Payment captured for booking:", bookingId);
+
+        /* Update payment */
+        await adminDb.collection("payments").doc(orderId).set(
           {
-            refundId: id,
-            paymentId: payment_id,
-            amount: amount / 100,
-            refundStatus: "processed",
-            createdAt: new Date(),
+            paymentId,
+            orderId,
+            amount,
+            currency: "INR",
+            status: "captured",
+            verifiedVia: "webhook",
+            updatedAt: new Date(),
           },
           { merge: true }
         );
 
-        console.log(`💸 Refund processed: ${id} for payment ${payment_id}`);
+        /* Update booking */
+        await adminDb.collection("bookings").doc(bookingId).set(
+          {
+            paymentStatus: "paid",
+            status: "confirmed",
+            razorpayOrderId: orderId,
+            razorpayPaymentId: paymentId,
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+
         break;
       }
 
-      /* -------------------------------
-         🔹 DEFAULT HANDLER
-      --------------------------------*/
+      /* --------------------------------------------------------
+         ❌ PAYMENT FAILED
+      -------------------------------------------------------- */
+      case "payment.failed": {
+        const payment = event.payload.payment.entity;
+        const orderId = payment.order_id;
+        const notes = payment.notes || {};
+        const bookingId = notes.bookingId;
+
+        if (!bookingId) break;
+
+        await adminDb.collection("bookings").doc(bookingId).set(
+          {
+            paymentStatus: "failed",
+            status: "payment_failed",
+            failureReason: payment.error_description || "Unknown",
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+
+        await adminDb.collection("payments").doc(orderId).set(
+          {
+            status: "failed",
+            errorDescription: payment.error_description || "Unknown",
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+
+        break;
+      }
+
+      /* --------------------------------------------------------
+         💸 REFUND PROCESSED
+      -------------------------------------------------------- */
+      case "refund.processed": {
+        const refund = event.payload.refund.entity;
+        const refundId = refund.id;
+        const paymentId = refund.payment_id;
+        const amount = refund.amount / 100;
+
+        // Find booking with this paymentId
+        const bookingSnap = await adminDb
+          .collection("bookings")
+          .where("razorpayPaymentId", "==", paymentId)
+          .get();
+
+        for (const doc of bookingSnap.docs) {
+          await doc.ref.set(
+            {
+              refundStatus: "processed",
+              refundId,
+              refundAmount: amount,
+              updatedAt: new Date(),
+            },
+            { merge: true }
+          );
+        }
+
+        await adminDb.collection("refunds").doc(refundId).set(
+          {
+            refundId,
+            paymentId,
+            amount,
+            status: "processed",
+            updatedAt: new Date(),
+          },
+          { merge: true }
+        );
+
+        break;
+      }
+
+      /* --------------------------------------------------------
+         DEFAULT
+      -------------------------------------------------------- */
       default:
-        console.log(`ℹ️ Unhandled Razorpay event type: ${eventType}`);
+        console.log("ℹ️ Unhandled webhook event:", eventType);
         break;
     }
 
-    // ✅ Step 4: Mark event processed
-    await eventRef.update({ processed: true, processedAt: new Date() });
+    /* --------------------------------------------------------
+       4️⃣ Mark processed
+    -------------------------------------------------------- */
+    await eventRef.update({
+      processed: true,
+      processedAt: new Date(),
+    });
 
     return NextResponse.json({ ok: true });
   } catch (error) {
-    console.error("🔥 Razorpay webhook error:", error);
-    return NextResponse.json({ ok: false, error: "Internal error" }, { status: 500 });
+    console.error("🔥 Webhook error:", error);
+    return NextResponse.json({ ok: false, error: "Server Error" });
   }
 }

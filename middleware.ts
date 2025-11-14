@@ -22,12 +22,8 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Skip ONLY public auth pages (not entire /auth!)
-  if (
-    pathname.startsWith("/auth/login") ||
-    pathname.startsWith("/auth/register") ||
-    pathname.startsWith("/auth/verify")
-  ) {
+  // ⭐ SKIP ENTIRE AUTH FOLDER (THIS FIXES THE LOGOUT ISSUE)
+  if (pathname.startsWith("/auth")) {
     return NextResponse.next();
   }
 
@@ -35,16 +31,13 @@ export async function middleware(request: NextRequest) {
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
     const response = NextResponse.next();
-    const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
     response.cookies.set("bc_referral_code", ref, {
       path: "/",
-      expires,
+      expires: new Date(Date.now() + 30 * 86400 * 1000),
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       httpOnly: false,
     });
-
     return response;
   }
 
@@ -52,8 +45,8 @@ export async function middleware(request: NextRequest) {
   const protectedPaths = ["/book", "/dashboard", "/partner", "/admin", "/chat"];
   const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
-  // MUST only read __session
-  const sessionCookie = request.cookies.get("__session")?.value || "";
+  // Correct session cookie read
+  const sessionCookie = request.cookies.get("__session")?.value;
 
   if (isProtected && !sessionCookie) {
     const loginUrl = new URL(`/auth/login`, request.url);
@@ -64,8 +57,9 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
+// FINAL FIXED MATCHER
 export const config = {
   matcher: [
-    "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|.*\\..*).*)",
+    "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",
   ],
 };

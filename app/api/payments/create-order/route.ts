@@ -1,85 +1,97 @@
 // app/api/payments/create-order/route.ts
-export const runtime = "nodejs"; // ✅ Required for crypto & Razorpay SDK
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import admin from "firebase-admin";
 
-/* ============================================================
-   🔥 Initialize Firebase Admin
-============================================================ */
-const { adminDb } = getFirebaseAdmin();
+const { adminDb, adminAuth, admin } = getFirebaseAdmin();
 
-/* ============================================================
-   💳 POST: Create Secure Razorpay Order
-============================================================ */
+/* -------------------------------------------------------
+   POST — Create Razorpay Order (Unified)
+------------------------------------------------------- */
 export async function POST(req: NextRequest) {
   try {
-    const { amount, listingId } = await req.json();
+    const { amount, bookingId, listingId } = await req.json();
 
-    /* --------------------------------------------------------
-       🔐 Verify Firebase Auth Token
-    -------------------------------------------------------- */
-    const authHeader = req.headers.get("authorization");
-    if (!authHeader?.startsWith("Bearer ")) {
+    /* -------------------------------------------------------
+       1️⃣ Verify session cookie AUTH
+    ------------------------------------------------------- */
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader.split(";").find((c) => c.trim().startsWith("__session=")) ||
+      null;
+
+    if (!sessionCookie) {
       return NextResponse.json(
-        { success: false, error: "Unauthorized: Missing ID token" },
+        { success: false, error: "Unauthorized: No session" },
         { status: 401 }
       );
     }
 
-    const idToken = authHeader.split("Bearer ")[1];
+    const token = sessionCookie.split("=")[1];
+
     let decoded;
     try {
-      decoded = await admin.auth().verifyIdToken(idToken);
+      decoded = await adminAuth.verifySessionCookie(token, true);
     } catch (err) {
-      console.warn("⚠️ Invalid Firebase token:", err);
+      console.log("❌ Invalid session cookie", err);
       return NextResponse.json(
-        { success: false, error: "Unauthorized: Invalid or expired token" },
+        { success: false, error: "Invalid or expired session" },
         { status: 403 }
       );
     }
 
     const userId = decoded.uid;
 
-    /* --------------------------------------------------------
-       ✅ Validate Payment Input
-    -------------------------------------------------------- */
+    /* -------------------------------------------------------
+       2️⃣ Validate input
+    ------------------------------------------------------- */
     if (!amount || amount <= 0) {
       return NextResponse.json(
-        { success: false, error: "Invalid payment amount" },
+        { success: false, error: "Invalid amount" },
         { status: 400 }
       );
     }
 
-    /* --------------------------------------------------------
-       ⚙️ Initialize Razorpay Server Instance
-    -------------------------------------------------------- */
+    if (!bookingId) {
+      return NextResponse.json(
+        { success: false, error: "Missing bookingId" },
+        { status: 400 }
+      );
+    }
+
+    /* -------------------------------------------------------
+       3️⃣ Get Razorpay instance
+    ------------------------------------------------------- */
     const razorpay = getRazorpayServerInstance();
     if (!razorpay) {
       console.error("❌ Razorpay instance not initialized");
       return NextResponse.json(
-        { success: false, error: "Server misconfiguration" },
+        { success: false, error: "Razorpay misconfigured" },
         { status: 500 }
       );
     }
 
-    /* --------------------------------------------------------
-       💳 Create Razorpay Order
-    -------------------------------------------------------- */
+    /* -------------------------------------------------------
+       4️⃣ Create Razorpay Order
+    ------------------------------------------------------- */
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
+      amount: Math.round(amount * 100), // convert to paisa
       currency: "INR",
-      receipt: `rcpt_${Date.now()}`,
-      notes: { userId, listingId },
+      receipt: `booking_${bookingId}`,
+      notes: { userId, bookingId, listingId },
     });
 
-    /* --------------------------------------------------------
-       💾 Store Payment Record in Firestore
-    -------------------------------------------------------- */
+    console.log("✅ Razorpay order created:", order.id);
+
+    /* -------------------------------------------------------
+       5️⃣ Store payment session
+    ------------------------------------------------------- */
     await adminDb.collection("payments").doc(order.id).set({
       userId,
+      bookingId,
       listingId: listingId || null,
       amount,
       currency: "INR",
@@ -88,22 +100,18 @@ export async function POST(req: NextRequest) {
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    console.log(`✅ Razorpay order created: ${order.id} for ₹${amount}`);
-
-    /* --------------------------------------------------------
-       ✅ Respond to Client
-    -------------------------------------------------------- */
+    /* -------------------------------------------------------
+       6️⃣ Return full order data
+    ------------------------------------------------------- */
     return NextResponse.json({
       success: true,
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
+      razorpayOrder: order,
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
     });
   } catch (error: any) {
-    console.error("❌ Payment creation error:", error);
+    console.error("❌ create-order API error:", error);
     return NextResponse.json(
-      { success: false, error: error.message || "Internal Server Error" },
+      { success: false, error: error.message || "Something went wrong" },
       { status: 500 }
     );
   }

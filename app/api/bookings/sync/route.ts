@@ -1,31 +1,49 @@
-// ✅ Force Node.js runtime (disable static/edge optimization)
+// Force Node.js runtime
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 import { NextResponse } from "next/server";
-import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-/**
- * 🔹 GET /api/bookings/sync
- * Syncs the latest bookings for a logged-in user
- */
+/* ------------------ Helper: Extract Session Cookie ------------------ */
+function getSessionCookie(req: Request) {
+  const cookieHeader = req.headers.get("cookie") || "";
+  const cookies = cookieHeader.split(";").map((c) => c.trim());
+
+  return (
+    cookies.find((c) => c.startsWith("__session="))?.split("=")[1] || ""
+  );
+}
+
+/* ------------------ Helper: Verify Session Cookie ------------------ */
+async function verifySession(req: Request) {
+  try {
+    const { adminAuth } = getFirebaseAdmin();
+    const sessionCookie = getSessionCookie(req);
+    if (!sessionCookie) return null;
+
+    return await adminAuth.verifySessionCookie(sessionCookie, true);
+  } catch {
+    return null;
+  }
+}
+
+/* ====================================================================
+   🔹 GET /api/bookings/sync
+   Fetches latest 10 bookings FOR LOGGED-IN USER (session-based)
+==================================================================== */
 export async function GET(req: Request) {
   try {
-    // ⚡ Correct Firebase Admin imports
-    const { adminDb, adminAuth } = getFirebaseAdmin();
-
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
+    const decoded = await verifySession(req);
+    if (!decoded) {
       return NextResponse.json(
         { ok: false, error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    const idToken = authHeader.replace("Bearer ", "").trim();
-    const decoded = await adminAuth.verifyIdToken(idToken);
+    const { adminDb } = getFirebaseAdmin();
 
     const snap = await adminDb
       .collection("bookings")

@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 
 /**
- * 🧹 POST → Log out the current user
- * Deletes the Firebase session cookie and returns success
+ * 🧹 POST → Log out current user
+ * Correctly clears the Firebase __session cookie
  */
 export async function POST() {
   try {
@@ -11,22 +11,22 @@ export async function POST() {
       message: "Logged out successfully.",
     });
 
-    // 🔒 Explicitly clear the secure cookie
+    // 🔥 IMPORTANT: COOKIE NAME MUST BE "__session" — not "session"
     res.cookies.set({
-      name: "session",
+      name: "__session",
       value: "",
       httpOnly: true,
       path: "/",
       maxAge: 0,
-      sameSite: "strict",
+      sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
     });
 
     return res;
-  } catch (err: any) {
+  } catch (err) {
     console.error("🔥 Logout error:", err);
     return NextResponse.json(
-      { success: false, message: "Logout failed. Please try again." },
+      { success: false, message: "Logout failed. Try again." },
       { status: 500 }
     );
   }

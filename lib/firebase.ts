@@ -1,18 +1,16 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
+// firebase.ts
+import { initializeApp, getApp, getApps } from "firebase/app";
 import {
   getAuth,
-  initializeAuth,
-  indexedDBLocalPersistence,
   browserLocalPersistence,
   setPersistence,
-  Auth,
 } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
-import { getStorage, FirebaseStorage } from "firebase/storage";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
-/* ============================================================
-   ⚙️ FIREBASE CLIENT CONFIG
-============================================================ */
+/* ---------------------------------------------------------
+   🔥 CLIENT CONFIG
+--------------------------------------------------------- */
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
@@ -22,34 +20,24 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 };
 
-/* ============================================================
-   🚀 Initialize App (Singleton Safe)
-============================================================ */
-export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+/* ---------------------------------------------------------
+   🚀 Initialize Firebase (Singleton)
+--------------------------------------------------------- */
+export const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-/* ============================================================
-   🔐 AUTH INITIALIZATION (Safe Typed)
-============================================================ */
-let authInstance: Auth;
+/* ---------------------------------------------------------
+   🔐 AUTH (Stable & SIMPLE)
+--------------------------------------------------------- */
+export const auth = getAuth(app);
 
-try {
-  authInstance = initializeAuth(app, {
-    persistence: indexedDBLocalPersistence,
-  });
-} catch {
-  authInstance = getAuth(app);
-}
-
-// Ensure persistent login
 if (typeof window !== "undefined") {
-  setPersistence(authInstance, browserLocalPersistence).catch(() => {
-    console.warn("⚠️ Browser persistence unavailable, fallback to session persistence.");
+  setPersistence(auth, browserLocalPersistence).catch((err) => {
+    console.warn("⚠️ Persistence error:", err);
   });
 }
 
-/* ============================================================
-   🧩 FIRESTORE + STORAGE (Typed Exports)
-============================================================ */
-export const auth: Auth = authInstance;
-export const db: Firestore = getFirestore(app);
-export const storage: FirebaseStorage = getStorage(app);
+/* ---------------------------------------------------------
+   🗄 FIRESTORE / STORAGE
+--------------------------------------------------------- */
+export const db = getFirestore(app);
+export const storage = getStorage(app);

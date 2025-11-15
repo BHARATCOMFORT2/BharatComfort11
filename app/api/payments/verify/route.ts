@@ -16,6 +16,20 @@ import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotifica
 const { adminDb } = getFirebaseAdmin();
 
 /* --------------------------------------------------------
+   FIX: RESOLVE RAZORPAY SECRET SAFELY
+-------------------------------------------------------- */
+function resolveRazorpaySecret(): string {
+  const plain = process.env.RAZORPAY_KEY_SECRET?.trim();
+  const base64 = process.env.RAZORPAY_KEY_SECRET_BASE64?.trim();
+
+  if (plain) return plain;
+  if (base64) return Buffer.from(base64, "base64").toString("utf8");
+
+  console.error("❌ Razorpay secret missing in verify route.");
+  throw new Error("Missing Razorpay secret");
+}
+
+/* --------------------------------------------------------
    POST /api/payments/verify
 -------------------------------------------------------- */
 export async function POST(req: Request) {
@@ -27,9 +41,6 @@ export async function POST(req: Request) {
       bookingId,
     } = await req.json();
 
-    /* --------------------------------------------------------
-       1️⃣ Validate Inputs
-    -------------------------------------------------------- */
     if (
       !razorpay_order_id ||
       !razorpay_payment_id ||
@@ -43,11 +54,13 @@ export async function POST(req: Request) {
     }
 
     /* --------------------------------------------------------
-       2️⃣ Validate Signature
+       Validate Signature (NOW SAFE)
     -------------------------------------------------------- */
+    const secret = resolveRazorpaySecret();
     const body = `${razorpay_order_id}|${razorpay_payment_id}`;
+
     const expected = crypto
-      .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET!)
+      .createHmac("sha256", secret)
       .update(body)
       .digest("hex");
 
@@ -62,7 +75,7 @@ export async function POST(req: Request) {
     console.log("✅ Razorpay signature verified.");
 
     /* --------------------------------------------------------
-       3️⃣ Fetch Booking
+       Fetch Booking
     -------------------------------------------------------- */
     const bookingRef = adminDb.collection("bookings").doc(bookingId);
     const bookingSnap = await bookingRef.get();
@@ -78,9 +91,6 @@ export async function POST(req: Request) {
     const userId = booking.userId;
     const partnerId = booking.partnerId;
 
-    /* --------------------------------------------------------
-       4️⃣ Idempotent check (avoid double-processing)
-    -------------------------------------------------------- */
     if (booking.paymentStatus === "paid") {
       return NextResponse.json({
         success: true,
@@ -89,7 +99,7 @@ export async function POST(req: Request) {
     }
 
     /* --------------------------------------------------------
-       5️⃣ Update /payments Document
+       Update Payment
     -------------------------------------------------------- */
     const paymentRef = adminDb.collection("payments").doc(razorpay_order_id);
     await paymentRef.set(
@@ -105,9 +115,6 @@ export async function POST(req: Request) {
       { merge: true }
     );
 
-    /* --------------------------------------------------------
-       6️⃣ Mark booking as confirmed & paid
-    -------------------------------------------------------- */
     await bookingRef.update({
       paymentStatus: "paid",
       status: "confirmed",
@@ -119,7 +126,7 @@ export async function POST(req: Request) {
     console.log("✅ Booking marked paid:", bookingId);
 
     /* --------------------------------------------------------
-       7️⃣ Generate Invoice (Unified format)
+       Generate Invoice
     -------------------------------------------------------- */
     const invoiceId = `INV-${bookingId}-${Date.now()}`;
 
@@ -135,9 +142,6 @@ export async function POST(req: Request) {
         ? pdf
         : await uploadInvoiceToFirebase(pdf, invoiceId, "booking");
 
-    /* --------------------------------------------------------
-       8️⃣ Store invoice record
-    -------------------------------------------------------- */
     await adminDb.collection("invoices").add({
       type: "booking",
       bookingId,
@@ -149,9 +153,6 @@ export async function POST(req: Request) {
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    /* --------------------------------------------------------
-       9️⃣ Email user (if email exists)
-    -------------------------------------------------------- */
     if (booking.userEmail) {
       await sendInvoiceEmail({
         to: booking.userEmail,
@@ -167,9 +168,6 @@ export async function POST(req: Request) {
       });
     }
 
-    /* --------------------------------------------------------
-       🔟 Push admin/partner notification
-    -------------------------------------------------------- */
     await pushInvoiceNotification({
       type: "booking",
       invoiceId,

@@ -1,7 +1,15 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
-import { getRazorpayServerInstance } from "@/lib/payments-razorpay"; // ✅ unified import
-import { db } from "@/lib/firebase";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin"; // ✅ use admin SDK
+import { FieldValue } from "firebase-admin/firestore";
+
+/* --------------------------------------------------------
+   INIT — ADMIN FIREBASE
+-------------------------------------------------------- */
+const { adminDb } = getFirebaseAdmin();
 
 export async function POST(req: Request) {
   try {
@@ -24,7 +32,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Step 1: Create Razorpay order
+    /* --------------------------------------------------------
+       1️⃣ Create Razorpay order
+    -------------------------------------------------------- */
     const order = await razorpay.orders.create({
       amount: Math.round(amount * 100), // amount in paise
       currency: "INR",
@@ -32,18 +42,22 @@ export async function POST(req: Request) {
       notes: { userId: userId ?? "guest" },
     });
 
-    // ✅ Step 2: Save raw order data in Firestore (optional but helpful for admin dashboard)
-    await setDoc(doc(db, "orders", order.id), {
+    /* --------------------------------------------------------
+       2️⃣ Save order to Firestore (Admin DB)
+    -------------------------------------------------------- */
+    await adminDb.collection("orders").doc(order.id).set({
       userId: userId ?? "guest",
       amount,
       currency: "INR",
       status: "created",
-      receipt: order.receipt,
       razorpayOrderId: order.id,
-      createdAt: serverTimestamp(),
+      receipt: order.receipt,
+      createdAt: FieldValue.serverTimestamp(),
     });
 
-    // ✅ Step 3: Return success response
+    /* --------------------------------------------------------
+       3️⃣ Response
+    -------------------------------------------------------- */
     return NextResponse.json({
       success: true,
       message: "Order created successfully",
@@ -51,8 +65,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     console.error("❌ Razorpay Order API Error:", error);
-    const message =
-      error instanceof Error ? error.message : "Unknown server error";
+    const message = error instanceof Error ? error.message : "Unknown server error";
 
     return NextResponse.json(
       { success: false, error: message },

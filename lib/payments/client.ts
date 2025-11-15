@@ -1,18 +1,16 @@
 // lib/payments/client.ts
-// Universal client-side payment trigger for Razorpay (BHARATCOMFORT11)
+// Final stable Razorpay client for BHARATCOMFORT11
 
-import "@/lib/payments/providers/razorpay"; // ensures provider registration
+import "@/lib/payments/providers/razorpay"; 
 import { getProvider } from "@/lib/payments/core";
 
 /**
- * 🚀 Start a payment from anywhere in the app.
- * Works for bookings, partner subscriptions, offers, etc.
+ * 🚀 Unified Razorpay payment starter (Bookings, Subscriptions, Offers)
  */
 export async function startPayment({
   amount,
-  context = "booking",
+  bookingId,
   listingId,
-  userId,
   name,
   email,
   phone,
@@ -20,9 +18,8 @@ export async function startPayment({
   onFailure,
 }: {
   amount: number;
-  context?: "booking" | "subscription" | "offer" | "ai-trip" | "other";
+  bookingId: string;
   listingId?: string;
-  userId?: string;
   name: string;
   email: string;
   phone?: string;
@@ -30,51 +27,75 @@ export async function startPayment({
   onFailure: (msg: string) => void;
 }) {
   try {
-    // ✅ 1️⃣ Create Razorpay Order
-    const res = await fetch("/api/payments/create", {
+    /* ---------------------------------------------------------
+       1️⃣ CREATE RAZORPAY ORDER ON SERVER
+    --------------------------------------------------------- */
+    const res = await fetch("/api/payments/create-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ amount, context, listingId, userId }),
+      body: JSON.stringify({
+        amount,
+        bookingId,
+        listingId,
+      }),
     });
 
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || "Failed to create order");
 
-    // ✅ 2️⃣ Open Razorpay Checkout
-    const provider = getProvider();
+    if (!data.success) {
+      throw new Error(data.error || "Failed to create Razorpay order");
+    }
+
+    const order = data.razorpayOrder;
+    const key = data.key;
+
+    if (!order?.id) {
+      throw new Error("Razorpay order ID missing");
+    }
+
+    /* ---------------------------------------------------------
+       2️⃣ OPEN RAZORPAY CHECKOUT POPUP
+    --------------------------------------------------------- */
+    const provider = getProvider(); // razorpay provider
     provider.openCheckout({
       amount,
-      orderId: data.id,
-      currency: data.currency,
+      currency: order.currency,
+      orderId: order.id,
       name,
       email,
       phone,
       onSuccess: async (payload: any) => {
+        /* -----------------------------------------------------
+           3️⃣ VERIFY PAYMENT ON SERVER
+        ----------------------------------------------------- */
         try {
-          // ✅ 3️⃣ Verify Payment on Server
           const verifyRes = await fetch("/api/payments/verify", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               payload,
-              listingId,
-              userId,
-              context,
+              bookingId,
             }),
           });
 
-          const verified = await verifyRes.json();
-          if (verified.success) onSuccess("Payment verified successfully!");
-          else onFailure(verified.error || "Payment verification failed");
+          const verifyData = await verifyRes.json();
+
+          if (verifyData.success) {
+            onSuccess("Payment verified successfully!");
+          } else {
+            onFailure(verifyData.error || "Payment verification failed");
+          }
         } catch (err: any) {
           console.error("Verification error:", err);
           onFailure("Server verification failed");
         }
       },
-      onFailure: (err: any) => onFailure(err.error || "Payment cancelled"),
+      onFailure: (err: any) => {
+        onFailure(err.error || "Payment cancelled");
+      },
     });
   } catch (err: any) {
     console.error("Payment error:", err);
-    onFailure(err.message || "Unknown error during payment");
+    onFailure(err.message || "Payment process failed");
   }
 }

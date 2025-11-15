@@ -1,13 +1,19 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
-import { razorpay } from "@/lib/payments-razorpay"; // ✅ unified import
+import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 
 export async function GET() {
   try {
+    // always get fresh instance in Node runtime
+    const razorpay = getRazorpayServerInstance();
+
     if (!razorpay) {
       throw new Error("Razorpay client not initialized.");
     }
 
-    // ✅ Fetch all invoices (limit optional)
+    // Fetch invoices
     const invoices = await razorpay.invoices.all({ count: 50 });
 
     return NextResponse.json({

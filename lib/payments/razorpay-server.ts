@@ -1,4 +1,11 @@
-import "server-only";
+// lib/payments/razorpay-server.ts
+// Safe for Next.js pages + app router
+
+if (typeof window !== "undefined") {
+  // Prevent accidental client execution
+  throw new Error("razorpay-server.ts was imported on the client");
+}
+
 import Razorpay from "razorpay";
 import crypto from "crypto";
 
@@ -23,7 +30,7 @@ function resolveSecret(): string | null {
 }
 
 /* ============================================================
-   ⚙️ FETCH KEYS
+   ⚙ KEY FETCH
 ============================================================ */
 function getKeys() {
   const keyId = process.env.RAZORPAY_KEY_ID || "";
@@ -37,7 +44,7 @@ function getKeys() {
 }
 
 /* ============================================================
-   🚀 GET SINGLETON SERVER INSTANCE
+   🚀 SINGLETON INSTANCE
 ============================================================ */
 export function getRazorpayServerInstance(): Razorpay | null {
   const { keyId, keySecret } = getKeys();
@@ -53,17 +60,9 @@ export function getRazorpayServerInstance(): Razorpay | null {
 }
 
 /* ============================================================
-   💳 CREATE ORDER
+   💳 ORDER CREATION
 ============================================================ */
-export async function createOrder({
-  amount,
-  currency = "INR",
-  receipt,
-}: {
-  amount: number;
-  currency?: string;
-  receipt?: string;
-}) {
+export async function createOrder({ amount, currency = "INR", receipt }: any) {
   if (!amount || amount <= 0) throw new Error("Invalid amount");
 
   const instance = getRazorpayServerInstance();
@@ -77,17 +76,13 @@ export async function createOrder({
 }
 
 /* ============================================================
-   🔏 VERIFY SIGNATURE
+   🔏 SIGNATURE VERIFY
 ============================================================ */
 export function verifyPayment({
   razorpay_order_id,
   razorpay_payment_id,
   razorpay_signature,
-}: {
-  razorpay_order_id: string;
-  razorpay_payment_id: string;
-  razorpay_signature: string;
-}): boolean {
+}: any) {
   const secret = resolveSecret();
   if (!secret) return false;
 

@@ -6,10 +6,11 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { sendEmail } from "@/lib/email";
 import { pushInvoiceNotification } from "@/lib/notifications/pushInvoiceNotification";
+import { FieldValue } from "firebase-admin/firestore";
 
 export async function POST(req: Request) {
   try {
-    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
+    const { adminAuth, adminDb } = getFirebaseAdmin();
 
     const authHeader = req.headers.get("Authorization");
     if (!authHeader)
@@ -80,8 +81,8 @@ export async function POST(req: Request) {
         status: "cancel_requested",
         refundStatus: "pending",
         cancelReason: reason,
-        cancelRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelRequestedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
 
       /* ---------------------------------------------------
@@ -99,8 +100,8 @@ export async function POST(req: Request) {
         paymentMode: "razorpay",
         refundMode: "original",
         refundStatus: "processed",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
+        processedAt: FieldValue.serverTimestamp(),
         notes: reason,
       });
 
@@ -127,8 +128,7 @@ export async function POST(req: Request) {
       await refundRef.update({
         invoiceId,
         invoiceUrl,
-        invoiceGeneratedAt:
-          admin.firestore.FieldValue.serverTimestamp(),
+        invoiceGeneratedAt: FieldValue.serverTimestamp(),
       });
 
       /* ---------------------------------------------------
@@ -186,8 +186,8 @@ export async function POST(req: Request) {
       await bookingRef.update({
         status: "cancelled_unpaid",
         cancelReason: reason,
-        cancelRequestedAt: admin.firestore.FieldValue.serverTimestamp(),
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        cancelRequestedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       });
 
       try {

@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import crypto from "crypto";
@@ -10,21 +11,27 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 const { adminDb } = getFirebaseAdmin();
 
 /* --------------------------------------------------------
+   FIX: SAFE SECRET RESOLVER (Vercel Compatible)
+-------------------------------------------------------- */
+function resolveWebhookSecret(): string {
+  const plain = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
+  const base64 = process.env.RAZORPAY_WEBHOOK_SECRET_BASE64?.trim();
+
+  if (plain) return plain;
+  if (base64) return Buffer.from(base64, "base64").toString("utf8");
+
+  console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET");
+  throw new Error("Webhook secret missing");
+}
+
+/* --------------------------------------------------------
    WEBHOOK HANDLER
 -------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("x-razorpay-signature") || "";
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-
-    if (!secret) {
-      console.error("❌ Missing RAZORPAY_WEBHOOK_SECRET");
-      return NextResponse.json(
-        { ok: false, error: "Webhook not configured" },
-        { status: 500 }
-      );
-    }
+    const secret = resolveWebhookSecret();
 
     /* --------------------------------------------------------
        1️⃣ Verify Signature
@@ -44,7 +51,7 @@ export async function POST(req: Request) {
     const eventType = event.event;
 
     /* --------------------------------------------------------
-       2️⃣ Idempotency Check — Prevent Duplicate Processing
+       2️⃣ Idempotency Check
     -------------------------------------------------------- */
     const eventRef = adminDb.collection("webhook_events").doc(eventId);
     const existing = await eventRef.get();
@@ -67,9 +74,6 @@ export async function POST(req: Request) {
        3️⃣ Handle Razorpay Events
     -------------------------------------------------------- */
     switch (eventType) {
-      /* --------------------------------------------------------
-         💰 PAYMENT CAPTURED
-      -------------------------------------------------------- */
       case "payment.captured": {
         const payment = event.payload.payment.entity;
 
@@ -86,7 +90,6 @@ export async function POST(req: Request) {
 
         console.log("💰 Payment captured for booking:", bookingId);
 
-        /* Update payment */
         await adminDb.collection("payments").doc(orderId).set(
           {
             paymentId,
@@ -100,7 +103,6 @@ export async function POST(req: Request) {
           { merge: true }
         );
 
-        /* Update booking */
         await adminDb.collection("bookings").doc(bookingId).set(
           {
             paymentStatus: "paid",
@@ -115,9 +117,6 @@ export async function POST(req: Request) {
         break;
       }
 
-      /* --------------------------------------------------------
-         ❌ PAYMENT FAILED
-      -------------------------------------------------------- */
       case "payment.failed": {
         const payment = event.payload.payment.entity;
         const orderId = payment.order_id;
@@ -148,16 +147,12 @@ export async function POST(req: Request) {
         break;
       }
 
-      /* --------------------------------------------------------
-         💸 REFUND PROCESSED
-      -------------------------------------------------------- */
       case "refund.processed": {
         const refund = event.payload.refund.entity;
         const refundId = refund.id;
         const paymentId = refund.payment_id;
         const amount = refund.amount / 100;
 
-        // Find booking with this paymentId
         const bookingSnap = await adminDb
           .collection("bookings")
           .where("razorpayPaymentId", "==", paymentId)
@@ -189,9 +184,6 @@ export async function POST(req: Request) {
         break;
       }
 
-      /* --------------------------------------------------------
-         DEFAULT
-      -------------------------------------------------------- */
       default:
         console.log("ℹ️ Unhandled webhook event:", eventType);
         break;

@@ -5,8 +5,9 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
 
-const { adminDb, adminAuth, admin } = getFirebaseAdmin();
+const { adminDb, adminAuth } = getFirebaseAdmin();
 
 /* -------------------------------------------------------
    POST — Create Razorpay Order (Unified)
@@ -19,18 +20,14 @@ export async function POST(req: NextRequest) {
        1️⃣ Verify session cookie AUTH
     ------------------------------------------------------- */
     const cookieHeader = req.headers.get("cookie") || "";
-    const sessionCookie =
-      cookieHeader.split(";").find((c) => c.trim().startsWith("__session=")) ||
-      null;
+    const token = cookieHeader.match(/__session=([^;]+)/)?.[1];
 
-    if (!sessionCookie) {
+    if (!token) {
       return NextResponse.json(
         { success: false, error: "Unauthorized: No session" },
         { status: 401 }
       );
     }
-
-    const token = sessionCookie.split("=")[1];
 
     let decoded;
     try {
@@ -78,7 +75,7 @@ export async function POST(req: NextRequest) {
        4️⃣ Create Razorpay Order
     ------------------------------------------------------- */
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100), // convert to paisa
+      amount: Math.round(amount * 100),
       currency: "INR",
       receipt: `booking_${bookingId}`,
       notes: { userId, bookingId, listingId },
@@ -97,7 +94,7 @@ export async function POST(req: NextRequest) {
       currency: "INR",
       status: "created",
       razorpayOrderId: order.id,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      createdAt: FieldValue.serverTimestamp(),
     });
 
     /* -------------------------------------------------------
@@ -108,6 +105,7 @@ export async function POST(req: NextRequest) {
       razorpayOrder: order,
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
     });
+
   } catch (error: any) {
     console.error("❌ create-order API error:", error);
     return NextResponse.json(

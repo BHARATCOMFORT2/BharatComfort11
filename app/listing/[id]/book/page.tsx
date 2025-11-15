@@ -84,11 +84,14 @@ export default function BookingPage() {
       setIsPaying(true);
       const token = await user.getIdToken();
 
-      const res = await fetch("/api/bookings", {
+      /* -----------------------------------------------------
+         1️⃣ FIRST: Create Booking in Firestore
+      ----------------------------------------------------- */
+      const bookingRes = await fetch("/api/bookings", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`, // important
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           listingId: id,
@@ -100,34 +103,63 @@ export default function BookingPage() {
         }),
       });
 
-      if (!res.ok) {
-        const err = await res.text();
+      if (!bookingRes.ok) {
+        const err = await bookingRes.text();
         toast.error("Booking failed: " + err);
         return;
       }
 
-      const data = await res.json();
+      const bookingData = await bookingRes.json();
 
-      if (!data.success) {
-        toast.error(data.error || "Booking failed");
+      if (!bookingData.success) {
+        toast.error(bookingData.error || "Booking failed");
         return;
       }
 
-      const bookingId = data.bookingId;
+      const bookingId = bookingData.bookingId;
 
-      /* ---------- ONLINE PAYMENT FLOW ---------- */
-      if (paymentMode === "razorpay") {
-        toast.success("Booking created. Redirecting to payment...");
-
-        router.push(
-          `/payments/checkout?bookingId=${bookingId}&amount=${totalPrice}`
-        );
+      /* -----------------------------------------------------
+         2️⃣ PAY AT HOTEL — DONE
+      ----------------------------------------------------- */
+      if (paymentMode === "pay_at_hotel") {
+        toast.success("Booking confirmed! Please pay at property.");
+        router.push("/user/dashboard/bookings");
         return;
       }
 
-      /* ---------- PAY AT HOTEL ---------- */
-      toast.success("Booking confirmed! Please pay at property.");
-      router.push("/user/dashboard/bookings");
+      /* -----------------------------------------------------
+         3️⃣ ONLINE PAYMENT (Razorpay)
+         Create Razorpay Order → Then open Razorpay popup
+      ----------------------------------------------------- */
+      const orderRes = await fetch("/api/payments/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          amount: totalPrice,
+          bookingId,
+          listingId: id,
+        }),
+      });
+
+      const orderData = await orderRes.json();
+
+      if (!orderData.success) {
+        toast.error(orderData.error || "Failed to create payment order");
+        return;
+      }
+
+      /* -----------------------------------------------------
+         4️⃣ Open Razorpay Checkout
+      ----------------------------------------------------- */
+      await startPayment({
+        order: orderData.razorpayOrder,
+        key: orderData.key,
+        bookingId,
+      });
+
+      return;
     } catch (err) {
       console.error("Booking error:", err);
       toast.error("Something went wrong.");
@@ -140,7 +172,9 @@ export default function BookingPage() {
     return <div className="text-center py-10 text-gray-500">Loading...</div>;
 
   if (!listing)
-    return <div className="text-center py-10 text-gray-500">Listing not found</div>;
+    return (
+      <div className="text-center py-10 text-gray-500">Listing not found</div>
+    );
 
   return (
     <div className="max-w-6xl mx-auto p-6 grid grid-cols-1 md:grid-cols-3 gap-8">

@@ -4,6 +4,7 @@ export const dynamic = "force-dynamic";
 import "server-only";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
@@ -11,19 +12,18 @@ import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
 /* -------------------------------------------------------
    SESSION COOKIE HELPERS
 ------------------------------------------------------- */
-function extractSessionCookie(req: Request) {
-  const cookieHeader = req.headers.get("cookie") || "";
-  const cookies = cookieHeader.split(";").map((c) => c.trim());
-  return cookies.find((c) => c.startsWith("__session="))?.split("=")[1] || "";
+function extractSessionToken(req: Request): string {
+  const cookies = req.headers.get("cookie") || "";
+  return cookies.match(/__session=([^;]+)/)?.[1] || "";
 }
 
 async function verifySession(req: Request) {
   const { adminAuth } = getFirebaseAdmin();
-  const cookie = extractSessionCookie(req);
-  if (!cookie) return null;
+  const token = extractSessionToken(req);
+  if (!token) return null;
 
   try {
-    return await adminAuth.verifySessionCookie(cookie, true);
+    return await adminAuth.verifySessionCookie(token, true);
   } catch {
     return null;
   }
@@ -36,7 +36,7 @@ const forbidden = () =>
   NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
 
 /* -------------------------------------------------------
-   GET — Fetch User/Partner/Admin Bookings
+   GET — Fetch Bookings
 ------------------------------------------------------- */
 export async function GET(req: Request) {
   try {
@@ -79,7 +79,7 @@ export async function GET(req: Request) {
 }
 
 /* -------------------------------------------------------
-   POST — Create Booking (Unified)
+   POST — Create Booking
 ------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
@@ -89,7 +89,7 @@ export async function POST(req: Request) {
     const uid = decoded.uid;
     const userEmail = decoded.email || "";
 
-    const { adminDb, admin } = getFirebaseAdmin();
+    const { adminDb } = getFirebaseAdmin();
     const body = await req.json();
 
     const {
@@ -102,18 +102,13 @@ export async function POST(req: Request) {
       razorpayOrderId = null,
     } = body;
 
-    /* ---------- VALIDATION ---------- */
     if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
       return NextResponse.json(
-        {
-          success: false,
-          error: "Missing required fields",
-        },
+        { success: false, error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    /* ---------- GET LISTING ---------- */
     const listingSnap = await adminDb.collection("listings").doc(listingId).get();
     if (!listingSnap.exists) {
       return NextResponse.json(
@@ -129,9 +124,8 @@ export async function POST(req: Request) {
       return forbidden();
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
+    const now = FieldValue.serverTimestamp();
 
-    /* ---------- BOOKING DATA ---------- */
     const bookingData = {
       userId: uid,
       userEmail,
@@ -142,20 +136,20 @@ export async function POST(req: Request) {
       checkOut,
       paymentMode,
       paymentStatus: paymentMode === "razorpay" ? "pending" : "unpaid",
-      status: paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
+      status:
+        paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
       refundStatus: "none",
       razorpayOrderId,
       createdAt: now,
       updatedAt: now,
     };
 
-    /* ---------- SAVE BOOKING ---------- */
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
 
-    /* ---------------------------------------------------
-       PAY-AT-HOTEL (Generate Invoice Immediately)
-    --------------------------------------------------- */
+    /* ----------
+       PAY-AT-HOTEL
+    ---------- */
     if (paymentMode !== "razorpay") {
       const paymentId = razorpayOrderId || `PAYLATER-${bookingId}`;
 
@@ -195,9 +189,6 @@ export async function POST(req: Request) {
       }
     }
 
-    /* ---------------------------------------------------
-       RESPONSE
-    --------------------------------------------------- */
     return NextResponse.json({
       success: true,
       bookingId,
@@ -215,7 +206,7 @@ export async function POST(req: Request) {
 }
 
 /* -------------------------------------------------------
-   PUT — Update Booking (Admin/Partner)
+   PUT — Update Booking
 ------------------------------------------------------- */
 export async function PUT(req: Request) {
   try {
@@ -225,7 +216,7 @@ export async function PUT(req: Request) {
     const role = decoded.role || "user";
     if (!["admin", "partner"].includes(role)) return forbidden();
 
-    const { adminDb, admin } = getFirebaseAdmin();
+    const { adminDb } = getFirebaseAdmin();
     const body = await req.json();
 
     const { bookingId, status, paymentStatus } = body;
@@ -238,7 +229,7 @@ export async function PUT(req: Request) {
     }
 
     const updates: any = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
     if (status) updates.status = status;
     if (paymentStatus) updates.paymentStatus = paymentStatus;

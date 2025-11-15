@@ -1,5 +1,5 @@
 // lib/payments/core.ts
-// Universal payments interface (Razorpay-only for now, but future-ready)
+// Universal payments interface (future-ready: Razorpay, Stripe, PayPal...)
 
 export type ProviderName = "razorpay";
 
@@ -30,7 +30,7 @@ export interface VerifyResult {
 }
 
 export interface CheckoutClientOptions {
-  amount: number;                 // major units (₹)
+  amount: number;                 
   orderId: string;
   currency: string;
   name: string;
@@ -47,18 +47,40 @@ export interface PaymentProvider {
   createOrder(args: CreateArgs): Promise<CreateResult>;
   verify(args: VerifyArgs): Promise<VerifyResult>;
 
-  // client-side (browser)
+  // client-side
   openCheckout(opts: CheckoutClientOptions): void;
 }
 
-const registry: Record<ProviderName, PaymentProvider> = {} as any;
+/* ---------------------------------------------------------
+   🔐 Provider Registry (Safe, Typed, Global)
+--------------------------------------------------------- */
+const registry: Partial<Record<ProviderName, PaymentProvider>> = {};
 
+/** Register payment provider (called by provider files) */
 export function registerProvider(provider: PaymentProvider) {
+  if (!provider?.name) {
+    throw new Error("Cannot register unnamed payment provider");
+  }
+
+  // Prevent accidental overwrites
+  if (registry[provider.name]) {
+    console.warn(
+      `⚠️ Payment provider '${provider.name}' is already registered. Overwriting...`
+    );
+  }
+
   registry[provider.name] = provider;
 }
 
+/** Get provider (Razorpay-only for now) */
 export function getProvider(): PaymentProvider {
-  const p = registry["razorpay"];
-  if (!p) throw new Error("Payment provider 'razorpay' not registered yet");
-  return p;
+  const provider = registry["razorpay"];
+
+  if (!provider) {
+    throw new Error(
+      "Razorpay provider not registered. Make sure you imported '@/lib/payments/providers/razorpay' before calling startPayment()."
+    );
+  }
+
+  return provider;
 }

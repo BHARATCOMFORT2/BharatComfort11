@@ -1,13 +1,13 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import "server-only";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
 import { generateBookingInvoice } from "@/lib/invoices/generateBookingInvoice";
 import { sendEmail } from "@/lib/email";
 import { uploadInvoiceToFirebase } from "@/lib/storage/uploadInvoice";
+import { createOrder } from "@/lib/payments-razorpay"; // SERVER-SAFE export
 
 /* -------------------------------------------------------
    SESSION COOKIE HELPERS
@@ -88,7 +88,6 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
     const userEmail = decoded.email || "";
-
     const { adminDb } = getFirebaseAdmin();
     const body = await req.json();
 
@@ -126,6 +125,35 @@ export async function POST(req: Request) {
 
     const now = FieldValue.serverTimestamp();
 
+    /* -------------------------------------------------------
+       🔥 Razorpay Order Creation (Server)
+    ------------------------------------------------------- */
+    let createdRzpOrderId = razorpayOrderId || null;
+
+    if (paymentMode === "razorpay") {
+      try {
+        console.log("📌 Creating Razorpay order for:", amount);
+
+        const rzpOrder = await createOrder({
+          amount: Number(amount),
+          currency: "INR",
+          receipt: `rcpt_${Date.now()}_${Math.floor(Math.random() * 99999)}`,
+        });
+
+        createdRzpOrderId = rzpOrder?.id || null;
+        console.log("✅ Razorpay order created:", createdRzpOrderId);
+      } catch (e) {
+        console.error("❌ Razorpay createOrder error:", e);
+        return NextResponse.json(
+          { success: false, error: "Failed to create Razorpay order" },
+          { status: 500 }
+        );
+      }
+    }
+
+    /* -------------------------------------------------------
+       SAVE BOOKING
+    ------------------------------------------------------- */
     const bookingData = {
       userId: uid,
       userEmail,
@@ -139,7 +167,7 @@ export async function POST(req: Request) {
       status:
         paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
       refundStatus: "none",
-      razorpayOrderId,
+      razorpayOrderId: createdRzpOrderId,
       createdAt: now,
       updatedAt: now,
     };
@@ -147,9 +175,9 @@ export async function POST(req: Request) {
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
     const bookingId = bookingRef.id;
 
-    /* ----------
-       PAY-AT-HOTEL
-    ---------- */
+    /* -------------------------------------------------------
+       PAY-AT-HOTEL FLOW
+    ------------------------------------------------------- */
     if (paymentMode !== "razorpay") {
       const paymentId = razorpayOrderId || `PAYLATER-${bookingId}`;
 
@@ -193,6 +221,7 @@ export async function POST(req: Request) {
       success: true,
       bookingId,
       paymentMode,
+      razorpayOrderId: createdRzpOrderId,
       status:
         paymentMode === "razorpay" ? "pending_payment" : "confirmed_unpaid",
     });

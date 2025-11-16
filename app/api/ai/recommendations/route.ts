@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 // app/api/ai/recommendations/route.ts
 export const runtime = "nodejs"; // ✅ ensure full Node runtime for OpenAI SDK
 

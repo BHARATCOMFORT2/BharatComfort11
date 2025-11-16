@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 // app/api/partners/profile/route.ts
 export const runtime = "nodejs";
 

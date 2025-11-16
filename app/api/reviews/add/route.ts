@@ -1,3 +1,6 @@
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+
 // app/api/reviews/add/route.ts
 import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";

@@ -1,13 +1,7 @@
 /**
- * Automatic API fix for Next.js to prevent static rendering.
- * 
- * This script scans all route.ts files under /app/api
- * and injects:
- * 
- *   export const dynamic = "force-dynamic";
- *   export const runtime = "nodejs";
- * 
- * at the top of each API file.
+ * Smart API patcher:
+ * - Adds dynamic + runtime only if missing
+ * - Removes duplicate runtime definitions
  */
 
 const fs = require("fs");
@@ -24,27 +18,52 @@ function walk(dir) {
     if (entry.isDirectory()) {
       walk(full);
     } else if (entry.isFile() && entry.name === "route.ts") {
-      fixFile(full);
+      patchFile(full);
     }
   }
 }
 
-function fixFile(filePath) {
+function patchFile(filePath) {
   let content = fs.readFileSync(filePath, "utf8");
 
-  // Already patched?
-  if (content.includes(`export const dynamic = "force-dynamic"`)) {
+  let lines = content.split("\n");
+
+  // Remove duplicate runtime lines
+  lines = lines.filter(
+    (line, index) =>
+      !(
+        line.includes('export const runtime') &&
+        lines.findIndex((l) => l.includes('export const runtime')) !== index
+      )
+  );
+
+  content = lines.join("\n");
+
+  const needsDynamic = !content.includes('export const dynamic');
+  const needsRuntime = !content.includes('export const runtime');
+
+  if (!needsDynamic && !needsRuntime) {
     console.log("Already patched:", filePath);
     return;
   }
 
-  const patch = `export const dynamic = "force-dynamic";\nexport const runtime = "nodejs";\n\n`;
+  console.log("Patching:", filePath);
 
-  fs.writeFileSync(filePath, patch + content, "utf8");
-  console.log("Patched:", filePath);
+  let insertBlock = "";
+
+  if (needsDynamic) {
+    insertBlock += 'export const dynamic = "force-dynamic";\n';
+  }
+  if (needsRuntime) {
+    insertBlock += 'export const runtime = "nodejs";\n';
+  }
+  insertBlock += "\n";
+
+  const final = insertBlock + content;
+
+  fs.writeFileSync(filePath, final, "utf8");
 }
 
-// Run patcher
-console.log("Patching all API routes…");
+console.log("🔧 Patching all API routes…");
 walk(targetDir);
-console.log("Done.");
+console.log("✅ Done. All API routes updated cleanly!");

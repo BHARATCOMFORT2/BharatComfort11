@@ -1,65 +1,61 @@
-// app/api/partners/bookings/route.ts
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
-/* Returns bookings for the authenticated partner.
-   Optional query params:
-     - status (e.g. completed, cancelled)
-     - limit (int, default 100)
-     - from / to (ISO date strings) => filter by createdAt
-*/
-function getAuthHeader(req: Request) {
-  const auth = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
+function getHeader(req: Request) {
+  return (req as any).headers?.get
+    ? req.headers.get("authorization")
     : (req as any).headers?.authorization;
-  return auth || "";
 }
 
 export async function GET(req: Request) {
   try {
-    const authHeader = getAuthHeader(req);
-    if (!authHeader) return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m) return NextResponse.json({ error: "Malformed Authorization header" }, { status: 401 });
-    const idToken = m[1];
+    const authHeader = getHeader(req);
+    if (!authHeader)
+      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
 
+    const match = authHeader.match(/^Bearer (.+)$/);
+    if (!match)
+      return NextResponse.json({ error: "Invalid Authorization header" }, { status: 401 });
+
+    const token = match[1];
     let decoded;
-    try { decoded = await adminAuth.verifyIdToken(idToken, true); }
-    catch { return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 }); }
+    try {
+      decoded = await adminAuth.verifyIdToken(token, true);
+    } catch {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
     const uid = decoded.uid;
 
     const url = new URL(req.url);
-    const statusFilter = url.searchParams.get("status") || null;
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "100", 10) || 100, 1000);
+    const limit = Math.min(parseInt(url.searchParams.get("limit") || "10"), 50);
+    const page = Math.max(parseInt(url.searchParams.get("page") || "1"), 1);
 
-    // Optional date range (ISO)
-    const from = url.searchParams.get("from"); // e.g. 2025-10-01
-    const to = url.searchParams.get("to");
+    const offset = (page - 1) * limit;
 
-    let q = adminDb.collection("bookings").where("partnerUid", "==", uid);
+    const collectionRef = adminDb.collection("bookings")
+      .where("partnerUid", "==", uid)
+      .orderBy("createdAt", "desc");
 
-    if (statusFilter) q = q.where("status", "==", statusFilter);
+    // Firestore does NOT support offset efficiently, but for <200 items it's fine.
+    const snap = await collectionRef.offset(offset).limit(limit).get();
 
-    // apply date filter if provided (assumes createdAt is a Firestore Timestamp)
-    if (from) {
-      const fromTs = new Date(from);
-      q = q.where("createdAt", ">=", fromTs);
-    }
-    if (to) {
-      const toTs = new Date(to);
-      q = q.where("createdAt", "<=", toTs);
-    }
+    const data = snap.docs.map((d) => ({
+      id: d.id,
+      ...d.data()
+    }));
 
-    // require index on partnerUid + createdAt if you use createdAt ordering/where
-    const snap = await q.orderBy("createdAt", "desc").limit(limit).get();
-
-    const bookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-    return NextResponse.json({ ok: true, total: bookings.length, bookings });
+    return NextResponse.json({
+      ok: true,
+      page,
+      limit,
+      count: data.length,
+      bookings: data,
+    });
   } catch (err: any) {
-    console.error("partners/bookings error:", err);
-    return NextResponse.json({ error: err?.message || "Internal error" }, { status: 500 });
+    console.error("bookings pagination error:", err);
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

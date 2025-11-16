@@ -2,69 +2,102 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import admin from "firebase-admin";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// Helper to get auth token
 function getAuthHeader(req: Request) {
-  const auth = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
+  return (req as any).headers?.get
+    ? req.headers.get("authorization")
     : (req as any).headers?.authorization;
-
-  return auth || "";
 }
 
 export async function GET(req: Request) {
   try {
-    // 1) Extract & verify token
+    const { adminAuth, adminDb } = getFirebaseAdmin();
+
+    // -------------------------
+    // 1) Validate Authorization
+    // -------------------------
     const authHeader = getAuthHeader(req);
-    if (!authHeader) {
-      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
-    }
+    if (!authHeader)
+      return NextResponse.json(
+        { error: "Missing Authorization header" },
+        { status: 401 }
+      );
 
     const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match) {
-      return NextResponse.json({ error: "Malformed Authorization header" }, { status: 401 });
-    }
+    if (!match)
+      return NextResponse.json(
+        { error: "Malformed Authorization header" },
+        { status: 401 }
+      );
 
-    const idToken = match[1];
+    const token = match[1];
+
     let decoded;
-
     try {
-      decoded = await adminAuth.verifyIdToken(idToken, true);
-    } catch {
-      return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
+      decoded = await adminAuth.verifyIdToken(token);
+    } catch (e) {
+      return NextResponse.json(
+        { error: "Invalid or expired token" },
+        { status: 401 }
+      );
     }
 
     const uid = decoded.uid;
 
-    // 2) Fetch partner document
+    // -------------------------
+    // 2) Fetch partner record
+    // -------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
-    const snapshot = await partnerRef.get();
+    const partnerSnap = await partnerRef.get();
 
-    if (!snapshot.exists) {
+    if (!partnerSnap.exists) {
       return NextResponse.json({
-        exists: false,
+        ok: false,
         status: "not_created",
-        message: "Partner profile not created",
+        message: "Partner profile does not exist",
       });
     }
 
-    const data = snapshot.data();
+    const partner = partnerSnap.data();
+    const kycStatus = partner.kycStatus || "not_created";
+    let reason = partner.kycRejectedReason || null;
 
-    // 3) Standardize KYC status values
-    const status = data.status || "pending";
+    // -------------------------
+    // 3) Fetch latest KYC doc
+    // -------------------------
+    const kycDocsSnap = await partnerRef
+      .collection("kycDocs")
+      .orderBy("submittedAt", "desc")
+      .limit(1)
+      .get();
+
+    if (kycDocsSnap.empty) {
+      return NextResponse.json({
+        ok: true,
+        status: "not_created",
+        partner: null,
+      });
+    }
+
+    const kycDoc = kycDocsSnap.docs[0];
+    const kycData = kycDoc.data();
+
+    // If rejected, attach last rejection reason
+    if (kycData.status === "rejected" && kycData.rejectedReason) {
+      reason = kycData.rejectedReason;
+    }
 
     return NextResponse.json({
       ok: true,
-      uid,
-      status,
+      status: kycStatus,
       partner: {
-        displayName: data.displayName || null,
-        businessName: data.businessName || null,
-        reason: data.rejectedReason || null,
-        updatedAt: data.updatedAt || null,
-        approvedAt: data.approvedAt || null,
+        ...partner,
+        reason,
+      },
+      kyc: {
+        id: kycDoc.id,
+        ...kycData,
       },
     });
   } catch (err: any) {

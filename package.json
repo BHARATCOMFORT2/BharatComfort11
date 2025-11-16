@@ -11,7 +11,8 @@
     "type-check": "tsc --noEmit",
     "prepare": "husky install",
     "seed": "ts-node script/seed-sample-data.ts",
-    "import:csv": "ts-node script/import-csv.ts"
+    "import:csv": "ts-node script/import-csv.ts",
+    "postinstall": "node tools/patch-api-dynamic.js"
   },
   "dependencies": {
     "@google-cloud/firestore": "^8.0.0",

@@ -1,129 +1,118 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+// lib/firebaseadmin.ts
+import "server-only";
+import * as admin from "firebase-admin";
 
-// app/api/session/route.ts
-import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-
-/* -------------------------------------------------------
-   FIXED: Always use the SAME cookie domain
---------------------------------------------------------*/
-const COOKIE_DOMAIN =
-  process.env.NODE_ENV === "production"
-    ? ".bharatcomfort.online" // works for both www + root
-    : undefined;
-
-/* -------------------------------------------------------
-   Admin Helper
---------------------------------------------------------*/
-function admin() {
-  const { adminAuth } = getFirebaseAdmin();
-  if (!adminAuth) throw new Error("Firebase Admin not initialized");
-  return { adminAuth };
+declare global {
+  // Prevent double initialization during HMR
+  // eslint-disable-next-line no-var
+  var _firebaseAdminApp: admin.app.App | undefined;
 }
 
 /* -------------------------------------------------------
-   POST → Create Session Cookie
---------------------------------------------------------*/
-export async function POST(req: Request) {
-  try {
-    const { token } = await req.json();
-    if (!token)
-      return NextResponse.json({ error: "Missing token" }, { status: 400 });
+   Helper: Load environment variable safely
+------------------------------------------------------- */
+function getEnv(name: string): string | undefined {
+  const v = process.env[name];
+  return v && v.trim() !== "" ? v : undefined;
+}
 
-    const { adminAuth } = admin();
-    const expiresIn = 7 * 24 * 60 * 60 * 1000; // 7 days
+/* -------------------------------------------------------
+   Helper: Load private key
+------------------------------------------------------- */
+function getPrivateKey(): string {
+  const base64Key = getEnv("FIREBASE_PRIVATE_KEY_BASE64");
 
-    const sessionCookie = await adminAuth.createSessionCookie(token, {
-      expiresIn,
-    });
+  if (base64Key) {
+    return Buffer.from(base64Key, "base64").toString("utf8");
+  }
 
-    const res = NextResponse.json({ success: true });
-
-    res.cookies.set("__session", sessionCookie, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      path: "/",
-      sameSite: "lax",
-      maxAge: expiresIn / 1000,
-      domain: COOKIE_DOMAIN,
-    });
-
-    console.log("SESSION COOKIE SET → DOMAIN:", COOKIE_DOMAIN);
-
-    return res;
-  } catch (err: any) {
-    console.error("🔥 Session creation error:", err);
-    return NextResponse.json(
-      { error: err.message || "Internal error" },
-      { status: 500 }
+  const rawKey = getEnv("FIREBASE_PRIVATE_KEY");
+  if (!rawKey) {
+    throw new Error(
+      "❌ Missing Firebase private key. Provide FIREBASE_PRIVATE_KEY or FIREBASE_PRIVATE_KEY_BASE64"
     );
   }
+
+  return rawKey.replace(/\\n/g, "\n");
 }
 
 /* -------------------------------------------------------
-   GET → Validate Session Cookie
---------------------------------------------------------*/
-export async function GET(req: Request) {
-  try {
-    const { adminAuth } = admin();
-    const cookieHeader = req.headers.get("cookie") || "";
+   Initialize Admin SDK (SAFE SINGLETON)
+------------------------------------------------------- */
+export function getAdminApp(): admin.app.App {
+  if (global._firebaseAdminApp) return global._firebaseAdminApp;
 
-    const sessionCookie =
-      cookieHeader
-        .split(";")
-        .find((c) => c.trim().startsWith("__session="))
-        ?.split("=")[1] || "";
+  const projectId = getEnv("FIREBASE_PROJECT_ID");
+  const clientEmail = getEnv("FIREBASE_CLIENT_EMAIL");
+  const privateKey = getPrivateKey();
 
-    if (!sessionCookie)
-      return NextResponse.json({ authenticated: false }, { status: 401 });
-
-    let decoded;
-    try {
-      decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    } catch (err) {
-      // delete invalid cookie
-      const res = NextResponse.json(
-        { authenticated: false },
-        { status: 401 }
-      );
-
-      res.cookies.set("__session", "", {
-        httpOnly: true,
-        maxAge: 0,
-        path: "/",
-        domain: COOKIE_DOMAIN,
-      });
-
-      return res;
-    }
-
-    return NextResponse.json({
-      authenticated: true,
-      uid: decoded.uid,
-      email: decoded.email,
-      role: decoded.role || "user",
-    });
-  } catch (err: any) {
-    console.error("🔥 Session validation error:", err);
-    return NextResponse.json({ authenticated: false }, { status: 401 });
+  if (!projectId || !clientEmail || !privateKey) {
+    throw new Error(
+      `❌ Missing Firebase Admin environment variables:
+       ${!projectId ? "FIREBASE_PROJECT_ID " : ""}
+       ${!clientEmail ? "FIREBASE_CLIENT_EMAIL " : ""}
+       ${!privateKey ? "FIREBASE_PRIVATE_KEY / BASE64 " : ""}`
+    );
   }
-}
 
-/* -------------------------------------------------------
-   DELETE → Logout
---------------------------------------------------------*/
-export async function DELETE() {
-  const res = NextResponse.json({ success: true });
-
-  res.cookies.set("__session", "", {
-    httpOnly: true,
-    path: "/",
-    maxAge: 0,
-    domain: COOKIE_DOMAIN,
+  global._firebaseAdminApp = admin.initializeApp({
+    credential: admin.credential.cert({
+      projectId,
+      clientEmail,
+      privateKey,
+    }),
+    storageBucket: `${projectId}.appspot.com`,
   });
 
-  console.log("🔒 SESSION CLEARED — DOMAIN:", COOKIE_DOMAIN);
+  return global._firebaseAdminApp;
+}
 
-  return res;
+/* -------------------------------------------------------
+   Modern API Accessors
+------------------------------------------------------- */
+export const adminApp = getAdminApp();
+export const adminDb = () => adminApp.firestore();
+export const adminAuth = () => adminApp.auth();
+export const adminStorage = () => adminApp.storage().bucket();
+
+/* -------------------------------------------------------
+   Backward Compatibility Exports
+   (Fixes 94+ files without modifying them)
+------------------------------------------------------- */
+export const db = adminDb();           // old import: { db }
+export const auth = adminAuth();       // old import: { auth }
+export const storage = adminStorage(); // old import: { storage }
+export const app = adminApp;           // old import: { app }
+
+export { admin }; // old import: { admin }  🔥 REQUIRED
+
+/* Additional aliases for rare imports */
+export const adminDB = adminDb;        // Some files use { adminDB }
+export const adminInstance = admin;    // Legacy alias
+export const firebaseAdmin = admin;    // Legacy alias
+
+/* -------------------------------------------------------
+   FULL getFirebaseAdmin() (Fixes auth/session completely)
+------------------------------------------------------- */
+export function getFirebaseAdmin() {
+  return {
+    // Namespace + instance
+    admin,
+    app: adminApp,
+
+    // REAL instances (important!)
+    auth: adminAuth(),
+    adminAuth: adminAuth(),
+
+    db: adminDb(),
+    adminDb: adminDb(),
+
+    storage: adminStorage(),
+    adminStorage: adminStorage(),
+
+    // Factory functions
+    getAuth: adminAuth,
+    getDb: adminDb,
+    getStorage: adminStorage,
+  };
 }

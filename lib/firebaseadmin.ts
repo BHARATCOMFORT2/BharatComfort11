@@ -3,7 +3,7 @@ import "server-only";
 import * as admin from "firebase-admin";
 
 declare global {
-  // Prevent double initialization in dev/HMR
+  // Prevent double initialization in Next.js dev/HMR
   // eslint-disable-next-line no-var
   var _firebaseAdminApp: admin.app.App | undefined;
 }
@@ -70,7 +70,7 @@ export function getAdminApp(): admin.app.App {
 }
 
 /* -------------------------------------------------------
-   Admin SDK Instances
+   Admin SDK Instances (NEW system)
 ------------------------------------------------------- */
 export const adminApp = getAdminApp();
 export const adminDB = () => adminApp.firestore();
@@ -78,5 +78,28 @@ export const adminAuth = () => adminApp.auth();
 export const adminStorage = () => adminApp.storage().bucket();
 
 /* -------------------------------------------------------
-   No more duplicate exports!
+   BACKWARD COMPATIBILITY EXPORTS (THIS FIXES ALL FILES)
+   These match the old names your project still uses.
 ------------------------------------------------------- */
+export const db = adminDB();           // OLD: import { db }
+export const auth = adminAuth();       // OLD: import { auth }
+export const storage = adminStorage(); // OLD: import { storage }
+export const app = adminApp;           // OLD: import { app }
+export const firebaseAdmin = admin;    // OLD: import { admin }
+export const adminInstance = admin;    // legacy alias
+
+/* -------------------------------------------------------
+   Optional "getFirebaseAdmin" bundle (legacy support)
+------------------------------------------------------- */
+export function getFirebaseAdmin() {
+  return {
+    admin,
+    app: adminApp,
+    db,
+    auth,
+    storage,
+    adminDB,
+    adminAuth,
+    adminStorage,
+  };
+}

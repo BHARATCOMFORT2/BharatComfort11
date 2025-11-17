@@ -3,7 +3,7 @@ import "server-only";
 import * as admin from "firebase-admin";
 
 declare global {
-  // Prevent double initialization in Next.js dev/HMR
+  // Prevent double initialization during HMR
   // eslint-disable-next-line no-var
   var _firebaseAdminApp: admin.app.App | undefined;
 }
@@ -18,8 +18,6 @@ function getEnv(name: string): string | undefined {
 
 /* -------------------------------------------------------
    Helper: Load private key
-   - Supports FIREBASE_PRIVATE_KEY_BASE64
-   - Supports FIREBASE_PRIVATE_KEY (escaped)
 ------------------------------------------------------- */
 function getPrivateKey(): string {
   const base64Key = getEnv("FIREBASE_PRIVATE_KEY_BASE64");
@@ -53,7 +51,7 @@ export function getAdminApp(): admin.app.App {
       `❌ Missing Firebase Admin environment variables:
        ${!projectId ? "FIREBASE_PROJECT_ID " : ""}
        ${!clientEmail ? "FIREBASE_CLIENT_EMAIL " : ""}
-       ${!privateKey ? "FIREBASE_PRIVATE_KEY / _BASE64" : ""}`
+       ${!privateKey ? "FIREBASE_PRIVATE_KEY / BASE64 " : ""}`
     );
   }
 
@@ -70,7 +68,7 @@ export function getAdminApp(): admin.app.App {
 }
 
 /* -------------------------------------------------------
-   Admin SDK Instances (NEW system)
+   Modern API Accessors (recommended)
 ------------------------------------------------------- */
 export const adminApp = getAdminApp();
 export const adminDB = () => adminApp.firestore();
@@ -78,24 +76,44 @@ export const adminAuth = () => adminApp.auth();
 export const adminStorage = () => adminApp.storage().bucket();
 
 /* -------------------------------------------------------
-   BACKWARD COMPATIBILITY EXPORTS (THIS FIXES ALL FILES)
-   These match the old names your project still uses.
+   FULL BACKWARD COMPATIBILITY
+   These MUST match your old imports EXACTLY
 ------------------------------------------------------- */
-export const db = adminDB();           // OLD: import { db }
-export const auth = adminAuth();       // OLD: import { auth }
-export const storage = adminStorage(); // OLD: import { storage }
-export const app = adminApp;           // OLD: import { app }
-export const firebaseAdmin = admin;    // OLD: import { admin }
-export const adminInstance = admin;    // legacy alias
+
+// Most files use this ❗
+export const db = adminDB();
+
+// Some files use this name ❗
+export const adminDb = adminDB();
+
+// Some files expect "auth"
+export const auth = adminAuth();
+
+// Some files expect "storage"
+export const storage = adminStorage();
+
+// Some files expect "app"
+export const app = adminApp;
+
+// Some files import "admin"
+export const firebaseAdmin = admin;
+export const adminInstance = admin;
+export const Admin = admin; // Extra alias
+export const adminSDK = admin; // Extra alias
+export const adminDefault = admin;
+
+// And finally — EXACT export required:
+export { admin }; // 🔥 This fixes "admin not exported"
 
 /* -------------------------------------------------------
-   Optional "getFirebaseAdmin" bundle (legacy support)
+   Compatibility bundle for old code
 ------------------------------------------------------- */
 export function getFirebaseAdmin() {
   return {
     admin,
     app: adminApp,
     db,
+    adminDb,
     auth,
     storage,
     adminDB,

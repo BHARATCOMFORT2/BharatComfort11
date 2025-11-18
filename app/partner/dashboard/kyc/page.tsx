@@ -2,32 +2,16 @@
 
 import React, { useEffect, useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { initializeApp } from "firebase/app";
+import { auth } from "@/lib/firebase-client"; // <- FIXED
+import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import { toast } from "react-hot-toast";
-
-// Firebase config
-const firebaseConfig = {
-  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY!,
-  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN!,
-  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID!,
-};
-
-if (!globalThis.firebaseApp) {
-  globalThis.firebaseApp = initializeApp(firebaseConfig);
-}
-
-const auth = getAuth(globalThis.firebaseApp);
 
 export default function PartnerKYCPage() {
   const [user, setUser] = useState<any>(null);
   const [token, setToken] = useState<string | null>(null);
-  const router = useRouter();
-
   const [idNumber, setIdNumber] = useState("");
 
-  // DOCS
   const [docs, setDocs] = useState({
     aadharFront: null as File | null,
     aadharBack: null as File | null,
@@ -38,6 +22,7 @@ export default function PartnerKYCPage() {
   });
 
   const [uploading, setUploading] = useState(false);
+  const router = useRouter();
 
   // Listen for auth user
   useEffect(() => {
@@ -60,7 +45,7 @@ export default function PartnerKYCPage() {
     return "****" + val.slice(-4);
   };
 
-  // Upload file to backend
+  // Upload a single file via your backend
   const uploadFile = async (file: File, docType: string) => {
     const form = new FormData();
     form.append("partnerId", user.uid);
@@ -74,6 +59,7 @@ export default function PartnerKYCPage() {
     });
 
     const data = await res.json();
+
     if (!data.success) {
       throw new Error(data.error || "Upload failed");
     }
@@ -93,13 +79,13 @@ export default function PartnerKYCPage() {
 
       setUploading(true);
 
-      // Upload each file
       const uploadedDocs: any[] = [];
 
+      // Upload each file
       for (const key of Object.keys(docs)) {
         const file = docs[key as keyof typeof docs];
         if (!file) {
-          toast.error(`Missing file: ${key}`);
+          toast.error(`Missing file: ${key.replace(/([A-Z])/g, " $1")}`);
           setUploading(false);
           return;
         }
@@ -108,7 +94,7 @@ export default function PartnerKYCPage() {
         uploadedDocs.push(uploaded);
       }
 
-      // Submit KYC metadata
+      // Submit full KYC metadata
       const submitRes = await fetch("/api/partners/kyc/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -123,7 +109,7 @@ export default function PartnerKYCPage() {
       const out = await submitRes.json();
 
       if (!out.success) {
-        throw new Error(out.error || "Submission failed");
+        throw new Error(out.error || "KYC submission failed");
       }
 
       toast.success("KYC submitted successfully!");
@@ -133,7 +119,7 @@ export default function PartnerKYCPage() {
       }, 1000);
     } catch (err: any) {
       console.error(err);
-      toast.error(err.message || "KYC submission failed");
+      toast.error(err.message || "Submission failed");
     } finally {
       setUploading(false);
     }
@@ -145,7 +131,7 @@ export default function PartnerKYCPage() {
         <h1 className="text-2xl font-bold mb-4">Partner KYC Verification</h1>
 
         <p className="text-gray-600 mb-4">
-          Upload all required documents for verification (24–48 hrs).
+          Upload all required documents for verification (24–48 hrs review).
         </p>
 
         {/* ID Number */}
@@ -167,7 +153,7 @@ export default function PartnerKYCPage() {
             { key: "aadharBack", label: "Aadhaar Back" },
             { key: "pan", label: "PAN Card" },
             { key: "selfie", label: "Selfie with ID" },
-            { key: "gst", label: "GST Certificate (optional)" },
+            { key: "gst", label: "GST Certificate (Optional)" },
             { key: "bankProof", label: "Bank Proof" },
           ].map((item) => (
             <div key={item.key}>
@@ -179,7 +165,7 @@ export default function PartnerKYCPage() {
                 onChange={(e) => handleFileChange(e, item.key)}
               />
 
-              {/* Preview */}
+              {/* preview */}
               {docs[item.key as keyof typeof docs] &&
                 docs[item.key as keyof typeof docs]!.type.startsWith("image") && (
                   <img

@@ -1,84 +1,61 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// app/api/partners/profile/route.ts
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
-
-// Extract Authorization header
-function getAuthHeader(req: Request) {
-  const auth = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return auth || "";
-}
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export async function GET(req: Request) {
   try {
-    // 1) Get token
-    const authHeader = getAuthHeader(req);
-    if (!authHeader)
+    const { adminAuth, adminDb } = getFirebaseAdmin();
+
+    // 1) Extract Session Cookie
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .find((c) => c.trim().startsWith("__session="))
+        ?.split("=")[1] || "";
+
+    if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Missing Authorization header" },
+        { error: "Not authenticated" },
         { status: 401 }
       );
+    }
 
-    const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match)
+    // 2) Verify Session Cookie
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
+    if (!decoded) {
       return NextResponse.json(
-        { error: "Malformed Authorization header" },
-        { status: 401 }
-      );
-
-    const token = match[1];
-
-    // 2) Verify token
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(token, true);
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { error: "Invalid session" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
 
-    // 3) Fetch partner profile from Firestore
-    const partnerRef = adminDb.collection("partners").doc(uid);
-    const partnerSnap = await partnerRef.get();
+    // 3) Fetch Partner Document
+    const snap = await adminDb.collection("partners").doc(uid).get();
 
-    if (!partnerSnap.exists) {
+    if (!snap.exists) {
       return NextResponse.json({
-        ok: false,
+        ok: true,
         exists: false,
-        status: "not_created",
-        message: "Partner profile does not exist.",
+        partner: null,
+        kycStatus: "not_submitted",
+        status: "not_created"
       });
     }
 
-    const data = partnerSnap.data();
+    const partner = snap.data();
 
-    // Return safe partner data
     return NextResponse.json({
       ok: true,
       exists: true,
       uid,
-      status: data.status || "pending",
-      profile: {
-        displayName: data.displayName || null,
-        businessName: data.businessName || null,
-        businessType: data.businessType || null,
-        email: data.email || null,
-        phone: data.phone || null,
-        address: data.address || null,
-        kycStatus: data.status || "pending",
-        createdAt: data.createdAt || null,
-        updatedAt: data.updatedAt || null,
-      },
+      partner,
+      kycStatus: partner.kycStatus || "not_submitted",
+      status: partner.status || "pending",
       claims: {
         partner: decoded.partner || false,
         admin: decoded.admin || false,
@@ -87,7 +64,7 @@ export async function GET(req: Request) {
   } catch (err: any) {
     console.error("Partner profile error:", err);
     return NextResponse.json(
-      { error: err?.message || "Internal server error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

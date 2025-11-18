@@ -1,15 +1,12 @@
-// lib/firebaseadmin.ts
 import "server-only";
 import * as admin from "firebase-admin";
 
 declare global {
-  // Prevent double initialization during HMR
-  // eslint-disable-next-line no-var
   var _firebaseAdminApp: admin.app.App | undefined;
 }
 
 /* -------------------------------------------------------
-   Helper: Load environment variable safely
+   Get env var safely
 ------------------------------------------------------- */
 function getEnv(name: string): string | undefined {
   const v = process.env[name];
@@ -17,7 +14,7 @@ function getEnv(name: string): string | undefined {
 }
 
 /* -------------------------------------------------------
-   Helper: Load private key
+   Private key loader
 ------------------------------------------------------- */
 function getPrivateKey(): string {
   const base64Key = getEnv("FIREBASE_PRIVATE_KEY_BASE64");
@@ -28,16 +25,14 @@ function getPrivateKey(): string {
 
   const rawKey = getEnv("FIREBASE_PRIVATE_KEY");
   if (!rawKey) {
-    throw new Error(
-      "❌ Missing Firebase private key. Provide FIREBASE_PRIVATE_KEY or FIREBASE_PRIVATE_KEY_BASE64"
-    );
+    throw new Error("❌ Missing Firebase private key");
   }
 
   return rawKey.replace(/\\n/g, "\n");
 }
 
 /* -------------------------------------------------------
-   Initialize Admin SDK (SAFE SINGLETON)
+   SAFE SINGLETON INITIALIZATION
 ------------------------------------------------------- */
 export function getAdminApp(): admin.app.App {
   if (global._firebaseAdminApp) return global._firebaseAdminApp;
@@ -47,12 +42,7 @@ export function getAdminApp(): admin.app.App {
   const privateKey = getPrivateKey();
 
   if (!projectId || !clientEmail || !privateKey) {
-    throw new Error(
-      `❌ Missing Firebase Admin environment variables:
-       ${!projectId ? "FIREBASE_PROJECT_ID " : ""}
-       ${!clientEmail ? "FIREBASE_CLIENT_EMAIL " : ""}
-       ${!privateKey ? "FIREBASE_PRIVATE_KEY / BASE64 " : ""}`
-    );
+    throw new Error("❌ Missing Firebase Admin environment variables");
   }
 
   global._firebaseAdminApp = admin.initializeApp({
@@ -68,56 +58,44 @@ export function getAdminApp(): admin.app.App {
 }
 
 /* -------------------------------------------------------
-   Modern API Accessors (recommended)
+   REAL instances (correct way)
 ------------------------------------------------------- */
 export const adminApp = getAdminApp();
-export const adminDB = () => adminApp.firestore();
-export const adminAuth = () => adminApp.auth();
-export const adminStorage = () => adminApp.storage().bucket();
+export const adminDb = adminApp.firestore();
+export const adminAuth = adminApp.auth();
+export const adminStorage = adminApp.storage().bucket();
 
 /* -------------------------------------------------------
-   FULL BACKWARD COMPATIBILITY
-   These MUST match your old imports EXACTLY
+   FULL backward compatibility (matching old imports)
 ------------------------------------------------------- */
-
-// Most files use this ❗
-export const db = adminDB();
-
-// Some files use this name ❗
-export const adminDb = adminDB();
-
-// Some files expect "auth"
-export const auth = adminAuth();
-
-// Some files expect "storage"
-export const storage = adminStorage();
-
-// Some files expect "app"
+export const db = adminDb;
+export const auth = adminAuth;
+export const storage = adminStorage;
 export const app = adminApp;
 
-// Some files import "admin"
+export { admin };
+
 export const firebaseAdmin = admin;
 export const adminInstance = admin;
-export const Admin = admin; // Extra alias
-export const adminSDK = admin; // Extra alias
+export const adminSDK = admin;
 export const adminDefault = admin;
 
-// And finally — EXACT export required:
-export { admin }; // 🔥 This fixes "admin not exported"
-
 /* -------------------------------------------------------
-   Compatibility bundle for old code
+   Bundle for `getFirebaseAdmin()`
 ------------------------------------------------------- */
 export function getFirebaseAdmin() {
   return {
     admin,
+
     app: adminApp,
-    db,
+
+    db: adminDb,
     adminDb,
-    auth,
-    storage,
-    adminDB,
+
+    auth: adminAuth,
     adminAuth,
+
+    storage: adminStorage,
     adminStorage,
   };
 }

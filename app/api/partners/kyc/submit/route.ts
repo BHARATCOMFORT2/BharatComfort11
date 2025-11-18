@@ -1,23 +1,14 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/partners/kyc/submit/route.ts
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// Extract Authorization header
-function getAuthHeader(req: Request) {
-  return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
-}
+export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const { adminDb, adminAuth } = getFirebaseAdmin();
+    const { adminAuth, adminDb } = getFirebaseAdmin();
 
+    // Parse JSON
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json(
@@ -26,37 +17,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const { idType, idNumberMasked, documents } = body;
+    const { token, idType, idNumberMasked, documents } = body;
 
-    if (!idType || !documents || !Array.isArray(documents)) {
+    if (!token || !idType || !documents || !Array.isArray(documents)) {
       return NextResponse.json(
-        { error: "Missing KYC fields" },
+        { error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    // 1) Verify Authorization
-    const authHeader = getAuthHeader(req);
-    if (!authHeader) {
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 }
-      );
-    }
-
-    const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match) {
-      return NextResponse.json(
-        { error: "Malformed Authorization header" },
-        { status: 401 }
-      );
-    }
-
-    const idToken = match[1];
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken, true);
-    } catch (error) {
+    // Verify Firebase token
+    const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
+    if (!decoded) {
       return NextResponse.json(
         { error: "Invalid or expired token" },
         { status: 401 }
@@ -65,62 +37,54 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    // 2) Verify Partner Exists
+    // Partner reference
     const partnerRef = adminDb.collection("partners").doc(uid);
-    const partnerSnap = await partnerRef.get();
-
-    if (!partnerSnap.exists) {
+    const snap = await partnerRef.get();
+    if (!snap.exists) {
       return NextResponse.json(
         { error: "Partner profile not found" },
         { status: 404 }
       );
     }
 
-    // 3) Validate documents
-    const finalDocuments = [];
-
-    for (const doc of documents) {
-      const { name, url, storagePath } = doc;
-
-      if (!name || !url || !storagePath) {
-        return NextResponse.json(
-          { error: "Each document must include name, url, storagePath" },
-          { status: 400 }
-        );
+    // Validate documents array
+    const cleanedDocs = documents.map((doc: any) => {
+      if (!doc.docType || !doc.storagePath) {
+        throw new Error("Each document must include docType & storagePath");
       }
-
-      finalDocuments.push({
-        name,
-        url,
-        storagePath,
-        uploadedAt: new Date(),
-      });
-    }
-
-    // 4) Create KYC record
-    await partnerRef.collection("kycDocs").add({
-      idType,
-      idNumberMasked,
-      documents: finalDocuments,
-      submittedAt: new Date(),
-      status: "kyc_pending",
+      return {
+        docType: doc.docType,
+        storagePath: doc.storagePath,
+        uploadedAt: new Date().toISOString(),
+      };
     });
 
-    // 5) Update partner KYC status
+    // Save under partner/{uid}/kyc
+    await partnerRef.collection("kyc").doc("latest").set(
+      {
+        idType,
+        idNumberMasked,
+        documents: cleanedDocs,
+        submittedAt: new Date().toISOString(),
+        status: "submitted",
+      },
+      { merge: true }
+    );
+
+    // Update main partner record
     await partnerRef.update({
-      kycStatus: "kyc_pending",
-      kycLastSubmittedAt: new Date(),
-      updatedAt: new Date(),
+      kycStatus: "submitted",
+      updatedAt: new Date().toISOString(),
     });
 
     return NextResponse.json({
-      ok: true,
+      success: true,
       message: "KYC submitted successfully",
     });
   } catch (err: any) {
-    console.error("KYC submit error:", err);
+    console.error("🔥 KYC submit error:", err);
     return NextResponse.json(
-      { error: err?.message || "Internal server error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

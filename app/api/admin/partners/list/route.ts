@@ -1,50 +1,40 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/admin/partners/list/route.ts
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// Extract Authorization header
-function getAuthHeader(req: Request) {
-  const auth = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return auth || "";
-}
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    // 1) Admin Authentication
-    const authHeader = getAuthHeader(req);
-    if (!authHeader)
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 }
-      );
+    const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match)
-      return NextResponse.json(
-        { error: "Malformed Authorization header" },
-        { status: 401 }
-      );
+    const cookieHeader = req.headers.get("cookie") || "";
 
-    const idToken = match[1];
-    let decoded;
+    // Read session cookie set by /api/auth/session
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .find((c) => c.trim().startsWith("__session="))
+        ?.split("=")[1] || "";
 
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken, true);
-    } catch {
+    if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    // ensure admin role
+    // Verify Firebase session cookie
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
+
+    if (!decoded) {
+      return NextResponse.json(
+        { error: "Invalid or expired session" },
+        { status: 401 }
+      );
+    }
+
+    // Require admin claim
     if (!decoded.admin) {
       return NextResponse.json(
         { error: "Admin access required" },
@@ -52,33 +42,36 @@ export async function GET(req: Request) {
       );
     }
 
-    // 2) Read filters from URL query
+    // Read filters
     const url = new URL(req.url);
-    const statusFilter = url.searchParams.get("status"); // optional
+    const statusFilter = url.searchParams.get("status");
 
-    // 3) Query Firestore
-    let queryRef = adminDb.collection("partners");
+    // Firestore query
+    let queryRef: FirebaseFirestore.Query = adminDb.collection("partners");
 
     if (statusFilter) {
       queryRef = queryRef.where("status", "==", statusFilter);
     }
 
-    const snap = await queryRef.orderBy("createdAt", "desc").get();
+    // Ordering (safe)
+    queryRef = queryRef.orderBy("createdAt", "desc");
+
+    const snap = await queryRef.get();
 
     const partners = snap.docs.map((doc) => ({
-      uid: doc.id,
+      partnerId: doc.id,
       ...doc.data(),
     }));
 
     return NextResponse.json({
-      ok: true,
+      success: true,
       total: partners.length,
       partners,
     });
   } catch (err: any) {
-    console.error("Admin partner list error:", err);
+    console.error("🔥 Admin partner list error:", err);
     return NextResponse.json(
-      { error: err?.message || "Internal server error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

@@ -1,7 +1,10 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/partners/kyc/status/route.ts
+// ✔ Fully rewritten to match new KYC storage model
+// ✔ Reads kycStatus directly from partners/{uid}
+// ✔ Removes old nested kycDocs collection
+// ✔ Handles NOT_STARTED, UNDER_REVIEW, APPROVED, REJECTED
+
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
@@ -17,22 +20,16 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -------------------------
-    // 1) Validate Authorization
-    // -------------------------
+    // 1) Authorization header check
     const authHeader = getAuthHeader(req);
-    if (!authHeader)
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 }
-      );
+    if (!authHeader) {
+      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+    }
 
     const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match)
-      return NextResponse.json(
-        { error: "Malformed Authorization header" },
-        { status: 401 }
-      );
+    if (!match) {
+      return NextResponse.json({ error: "Malformed Authorization header" }, { status: 401 });
+    }
 
     const token = match[1];
 
@@ -40,68 +37,41 @@ export async function GET(req: Request) {
     try {
       decoded = await adminAuth.verifyIdToken(token);
     } catch (e) {
-      return NextResponse.json(
-        { error: "Invalid or expired token" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 });
     }
 
     const uid = decoded.uid;
 
-    // -------------------------
     // 2) Fetch partner record
-    // -------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
       return NextResponse.json({
         ok: false,
-        status: "not_created",
+        status: "NOT_STARTED",
         message: "Partner profile does not exist",
       });
     }
 
     const partner = partnerSnap.data();
-    const kycStatus = partner.kycStatus || "not_created";
-    let reason = partner.kycRejectedReason || null;
 
-    // -------------------------
-    // 3) Fetch latest KYC doc
-    // -------------------------
-    const kycDocsSnap = await partnerRef
-      .collection("kycDocs")
-      .orderBy("submittedAt", "desc")
-      .limit(1)
-      .get();
+    // KYC status stored directly on partners/{uid}
+    const kycStatus = partner.kycStatus || "NOT_STARTED";
 
-    if (kycDocsSnap.empty) {
-      return NextResponse.json({
-        ok: true,
-        status: "not_created",
-        partner: null,
-      });
-    }
-
-    const kycDoc = kycDocsSnap.docs[0];
-    const kycData = kycDoc.data();
-
-    // If rejected, attach last rejection reason
-    if (kycData.status === "rejected" && kycData.rejectedReason) {
-      reason = kycData.rejectedReason;
-    }
-
+    // 3) Return merged partner + kyc structure
     return NextResponse.json({
       ok: true,
       status: kycStatus,
       partner: {
-        ...partner,
-        reason,
+        uid: partner.uid,
+        name: partner.name,
+        email: partner.email,
+        phone: partner.phone,
+        kycStatus,
+        reason: partner.kycRejectedReason || null,
       },
-      kyc: {
-        id: kycDoc.id,
-        ...kycData,
-      },
+      kyc: partner.kyc || null, // embedded KYC object from submit route
     });
   } catch (err: any) {
     console.error("KYC status error:", err);

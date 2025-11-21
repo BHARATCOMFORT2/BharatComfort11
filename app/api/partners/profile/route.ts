@@ -1,3 +1,10 @@
+// app/api/partners/profile/route.ts (FULLY FIXED)
+// ✔ No more wrong "under review" before KYC
+// ✔ Returns clean and correct onboarding state
+// ✔ Reads partner from partners/{uid} only
+// ✔ Matches new KYC flow: NOT_STARTED / UNDER_REVIEW / APPROVED / REJECTED
+// ✔ Never forces wrong redirect
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -8,7 +15,9 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // 1) Extract Session Cookie
+    // -------------------------------
+    // 1) Extract session cookie
+    // -------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -23,8 +32,13 @@ export async function GET(req: Request) {
       );
     }
 
-    // 2) Verify Session Cookie
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
+    // -------------------------------
+    // 2) Verify cookie
+    // -------------------------------
+    const decoded = await adminAuth
+      .verifySessionCookie(sessionCookie, true)
+      .catch(() => null);
+
     if (!decoded) {
       return NextResponse.json(
         { error: "Invalid session" },
@@ -34,28 +48,42 @@ export async function GET(req: Request) {
 
     const uid = decoded.uid;
 
-    // 3) Fetch Partner Document
+    // -------------------------------
+    // 3) Fetch partner record
+    // -------------------------------
     const snap = await adminDb.collection("partners").doc(uid).get();
 
     if (!snap.exists) {
       return NextResponse.json({
         ok: true,
         exists: false,
+        uid,
         partner: null,
-        kycStatus: "not_submitted",
-        status: "not_created"
+        kycStatus: "NOT_STARTED", // clean default
+        onboardingStatus: "NOT_CREATED",
       });
     }
 
     const partner = snap.data();
 
+    // Normalized fields
+    const kycStatus = partner.kycStatus || "NOT_STARTED";
+    const onboardingStatus = partner.status || "PENDING_ONBOARDING";
+
     return NextResponse.json({
       ok: true,
       exists: true,
       uid,
-      partner,
-      kycStatus: partner.kycStatus || "not_submitted",
-      status: partner.status || "pending",
+      partner: {
+        uid: partner.uid,
+        name: partner.name,
+        email: partner.email,
+        phone: partner.phone,
+        kycStatus,
+        onboardingStatus,
+      },
+      kycStatus,
+      onboardingStatus,
       claims: {
         partner: decoded.partner || false,
         admin: decoded.admin || false,

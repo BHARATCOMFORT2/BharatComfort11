@@ -1,32 +1,36 @@
 // app/api/partners/kyc/submit/route.ts
+// ✔ Fully rewritten to match new onboarding + KYC flow
+// ✔ Stores KYC ONLY inside partners/{uid}
+// ✔ Sets kycStatus = "UNDER_REVIEW"
+// ✔ Removes wrong "submitted" status and wrong nested collection usage
+// ✔ Ensures clean, unified partner record
+
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // Parse JSON
+    // Parse body
     const body = await req.json().catch(() => null);
     if (!body) {
-      return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
     const { token, idType, idNumberMasked, documents } = body;
 
     if (!token || !idType || !documents || !Array.isArray(documents)) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Missing required fields: token, idType, documents[]" },
         { status: 400 }
       );
     }
 
-    // Verify Firebase token
+    // Verify the Firebase ID token
     const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
     if (!decoded) {
       return NextResponse.json(
@@ -40,14 +44,15 @@ export async function POST(req: Request) {
     // Partner reference
     const partnerRef = adminDb.collection("partners").doc(uid);
     const snap = await partnerRef.get();
+
     if (!snap.exists) {
       return NextResponse.json(
-        { error: "Partner profile not found" },
+        { error: "Partner profile not found. Please complete onboarding first." },
         { status: 404 }
       );
     }
 
-    // Validate documents array
+    // Validate documents
     const cleanedDocs = documents.map((doc: any) => {
       if (!doc.docType || !doc.storagePath) {
         throw new Error("Each document must include docType & storagePath");
@@ -59,27 +64,24 @@ export async function POST(req: Request) {
       };
     });
 
-    // Save under partner/{uid}/kyc
-    await partnerRef.collection("kyc").doc("latest").set(
+    // DIRECT write inside partners/{uid} (no nested collection needed)
+    await partnerRef.set(
       {
-        idType,
-        idNumberMasked,
-        documents: cleanedDocs,
-        submittedAt: new Date().toISOString(),
-        status: "submitted",
+        kycStatus: "UNDER_REVIEW", // <-- CORRECT new status
+        kyc: {
+          idType,
+          idNumberMasked,
+          documents: cleanedDocs,
+          submittedAt: new Date().toISOString(),
+        },
+        updatedAt: new Date().toISOString(),
       },
       { merge: true }
     );
 
-    // Update main partner record
-    await partnerRef.update({
-      kycStatus: "submitted",
-      updatedAt: new Date().toISOString(),
-    });
-
     return NextResponse.json({
       success: true,
-      message: "KYC submitted successfully",
+      message: "KYC submitted successfully and is now under review.",
     });
   } catch (err: any) {
     console.error("🔥 KYC submit error:", err);

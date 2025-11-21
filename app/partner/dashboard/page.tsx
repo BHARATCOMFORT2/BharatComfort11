@@ -15,24 +15,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-/**
- * API-based Partner Dashboard
- *
- * - Reads everything via our server APIs:
- *   - GET /api/partners/profile
- *   - GET /api/partners/bookings
- *   - GET /api/partners/finance
- *   - GET /api/partners/insights
- *   - GET /api/partners/kyc/status
- *
- * - Update actions call:
- *   - POST /api/partners/profile/update        <-- NOT IMPLEMENTED YET (placeholder)
- *   - POST /api/partners/settlements/request   <-- NOT IMPLEMENTED YET (placeholder)
- *
- * After you confirm, I can implement those two endpoints.
- */
-
-/* -------------------- Types -------------------- */
 type PartnerProfile = {
   uid: string;
   displayName?: string;
@@ -40,13 +22,13 @@ type PartnerProfile = {
   email?: string;
   phone?: string;
   profilePic?: string;
-  status?: "pending" | "kyc_pending" | "approved" | "rejected";
+  status?: string;
+  kycStatus?: string; // normalized field
   kyc?: { status?: string };
   bank?: any;
   address?: Record<string, string>;
 };
 
-/* -------------------- Page -------------------- */
 export default function PartnerDashboard() {
   const router = useRouter();
 
@@ -79,7 +61,6 @@ export default function PartnerDashboard() {
 
   const [busy, setBusy] = useState(false);
 
-  /* -------------------- Auth + API fetches -------------------- */
   useEffect(() => {
     let mounted = true;
     const unsub = auth.onAuthStateChanged(async (user) => {
@@ -95,36 +76,61 @@ export default function PartnerDashboard() {
 
       try {
         // 1) profile
+        // Prefer Authorization Bearer token (backend accepts this for status route)
         const pRes = await fetch("/api/partners/profile", {
           headers: { Authorization: `Bearer ${t}` },
         });
-        const pJson = await pRes.json();
-        if (!pJson.ok) {
-          // If profile not created, we redirect to onboarding (or allow minimal state)
-          if (pJson.exists === false) {
-            // optionally open onboarding or redirect
-            setProfile(null);
+        const pJson = await pRes.json().catch(() => null);
+
+        // pJson shape (from backend): { ok: true/false, exists, uid, partner, kycStatus }
+        if (!pJson || pJson.ok === false) {
+          // If partner doc not created -> send them to KYC/onboarding
+          // We redirect only when there's no partner record.
+          if (pJson?.exists === false) {
+            // create a lightweight partner record via create-verified-user is expected
+            // redirect to KYC page to continue onboarding
+            router.push("/partner/dashboard/kyc");
+            return;
           }
         } else {
-          setProfile({
-            uid: pJson.uid,
-            displayName: pJson.profile.displayName,
-            businessName: pJson.profile.businessName,
-            email: pJson.profile.email,
-            phone: pJson.profile.phone,
-            status: pJson.status,
-            kyc: { status: pJson.profile.kycStatus || pJson.status },
-            bank: pJson.profile.bank || null,
-            address: pJson.profile.address || null,
-          });
+          const partnerObj = pJson.partner || {};
+
+          // kycStatus might be available at top-level or inside partner
+          const rawKyc = pJson.kycStatus || partnerObj.kycStatus || partnerObj.kyc?.status;
+          const kycStatus = (rawKyc || "NOT_STARTED").toString().toUpperCase();
+
+          const normalized: PartnerProfile = {
+            uid: pJson.uid || partnerObj.uid,
+            displayName: partnerObj.displayName || partnerObj.name || partnerObj.businessName,
+            businessName: partnerObj.businessName || partnerObj.displayName || partnerObj.name,
+            email: partnerObj.email,
+            phone: partnerObj.phone,
+            profilePic: partnerObj.profilePic || null,
+            status: (partnerObj.status || pJson.onboardingStatus || null) as any,
+            kycStatus,
+            kyc: partnerObj.kyc || null,
+            bank: partnerObj.bank || null,
+            address: partnerObj.address || null,
+          };
+
+          setProfile(normalized);
+
+          // RULES:
+          // - If KYC NOT_STARTED or NOT_CREATED -> force them to KYC page
+          // - If UNDER_REVIEW or REJECTED -> allow access but show banner
+          // - If APPROVED -> full access
+          if (kycStatus === "NOT_STARTED" || kycStatus === "NOT_CREATED") {
+            router.push("/partner/dashboard/kyc");
+            return;
+          }
         }
 
         // 2) bookings (first page)
         const bookingsRes = await fetch("/api/partners/bookings?limit=10", {
           headers: { Authorization: `Bearer ${t}` },
         });
-        const bookingsJson = await bookingsRes.json();
-        if (bookingsJson.ok) {
+        const bookingsJson = await bookingsRes.json().catch(() => null);
+        if (bookingsJson?.ok) {
           setBookings(bookingsJson.bookings || []);
           setHasMore((bookingsJson.bookings?.length || 0) >= 10);
           setStats((s) => ({
@@ -142,8 +148,8 @@ export default function PartnerDashboard() {
         const financeRes = await fetch("/api/partners/finance", {
           headers: { Authorization: `Bearer ${t}` },
         });
-        const fin = await financeRes.json();
-        if (fin.ok) {
+        const fin = await financeRes.json().catch(() => null);
+        if (fin?.ok) {
           setStats((s) => ({
             ...s,
             earnings: fin.totalEarnings ?? s.earnings,
@@ -154,9 +160,8 @@ export default function PartnerDashboard() {
         const insightsRes = await fetch("/api/partners/insights?days=7", {
           headers: { Authorization: `Bearer ${t}` },
         });
-        const ins = await insightsRes.json();
-        if (ins.ok) {
-          // build chartData from bookingsPerDay if present
+        const ins = await insightsRes.json().catch(() => null);
+        if (ins?.ok) {
           if (Array.isArray(ins.bookingsPerDay)) {
             setChartData(
               ins.bookingsPerDay.map((d: any) => ({
@@ -168,7 +173,6 @@ export default function PartnerDashboard() {
               }))
             );
           } else {
-            // fallback: 7 days zeroed
             const today = new Date();
             const days = [...Array(7)].map((_, i) => {
               const d = new Date(today);
@@ -196,7 +200,6 @@ export default function PartnerDashboard() {
     };
   }, [router]);
 
-  /* -------------------- Pagination: load more bookings via API -------------------- */
   const loadMore = async () => {
     if (!token) return;
     setBusy(true);
@@ -205,13 +208,13 @@ export default function PartnerDashboard() {
       const res = await fetch(`/api/partners/bookings?limit=10&page=${nextPage}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      const j = await res.json();
-      if (j.ok) {
+      const j = await res.json().catch(() => null);
+      if (j?.ok) {
         setBookings((prev) => [...prev, ...(j.bookings || [])]);
         setBookingsPage(nextPage);
         setHasMore((j.bookings?.length || 0) >= 10);
       } else {
-        alert(j.error || "Failed to load more");
+        alert(j?.error || "Failed to load more");
       }
     } catch (e) {
       console.error(e);
@@ -221,18 +224,10 @@ export default function PartnerDashboard() {
     }
   };
 
-  /* -------------------- Save Business / Bank (API placeholders) --------------------
-     NOTE: the dashboard uses API endpoints to update profile and request settlements.
-     Those endpoints are placeholders here:
-       - POST /api/partners/profile/update
-       - POST /api/partners/settlements/request
-     If you'd like, I will implement them next (I recommend that).
-  ------------------------------------------------------------------------------- */
   const saveBusiness = async () => {
     if (!token || !profile?.uid) return;
     setBusy(true);
     try {
-      // API endpoint to update partner profile (not implemented yet)
       const res = await fetch("/api/partners/profile/update", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -242,15 +237,14 @@ export default function PartnerDashboard() {
           address: bizDraft.address || profile.address || {},
         }),
       });
-      const j = await res.json();
-      if (res.ok && j.ok) {
-        // reload profile
+      const j = await res.json().catch(() => null);
+      if (res.ok && j?.ok) {
         const p = await fetch("/api/partners/profile", { headers: { Authorization: `Bearer ${token}` } });
-        const pj = await p.json();
-        if (pj.ok) setProfile((prev) => ({ ...prev, businessName: pj.profile.businessName }));
+        const pj = await p.json().catch(() => null);
+        if (pj?.ok && pj.partner) setProfile((prev) => ({ ...prev, businessName: pj.partner.businessName }));
         setOpenBusinessModal(false);
       } else {
-        alert(j.error || "Failed to save business");
+        alert(j?.error || "Failed to save business");
       }
     } catch (e) {
       console.error(e);
@@ -264,21 +258,19 @@ export default function PartnerDashboard() {
     if (!token || !profile?.uid) return;
     setBusy(true);
     try {
-      // API endpoint to update partner bank details (not implemented yet)
       const res = await fetch("/api/partners/profile/update", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ bank: bankDraft }),
       });
-      const j = await res.json();
-      if (res.ok && j.ok) {
-        // reload profile
+      const j = await res.json().catch(() => null);
+      if (res.ok && j?.ok) {
         const p = await fetch("/api/partners/profile", { headers: { Authorization: `Bearer ${token}` } });
-        const pj = await p.json();
-        if (pj.ok) setProfile((prev) => ({ ...prev, bank: pj.profile.bank }));
+        const pj = await p.json().catch(() => null);
+        if (pj?.ok && pj.partner) setProfile((prev) => ({ ...prev, bank: pj.partner.bank }));
         setOpenBankModal(false);
       } else {
-        alert(j.error || "Failed to save bank");
+        alert(j?.error || "Failed to save bank");
       }
     } catch (e) {
       console.error(e);
@@ -290,7 +282,8 @@ export default function PartnerDashboard() {
 
   const handleSettlementRequest = async () => {
     if (!token || !profile) return;
-    if (profile.kyc?.status !== "approved" && profile.status !== "approved") {
+    const kycStatus = (profile.kycStatus || profile.kyc?.status || "").toString().toUpperCase();
+    if (kycStatus !== "APPROVED") {
       return alert("KYC must be approved before requesting a settlement.");
     }
     if (!eligibleBookings.length || settlementAmount <= 0) {
@@ -307,12 +300,12 @@ export default function PartnerDashboard() {
           totalAmount: settlementAmount,
         }),
       });
-      const j = await res.json();
-      if (res.ok && j.ok) {
+      const j = await res.json().catch(() => null);
+      if (res.ok && j?.ok) {
         alert("✅ Settlement request submitted!");
         setOpenSettlementModal(false);
       } else {
-        alert(j.error || "Failed to request settlement");
+        alert(j?.error || "Failed to request settlement");
       }
     } catch (e) {
       console.error(e);
@@ -322,7 +315,6 @@ export default function PartnerDashboard() {
     }
   };
 
-  /* -------------------- Derived UI -------------------- */
   const welcome = useMemo(
     () => profile?.businessName || profile?.displayName || "Partner",
     [profile]
@@ -346,18 +338,18 @@ export default function PartnerDashboard() {
             <h1 className="text-2xl font-bold">Hello, {welcome} 👋</h1>
             <p className="text-gray-600">Manage your listings, bookings & payouts.</p>
 
-            {profile?.kyc?.status && (
+            {profile?.kycStatus && (
               <div
                 className={`mt-2 inline-block px-3 py-1 text-sm rounded-full ${
-                  profile.kyc.status === "approved"
+                  profile.kycStatus === "APPROVED"
                     ? "bg-green-100 text-green-700"
-                    : profile.kyc.status === "rejected"
+                    : profile.kycStatus === "REJECTED"
                     ? "bg-red-100 text-red-700"
                     : "bg-yellow-100 text-yellow-700"
                 }`}
               >
                 🧾 KYC{' '}
-                {profile.kyc.status.charAt(0).toUpperCase() + profile.kyc.status.slice(1)}
+                {profile.kycStatus.charAt(0).toUpperCase() + profile.kycStatus.slice(1)}
               </div>
             )}
           </div>
@@ -375,7 +367,7 @@ export default function PartnerDashboard() {
             >
               Bank Settings
             </button>
-            {profile?.kyc?.status === "approved" ? (
+            {profile && (profile.kycStatus === "APPROVED") ? (
               <button
                 onClick={() => setOpenSettlementModal(true)}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -384,9 +376,9 @@ export default function PartnerDashboard() {
               </button>
             ) : (
               <div className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg border border-yellow-300 text-sm">
-                ⚠️ KYC {profile?.kyc?.status || "Pending"} —{' '}
+                ⚠️ KYC {profile?.kycStatus || "Pending"} —{' '}
                 <button
-                  onClick={() => router.push("/partner/kyc")}
+                  onClick={() => router.push("/partner/dashboard/kyc")}
                   className="text-blue-600 underline hover:text-blue-800"
                 >
                   Complete KYC
@@ -450,7 +442,6 @@ export default function PartnerDashboard() {
       </div>
 
       {/* Business Modal */}
-      {/** Minimal modal component inlined for brevity **/}
       {openBusinessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setOpenBusinessModal(false)} />
@@ -485,7 +476,7 @@ export default function PartnerDashboard() {
             </div>
 
             <div className="space-y-3">
-              {["accountHolder", "accountNumber", "ifsc", "bankName", "branch", "upi"].map((f) => (
+              {[["accountHolder","accountNumber","ifsc","bankName","branch","upi"]].map((f:any) => (
                 <div key={f}>
                   <label className="block text-sm capitalize">{f}</label>
                   <input className="border rounded-lg w-full p-2" value={(bankDraft as any)[f] || (profile?.bank || {})[f] || ""} onChange={(e) => setBankDraft({ ...bankDraft, [f]: e.target.value })} />

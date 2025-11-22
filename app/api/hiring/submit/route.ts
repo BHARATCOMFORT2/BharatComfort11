@@ -10,52 +10,76 @@ export async function POST(req: Request) {
   try {
     const form = await req.formData();
 
-    const name = form.get("name")?.toString() || "";
-    const email = form.get("email")?.toString() || "";
-    const phone = form.get("phone")?.toString() || "";
-    const address = form.get("address")?.toString() || "";
-    const education = form.get("education")?.toString() || "";
-    const experience = form.get("experience")?.toString() || "";
-    const skills = form.get("skills")?.toString() || "";
-    const position = form.get("position")?.toString() || ""; // optional field
-    const resume = form.get("resume") as File | null;
+    const name = String(form.get("name") || "").trim();
+    const email = String(form.get("email") || "").trim();
+    const phone = String(form.get("phone") || "").trim();
+    const address = String(form.get("address") || "").trim();
+    const education = String(form.get("education") || "").trim();
+    const experience = String(form.get("experience") || "").trim();
+    const skills = String(form.get("skills") || "").trim();
+    const position = String(form.get("position") || "").trim();
+    const resume: any = form.get("resume");
+
+    if (!name || !email || !phone) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
+    }
 
     const { adminDb, adminStorage } = getFirebaseAdmin();
 
-    // Create doc to get ID
+    // Create Firestore doc
     const docRef = adminDb.collection("hiringForms").doc();
     const docId = docRef.id;
 
     let storagePath = null;
     let signedResumeUrl = null;
 
-    // Handle resume upload
-    if (resume && (resume as any).arrayBuffer) {
-      const arr = await (resume as any).arrayBuffer();
-      const buffer = Buffer.from(arr);
-      const ext = (resume as any).name?.split(".").pop() || "bin";
+    /* ---------------------------
+     * SAFE RESUME UPLOAD HANDLING
+     * --------------------------- */
+    if (resume && typeof resume === "object" && "arrayBuffer" in resume) {
+      try {
+        const arrayBuf = await resume.arrayBuffer();
+        const buffer = Buffer.from(arrayBuf);
 
-      const filename = `hiringResumes/${docId}/resume.${ext}`;
-      const file = adminStorage.bucket().file(filename);
+        // normalize file extension
+        const safeOriginalName =
+          resume.name?.replace(/[^\w.\-]/g, "_") || `resume_${docId}.pdf`;
 
-      await file.save(buffer, {
-        contentType: (resume as any).type || "application/octet-stream",
-        resumable: false,
-      });
+        const ext = safeOriginalName.split(".").pop() || "pdf";
 
-      storagePath = `gs://${adminStorage.bucket().name}/${filename}`;
+        const filename = `hiringResumes/${docId}/resume.${ext}`;
+        const bucketFile = adminStorage.bucket().file(filename);
 
-      // Generate signed URL to send to HR
-      const [signedUrl] = await file.getSignedUrl({
-        action: "read",
-        expires: Date.now() + 15 * 60 * 1000,
-      });
+        await bucketFile.save(buffer, {
+          metadata: {
+            contentType: resume.type || "application/pdf",
+          },
+          resumable: false,
+        });
 
-      signedResumeUrl = signedUrl;
+        storagePath = `gs://${adminStorage.bucket().name}/${filename}`;
+
+        // Long-term signed URL (year 2099)
+        const [signedUrl] = await bucketFile.getSignedUrl({
+          action: "read",
+          expires: "03-09-2099",
+        });
+
+        signedResumeUrl = signedUrl;
+      } catch (uploadErr) {
+        console.error("Resume upload failed:", uploadErr);
+        storagePath = null;
+        signedResumeUrl = null;
+      }
     }
 
-    // Firestore document
-    const data = {
+    /* ---------------------------
+     * SAVE TO FIRESTORE
+     * --------------------------- */
+    await docRef.set({
       name,
       email,
       phone,
@@ -75,11 +99,11 @@ export async function POST(req: Request) {
           message: "Application received.",
         },
       ],
-    };
+    });
 
-    await docRef.set(data);
-
-    // Send email to HR
+    /* ---------------------------
+     * SEND EMAIL NOTIFICATION
+     * --------------------------- */
     await sendNewApplicationNotification({
       applicantName: name,
       applicantEmail: email,

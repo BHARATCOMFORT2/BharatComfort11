@@ -1,15 +1,10 @@
 // app/api/partners/kyc/upload/route.ts
-// ✔ Secured, cleaned, aligned with new backend model
-// ✔ Ensures only the authenticated partner can upload
-// ✔ Stores in safe GCS path: partner_kyc/{uid}/{docType-timestamp.ext}
-// ✔ Returns storagePath used by kyc/submit
-// ✔ NEVER exposes public URLs
-
-import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+
+import { NextResponse } from "next/server";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
@@ -18,7 +13,7 @@ export async function POST(req: Request) {
     const partnerId = form.get("partnerId") as string;
     const file = form.get("file") as File;
     const docType = form.get("docType") as string;
-    const token = form.get("token") as string; // required for security
+    const token = form.get("token") as string;
 
     if (!partnerId || !file || !docType || !token) {
       return NextResponse.json(
@@ -47,22 +42,22 @@ export async function POST(req: Request) {
     const ext = file.name.split(".").pop() || "jpg";
     const timestamp = Date.now();
 
-    const cleanDocType = docType
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]/g, "_");
+    const cleanDocType = docType.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
 
     const filePath = `partner_kyc/${partnerId}/${cleanDocType}-${timestamp}.${ext}`;
-    const bucketFile = adminStorage.file(filePath);
+
+    // --------------------------
+    // 🪣 FIXED: Proper bucket reference
+    // --------------------------
+    const bucket = adminStorage.bucket ? adminStorage.bucket() : adminStorage;
+    const bucketFile = bucket.file(filePath);
 
     await bucketFile.save(buffer, {
       contentType: file.type,
-      public: false, // KYC docs must NEVER be public
+      public: false, // NEVER allow public access
     });
 
-    // --------------------------
-    // ✔ RETURN INTERNAL PATH
-    // --------------------------
-    const gsUrl = `gs://${adminStorage.name}/${filePath}`;
+    const gsUrl = `gs://${bucket.name}/${filePath}`;
 
     return NextResponse.json({
       success: true,

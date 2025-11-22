@@ -17,7 +17,11 @@
  */
 
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
+
+// ADMIN LAYOUT + AUTH
+import AdminDashboardLayout from "@/components/admin/AdminDashboardLayout";
+import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 
 // UI
 import { Input } from "@/components/ui/Input";
@@ -39,7 +43,6 @@ import {
   Trash2,
   RefreshCw,
   Calendar,
-  Clock,
   ChevronLeft,
   ChevronRight,
   Eye,
@@ -64,6 +67,18 @@ type Applicant = {
 };
 
 export default function AdminHiringDashboardPage() {
+  // AUTH + ADMIN GUARD
+  const { firebaseUser, profile, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (loading) return;
+    if (!firebaseUser || !["admin", "superadmin"].includes(profile?.role)) {
+      // not authorized — redirect to homepage
+      router.push("/");
+    }
+  }, [firebaseUser, profile, loading, router]);
+
   // Data + UI state
   const [items, setItems] = useState<Applicant[]>([]);
   const [loading, setLoading] = useState(false);
@@ -422,7 +437,7 @@ export default function AdminHiringDashboardPage() {
   }
 
   return (
-    <DashboardLayout>
+    <AdminDashboardLayout title="Hiring Admin Dashboard" profile={profile}>
       <div className="p-6">
         <div className="flex items-center justify-between mb-6">
           <h1 className="text-2xl font-semibold">Hiring Admin Dashboard</h1>
@@ -844,6 +859,6 @@ export default function AdminHiringDashboardPage() {
           </div>
         )}
       </div>
-    </DashboardLayout>
+    </AdminDashboardLayout>
   );
 }

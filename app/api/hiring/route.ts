@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/firebaseadmin"; // Firebase Admin SDK
+import { db } from "@/lib/firebaseadmin";
 import { getStorage } from "firebase-admin/storage";
 import { v4 as uuidv4 } from "uuid";
 import { Resend } from "resend";
@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 const resend = new Resend(process.env.RESEND_API_KEY);
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || "admin@bharatcomfort11.com";
 const FROM_EMAIL =
-  process.env.RESEND_FROM_EMAIL || "BHARATCOMFORT11 <no-reply@bharatcomfort11.com>";
+  process.env.RESEND_FROM_EMAIL ||
+  "BHARATCOMFORT11 <no-reply@bharatcomfort11.com>";
 
 export async function POST(req: Request) {
   try {
@@ -22,35 +23,57 @@ export async function POST(req: Request) {
     const role = (formData.get("role") as string)?.trim();
     const experience = (formData.get("experience") as string)?.trim();
     const message = (formData.get("message") as string)?.trim() || "";
-    const resume = formData.get("resume") as File | null;
 
     if (!name || !email || !phone || !role) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      );
     }
 
     let resumeUrl: string | null = null;
 
-    // ✅ Upload resume to Cloud Storage (if present)
-    if (resume) {
-      const buffer = Buffer.from(await resume.arrayBuffer());
-      const bucket = getStorage().bucket(); // default bucket
-      const safeName = resume.name.replace(/[^\w.\-]/g, "_");
-      const fileName = `resumes/${uuidv4()}-${safeName}`;
-      const file = bucket.file(fileName);
+    /** ------------------------------
+     *  SAFE RESUME UPLOAD HANDLING
+     * ------------------------------ */
+    const resume = formData.get("resume");
 
-      await file.save(buffer, {
-        metadata: {
-          contentType: resume.type || "application/octet-stream",
-        },
-      });
+    if (resume && typeof resume === "object" && "arrayBuffer" in resume) {
+      try {
+        const fileBuffer = Buffer.from(await resume.arrayBuffer());
 
-      await file.makePublic();
-      resumeUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+        const originalName =
+          //@ts-ignore
+          resume.name?.replace(/[^\w.\-]/g, "_") || `resume_${uuidv4()}.pdf`;
+
+        const bucket = getStorage().bucket();
+        const filePath = `resumes/${uuidv4()}-${originalName}`;
+        const file = bucket.file(filePath);
+
+        await file.save(fileBuffer, {
+          metadata: {
+            //@ts-ignore
+            contentType: resume.type || "application/octet-stream",
+          },
+        });
+
+        // Try to generate signed URL instead of makePublic()
+        const [signedUrl] = await file.getSignedUrl({
+          action: "read",
+          expires: "03-09-2099",
+        });
+
+        resumeUrl = signedUrl;
+      } catch (uploadErr) {
+        console.error("Resume upload failed:", uploadErr);
+        resumeUrl = null; // don't fail submission
+      }
     }
 
-    // ✅ Save application in Firestore
+    /** ------------------------------
+     *  FIRESTORE SAVE
+     * ------------------------------ */
     const docRef = db.collection("applications").doc();
-    const createdAtISO = new Date().toISOString();
 
     await docRef.set({
       name,
@@ -61,78 +84,62 @@ export async function POST(req: Request) {
       message,
       resumeUrl,
       status: "pending",
-      createdAt: createdAtISO,
+      createdAt: new Date(), // FIXED
     });
 
-    // ✅ Send admin notification
+    /** ------------------------------
+     *  SEND ADMIN EMAIL
+     * ------------------------------ */
     try {
       await resend.emails.send({
         from: FROM_EMAIL,
         to: [ADMIN_EMAIL],
         subject: `New Job Application: ${name} (${role})`,
         html: `
-          <div style="font-family:Arial, sans-serif; line-height:1.6;">
-            <h2>New Application Received</h2>
-            <p><strong>Name:</strong> ${name}</p>
-            <p><strong>Email:</strong> ${email}</p>
-            <p><strong>Phone:</strong> ${phone}</p>
-            <p><strong>Role:</strong> ${role}</p>
-            <p><strong>Experience:</strong> ${experience}</p>
-            <p><strong>Message:</strong> ${message || "N/A"}</p>
-            ${
-              resumeUrl
-                ? `<p><strong>Resume:</strong> <a href="${resumeUrl}" target="_blank" rel="noopener">Download</a></p>`
-                : "<p><strong>Resume:</strong> No file uploaded</p>"
-            }
-            <p><em>Submitted on ${new Date(createdAtISO).toLocaleString("en-IN")}</em></p>
-            <p style="color:#888;">Application ID: ${docRef.id}</p>
-          </div>
+          <h2>New Application Received</h2>
+          <p><strong>Name:</strong> ${name}</p>
+          <p><strong>Email:</strong> ${email}</p>
+          <p><strong>Phone:</strong> ${phone}</p>
+          <p><strong>Role:</strong> ${role}</p>
+          <p><strong>Experience:</strong> ${experience}</p>
+          <p><strong>Message:</strong> ${message}</p>
+          ${
+            resumeUrl
+              ? `<p><strong>Resume:</strong> <a href="${resumeUrl}" target="_blank">Download</a></p>`
+              : "<p><strong>Resume:</strong> No file uploaded</p>"
+          }
         `,
       });
-    } catch (e) {
-      console.error("Admin email failed:", e);
+    } catch (err) {
+      console.error("Admin email error:", err);
     }
 
-    // ✅ Applicant auto-reply
+    /** ------------------------------
+     *  SEND APPLICANT CONFIRMATION
+     * ------------------------------ */
     try {
       await resend.emails.send({
         from: FROM_EMAIL,
         to: [email],
-        subject: `Thanks, ${name}! We received your application for ${role}`,
+        subject: `We received your application, ${name}`,
         html: `
-          <div style="font-family:Arial, sans-serif; line-height:1.7; max-width:640px;">
-            <h2 style="margin:0 0 12px;">Thanks for applying at BHARATCOMFORT11</h2>
-            <p>Hi ${name},</p>
-            <p>We’ve received your application for the <strong>${role}</strong> role. Our team will review it and get back to you soon.</p>
-            <h3 style="margin:16px 0 8px;">Your Details</h3>
-            <ul>
-              <li><strong>Email:</strong> ${email}</li>
-              <li><strong>Phone:</strong> ${phone}</li>
-              <li><strong>Experience:</strong> ${experience}</li>
-              <li><strong>Message:</strong> ${message || "—"}</li>
-              ${
-                resumeUrl
-                  ? `<li><strong>Resume:</strong> <a href="${resumeUrl}" target="_blank" rel="noopener">View/Download</a></li>`
-                  : ""
-              }
-            </ul>
-            <p style="margin-top:16px;">If you submitted this in error, you can ignore this email.</p>
-            <p style="color:#888; font-size:12px; margin-top:24px;">
-              Submitted on ${new Date(createdAtISO).toLocaleString("en-IN")} • Application ID: ${docRef.id}
-            </p>
-          </div>
+          <h2>Thank you for applying at BHARATCOMFORT11</h2>
+          <p>We have received your application for <strong>${role}</strong>.</p>
+          <p>Our team will contact you soon.</p>
         `,
       });
-    } catch (e) {
-      console.error("Applicant auto-reply failed:", e);
-      // No need to fail the whole request if email fails.
+    } catch (err) {
+      console.error("Applicant email error:", err);
     }
 
-    return NextResponse.json({ success: true, id: docRef.id }, { status: 200 });
-  } catch (error: any) {
-    console.error("Error saving application:", error);
     return NextResponse.json(
-      { error: error.message || "Internal Server Error" },
+      { success: true, id: docRef.id },
+      { status: 200 }
+    );
+  } catch (error: any) {
+    console.error("Hiring API Error:", error);
+    return NextResponse.json(
+      { error: "Internal Server Error", details: error.message },
       { status: 500 }
     );
   }

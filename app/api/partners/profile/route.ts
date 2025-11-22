@@ -1,9 +1,9 @@
-// app/api/partners/profile/route.ts (FULLY FIXED)
-// ✔ No more wrong "under review" before KYC
-// ✔ Returns clean and correct onboarding state
-// ✔ Reads partner from partners/{uid} only
-// ✔ Matches new KYC flow: NOT_STARTED / UNDER_REVIEW / APPROVED / REJECTED
-// ✔ Never forces wrong redirect
+// app/api/partners/profile/route.ts
+// ✔ Now returns partner core info
+// ✔ Returns latest KYC submission + documents
+// ✔ Returns correct onboarding + KYC states
+// ✔ Protects session correctly
+// ✔ Fixed missing partner.uid issue
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,20 +16,18 @@ export async function GET(req: Request) {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
     // -------------------------------
-    // 1) Extract session cookie
+    // 1) Extract Firebase session cookie
     // -------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
         .split(";")
-        .find((c) => c.trim().startsWith("__session="))
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
-      return NextResponse.json(
-        { error: "Not authenticated" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
     // -------------------------------
@@ -40,18 +38,16 @@ export async function GET(req: Request) {
       .catch(() => null);
 
     if (!decoded) {
-      return NextResponse.json(
-        { error: "Invalid session" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
     }
 
     const uid = decoded.uid;
 
     // -------------------------------
-    // 3) Fetch partner record
+    // 3) Fetch partner core info
     // -------------------------------
-    const snap = await adminDb.collection("partners").doc(uid).get();
+    const partnerRef = adminDb.collection("partners").doc(uid);
+    const snap = await partnerRef.get();
 
     if (!snap.exists) {
       return NextResponse.json({
@@ -59,31 +55,55 @@ export async function GET(req: Request) {
         exists: false,
         uid,
         partner: null,
-        kycStatus: "NOT_STARTED", // clean default
         onboardingStatus: "NOT_CREATED",
+        kycStatus: "NOT_STARTED",
+        kyc: null,
       });
     }
 
-    const partner = snap.data();
+    const partner = snap.data() || {};
 
-    // Normalized fields
-    const kycStatus = partner.kycStatus || "NOT_STARTED";
+    // Normalize fields safely
     const onboardingStatus = partner.status || "PENDING_ONBOARDING";
+    const kycStatus = partner.kycStatus || "NOT_STARTED";
+
+    // -------------------------------
+    // 4) Fetch latest KYC document entry
+    // -------------------------------
+    const kycDocsSnap = await partnerRef
+      .collection("kycDocs")
+      .orderBy("submittedAt", "desc")
+      .limit(1)
+      .get();
+
+    let latestKyc: any = null;
+
+    if (!kycDocsSnap.empty) {
+      const doc = kycDocsSnap.docs[0];
+
+      latestKyc = {
+        kycId: doc.id,
+        ...doc.data(),
+      };
+    }
 
     return NextResponse.json({
       ok: true,
       exists: true,
       uid,
       partner: {
-        uid: partner.uid,
-        name: partner.name,
-        email: partner.email,
-        phone: partner.phone,
+        uid, // FIXED — always return correct uid
+        name: partner.name || null,
+        email: partner.email || null,
+        phone: partner.phone || null,
+        businessName: partner.businessName || null,
+        address: partner.address || null,
+        status: onboardingStatus,
         kycStatus,
-        onboardingStatus,
       },
       kycStatus,
       onboardingStatus,
+      latestKyc, // NEW → dashboard needs this!
       claims: {
         partner: decoded.partner || false,
         admin: decoded.admin || false,

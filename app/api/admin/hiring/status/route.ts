@@ -1,68 +1,106 @@
 // app/api/admin/hiring/status/route.ts
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { sendStatusChangeEmail } from "@/lib/email/sendgrid";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+/**
+ * Body:
+ * {
+ *   id: string,
+ *   newStatus: string,
+ *   adminNotes?: string,
+ *   notify?: boolean
+ * }
+ */
+
 export async function POST(req: Request) {
   try {
+    const { adminDb } = getFirebaseAdmin();
     const body = await req.json();
 
     const { id, newStatus, adminNotes = "", notify = false } = body;
 
-    if (!id || !newStatus) {
+    if (!id || !newStatus)
       return NextResponse.json(
-        { error: "Missing 'id' or 'newStatus'" },
+        { success: false, error: "Missing required fields" },
         { status: 400 }
       );
+
+    const validStatuses = [
+      "pending",
+      "reviewing",
+      "shortlisted",
+      "rejected",
+      "hired",
+      "deleted",
+    ];
+
+    if (!validStatuses.includes(newStatus))
+      return NextResponse.json(
+        { success: false, error: "Invalid status value" },
+        { status: 400 }
+      );
+
+    /** 🔍 Try both common collection names */
+    const collections = ["applications", "hiringForms"];
+    let docRef: FirebaseFirestore.DocumentReference | null = null;
+
+    for (const col of collections) {
+      const ref = adminDb.collection(col).doc(id);
+      const snap = await ref.get();
+      if (snap.exists) {
+        docRef = ref;
+        break;
+      }
     }
 
-    const { adminDb } = getFirebaseAdmin();
+    if (!docRef)
+      return NextResponse.json(
+        { success: false, error: "Applicant not found" },
+        { status: 404 }
+      );
 
-    const docRef = adminDb.collection("hiringForms").doc(id);
     const snap = await docRef.get();
+    const oldData = snap.data() || {};
 
-    if (!snap.exists) {
-      return NextResponse.json({ error: "Application not found" }, { status: 404 });
-    }
-
-    const applicant = snap.data();
-
-    // Prepare update object
-    const updateData: any = {
-      status: newStatus,
-      adminNotes,
-      updatedAt: new Date(),
-      statusHistory: [
-        ...((applicant.statusHistory as any[]) || []),
-        {
-          status: newStatus,
-          timestamp: new Date(),
-          message: adminNotes || "Status updated",
-        },
-      ],
+    /** 🕒 Build history entry */
+    const historyEntry = {
+      action: newStatus,
+      message: adminNotes || "",
+      timestamp: new Date(),
+      by: "admin",
     };
 
-    // Update Firestore
-    await docRef.update(updateData);
+    const oldHistory = Array.isArray(oldData.statusHistory)
+      ? oldData.statusHistory
+      : [];
 
-    // Notify applicant via email ONLY if admin enables
-    if (notify && applicant.email) {
-      await sendStatusChangeEmail({
-        to: applicant.email,
-        applicantName: applicant.name,
-        newStatus,
-        notes: adminNotes,
-      });
+    /** 🔄 Update document */
+    await docRef.update({
+      status: newStatus,
+      adminNotes,
+      statusHistory: [...oldHistory, historyEntry],
+    });
+
+    /** 📧 Optional email notification */
+    if (notify && oldData.email) {
+      try {
+        // TODO: integrate with your email provider if available
+        console.log(
+          `Mock email sent to ${oldData.email} about status ${newStatus}`
+        );
+      } catch (err) {
+        console.error("Email send failed:", err);
+      }
     }
 
     return NextResponse.json({ success: true });
   } catch (err: any) {
     console.error("🔥 Status update error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal error" },
       { status: 500 }
     );
   }

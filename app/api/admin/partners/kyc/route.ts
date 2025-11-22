@@ -1,12 +1,13 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/admin/partners/kyc/route.ts
+
+// ✅ Only one runtime declaration
+export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
+// Extract Authorization header reliably for Node.js runtimes
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? (req as any).headers.get("authorization")
@@ -15,29 +16,34 @@ function getAuthHeader(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const { admin, adminDb, adminAuth } = getFirebaseAdmin();
+    // ✅ Stable Firebase Admin instance
+    const { adminDb, adminAuth } = getFirebaseAdmin();
 
     const authHeader = getAuthHeader(req);
-    if (!authHeader)
+    if (!authHeader) {
       return NextResponse.json(
         { error: "Missing Authorization" },
         { status: 401 }
       );
+    }
 
     const token = authHeader.replace("Bearer ", "");
     const decoded = await adminAuth.verifyIdToken(token);
 
-    // optional: enforce admin-only
-    // if (decoded.role !== "admin") return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // Optional: enforce only admin users can approve/reject KYC
+    // if (decoded.role !== "admin") {
+    //   return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+    // }
 
     const body = await req.json();
     const { partnerUid, kycId, action, reason } = body;
 
-    if (!partnerUid || !kycId || !action)
+    if (!partnerUid || !kycId || !action) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
       );
+    }
 
     const kycRef = adminDb
       .collection("partners")
@@ -46,9 +52,11 @@ export async function POST(req: Request) {
       .doc(kycId);
 
     const kycSnap = await kycRef.get();
-    if (!kycSnap.exists)
+    if (!kycSnap.exists) {
       return NextResponse.json({ error: "KYC not found" }, { status: 404 });
+    }
 
+    // Prepare updates
     const update: any = {
       reviewedAt: new Date(),
       reviewedBy: decoded.uid,
@@ -63,9 +71,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid action" }, { status: 400 });
     }
 
+    // Update KYC doc
     await kycRef.update(update);
 
-    // update partner document
+    // Update partner-level status
     await adminDb.collection("partners").doc(partnerUid).set(
       {
         kycStatus: update.status,
@@ -74,7 +83,7 @@ export async function POST(req: Request) {
       { merge: true }
     );
 
-    // add audit entry
+    // Add audit trail
     await adminDb
       .collection("partners")
       .doc(partnerUid)

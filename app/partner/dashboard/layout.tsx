@@ -5,12 +5,12 @@ import { auth } from "@/lib/firebase-client";
 import { useRouter, usePathname } from "next/navigation";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
-export default function PartnerDashboardLayout({ children }: any) {
+export default function PartnerDashboardLayout({ children }) {
   const router = useRouter();
   const pathname = usePathname();
 
   const [loading, setLoading] = useState(true);
-  const [partner, setPartner] = useState<any>(null);
+  const [partner, setPartner] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -28,11 +28,19 @@ export default function PartnerDashboardLayout({ children }: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
 
+      // ----------------------------------------------------
+      // 🛑 FIX 1: Allow KYC pages without redirect lock
+      // ----------------------------------------------------
+      const isKycPage =
+        pathname.startsWith("/partner/dashboard/kyc");
+
+      // ----------------------------------------------------
+      // 🛑 FIX 2: If NO partner document exists → only allow KYC page
+      // ----------------------------------------------------
       if (!res.ok || !data?.partner) {
-        // No partner doc yet → allow them into KYC page
-        if (!pathname.includes("/partner/dashboard/kyc")) {
+        if (!isKycPage) {
           router.push("/partner/dashboard/kyc");
           return;
         }
@@ -42,6 +50,9 @@ export default function PartnerDashboardLayout({ children }: any) {
 
       setPartner(data.partner);
 
+      // ----------------------------------------------------
+      // Normalize status
+      // ----------------------------------------------------
       const raw =
         data.partner.kycStatus ||
         data.kycStatus ||
@@ -50,37 +61,33 @@ export default function PartnerDashboardLayout({ children }: any) {
 
       const kyc = raw.toUpperCase();
 
-      // --------------------------------------------
-      // 🚦 KYC Redirect Logic (Fixed Version)
-      // --------------------------------------------
+      // ----------------------------------------------------
+      // 🛑 FIX 3: Allow access to KYC pages without loop
+      // ----------------------------------------------------
+      if (isKycPage) {
+        setLoading(false);
+        return;
+      }
 
-      // NOT_STARTED → allow KYC page access, no redirect loop
+      // ----------------------------------------------------
+      // 🚦 KYC REDIRECT LOGIC
+      // ----------------------------------------------------
+
+      // Not submitted → go to KYC
       if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
-        if (!pathname.includes("/partner/dashboard/kyc")) {
-          router.push("/partner/dashboard/kyc");
-          return;
-        }
-        setLoading(false);
+        router.push("/partner/dashboard/kyc");
         return;
       }
 
-      // UNDER_REVIEW → go to pending page
+      // Under review → pending page
       if (kyc === "UNDER_REVIEW") {
-        if (!pathname.includes("/partner/dashboard/kyc/pending")) {
-          router.push("/partner/dashboard/kyc/pending");
-          return;
-        }
-        setLoading(false);
+        router.push("/partner/dashboard/kyc/pending");
         return;
       }
 
-      // REJECTED → go to KYC page with resubmit flag
+      // Rejected → resubmit page
       if (kyc === "REJECTED") {
-        if (!pathname.includes("/partner/dashboard/kyc")) {
-          router.push("/partner/dashboard/kyc?resubmit=1");
-          return;
-        }
-        setLoading(false);
+        router.push("/partner/dashboard/kyc?resubmit=1");
         return;
       }
 
@@ -90,8 +97,8 @@ export default function PartnerDashboardLayout({ children }: any) {
         return;
       }
 
-      // Fallback
-      setLoading(false);
+      // fallback
+      router.push("/partner/dashboard/kyc");
     }
 
     load();

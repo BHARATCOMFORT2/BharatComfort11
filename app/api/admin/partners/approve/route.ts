@@ -6,14 +6,14 @@ export const dynamic = "force-dynamic";
 
 /**
  * Admin: approve a partner
- * - Expects admin session cookie (__session) to be present and valid
+ * - Expects admin session cookie (__session)
  * - Body: { partnerId: string, remarks?: string, rewardAmount?: number }
  */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    // 1) Verify session cookie (preferred for web admin)
+    // 1) Verify session cookie
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -30,64 +30,66 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
     }
 
-    // require admin claim
     if (!decodedAdmin.admin) {
       return NextResponse.json({ error: "Admin access required" }, { status: 403 });
     }
 
-    // 2) Parse input
+    // 2) Parse body
     const body = await req.json().catch(() => ({}));
-    const partnerId = body?.partnerId;
-    const remarks = body?.remarks ?? null;
-    const rewardAmount = typeof body?.rewardAmount === "number" ? body.rewardAmount : 500; // default ₹500
+    const partnerId = body.partnerId;
+    const remarks = body.remarks ?? null;
+    const rewardAmount = typeof body.rewardAmount === "number" ? body.rewardAmount : 500;
 
     if (!partnerId) {
       return NextResponse.json({ error: "partnerId is required" }, { status: 400 });
     }
 
-    // 3) Load partner doc
+    // 3) Partner record
     const partnerRef = adminDb.collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
+
     if (!partnerSnap.exists) {
       return NextResponse.json({ error: "Partner not found" }, { status: 404 });
     }
-    const partner = partnerSnap.data() || {};
 
-    // Ensure partner has uid (auth user)
+    const partner = partnerSnap.data() || {};
     const partnerUid = partner.uid;
+
     if (!partnerUid) {
-      return NextResponse.json({ error: "Partner doc has no linked uid" }, { status: 400 });
+      return NextResponse.json({ error: "Partner doc missing uid" }, { status: 400 });
     }
 
-    // Prevent double approval
+    // Prevent duplicate approvals
     if (partner.status === "approved" || partner.approved === true) {
       return NextResponse.json({ error: "Partner already approved" }, { status: 409 });
     }
 
-    // 4) Approve partner (update doc + set custom claim)
     const adminUid = decodedAdmin.uid;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // Update partner doc
+    // 4) Update partner doc correctly (KYC FIXED!)
     await partnerRef.update({
       status: "approved",
       approved: true,
       approvedAt: now,
       approvedBy: adminUid,
       remarks: remarks,
-      kycStatus: "verified",
-      kycVerifiedAt: now,
+      kycStatus: "APPROVED",      // FIXED
+      kycApprovedAt: now,         // FIXED
       updatedAt: now,
     });
 
-    // Set partner custom claim on the user's auth record
-    // Use the actual Auth UID (partnerUid)
+    // 5) Set custom claims
     const existingUser = await adminAuth.getUser(partnerUid).catch(() => null);
     const existingClaims = existingUser?.customClaims || {};
-    const newClaims = { ...existingClaims, partner: true, partnerId };
-    await adminAuth.setCustomUserClaims(partnerUid, newClaims);
 
-    // 5) Log approval
+    await adminAuth.setCustomUserClaims(partnerUid, {
+      ...existingClaims,
+      partner: true,
+      partnerId,
+    });
+
+    // 6) Log approval
     await adminDb.collection("partnerApprovals").add({
       partnerId,
       partnerUid,
@@ -97,28 +99,26 @@ export async function POST(req: Request) {
       createdAt: now,
     });
 
-    // 6) Process referral reward if any (safe transaction)
-    // We'll find a pending referral where referredUserId === partnerUid
-    const referralsQ = await adminDb
+    // 7) Referral reward — safe transaction
+    const referralQ = await adminDb
       .collection("referrals")
       .where("referredUserId", "==", partnerUid)
       .where("status", "==", "pending")
       .limit(1)
       .get();
 
-    if (!referralsQ.empty) {
-      const refDoc = referralsQ.docs[0];
-      const ref = refDoc.data();
-      const referrerId = ref.referrerId;
+    if (!referralQ.empty) {
+      const refDoc = referralQ.docs[0];
+      const refData = refDoc.data();
+      const referrerId = refData.referrerId;
 
       if (referrerId) {
-        // Perform wallet updates in a transaction for consistency
         const referrerRef = adminDb.collection("users").doc(referrerId);
 
         await adminDb.runTransaction(async (tx) => {
           const rSnap = await tx.get(referrerRef);
+
           if (!rSnap.exists) {
-            // create minimal user record
             tx.set(
               referrerRef,
               {
@@ -136,7 +136,6 @@ export async function POST(req: Request) {
             });
           }
 
-          // add wallet transaction record
           tx.set(referrerRef.collection("wallet").doc(), {
             type: "credit",
             source: "referral_partner",
@@ -145,22 +144,24 @@ export async function POST(req: Request) {
             createdAt: now,
           });
 
-          // mark referral completed
           tx.update(refDoc.ref, {
             status: "completed",
-            rewardAmount: rewardAmount,
+            rewardAmount,
             updatedAt: now,
           });
         });
       }
     }
 
-    // 7) Optionally notify partner (left as placeholder)
-    // await sendPartnerApprovalNotification(partner.email || partner.phone, ...)
-
-    return NextResponse.json({ success: true, message: "Partner approved successfully" });
+    return NextResponse.json({
+      success: true,
+      message: "Partner approved successfully",
+    });
   } catch (err: any) {
     console.error("Error approving partner:", err);
-    return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }

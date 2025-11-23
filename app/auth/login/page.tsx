@@ -19,7 +19,7 @@ const ADMIN_EMAILS = [
 
 export default function LoginPage() {
   const router = useRouter();
-  const [redirectTo, setRedirectTo] = useState("/(dashboard)/user");
+  const [redirectTo, setRedirectTo] = useState("/user/dashboard");
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);

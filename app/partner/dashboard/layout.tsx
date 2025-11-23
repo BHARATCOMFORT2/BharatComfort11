@@ -21,22 +21,18 @@ export default function PartnerDashboardLayout({ children }) {
         return;
       }
 
-      const token = await user.getIdToken(true);
-
+      // 🔥 IMPORTANT — NO AUTH HEADER
+      // backend only accepts cookies
       const res = await fetch("/api/partners/profile", {
-        headers: { Authorization: `Bearer ${token}` },
+        method: "GET",
+        credentials: "include",
       });
 
       const data = await res.json().catch(() => null);
 
-      // -------------------------------------------------------
-      // ALLOW → /partner/dashboard/kyc AND /partner/dashboard/kyc/pending
-      // -------------------------------------------------------
-      const isKycPage =
-        pathname === "/partner/dashboard/kyc" ||
-        pathname.startsWith("/partner/dashboard/kyc/");
+      const isKycPage = pathname.startsWith("/partner/dashboard/kyc");
 
-      // No partner doc yet
+      // 🔥 If no partner exists, only allow KYC pages
       if (!res.ok || !data?.partner) {
         if (!isKycPage) {
           router.push("/partner/dashboard/kyc");
@@ -48,24 +44,22 @@ export default function PartnerDashboardLayout({ children }) {
 
       setPartner(data.partner);
 
+      // Normalize
       const raw =
         data.partner.kycStatus ||
         data.kycStatus ||
-        data.partner?.kyc?.status ||
+        data.partner.kyc?.status ||
         "NOT_STARTED";
 
       const kyc = raw.toUpperCase();
 
-      // If currently on a KYC page → allow it
+      // 🔥 Allow KYC pages always
       if (isKycPage) {
         setLoading(false);
         return;
       }
 
-      // -------------------------------------------------------
-      // REDIRECTS BASED ON STATUS
-      // -------------------------------------------------------
-
+      // 🔥 Enforce KYC flow
       if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
         router.push("/partner/dashboard/kyc");
         return;
@@ -86,6 +80,7 @@ export default function PartnerDashboardLayout({ children }) {
         return;
       }
 
+      // fallback
       router.push("/partner/dashboard/kyc");
     }
 

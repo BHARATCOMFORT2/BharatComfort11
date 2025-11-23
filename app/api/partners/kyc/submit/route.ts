@@ -17,9 +17,19 @@ export async function POST(req: Request) {
 
     const { token, idType, idNumberMasked, documents } = body;
 
-    if (!token || !idType || !documents || !Array.isArray(documents)) {
+    if (!token || !idType) {
       return NextResponse.json(
-        { error: "Missing token, idType, documents[]" },
+        { error: "Missing token or idType" },
+        { status: 400 }
+      );
+    }
+
+    // ---------------------------------------
+    // 🚫 CRITICAL FIX 1 — documents must exist
+    // ---------------------------------------
+    if (!documents || !Array.isArray(documents) || documents.length === 0) {
+      return NextResponse.json(
+        { error: "No KYC documents uploaded. Submit at least 1 document." },
         { status: 400 }
       );
     }
@@ -34,13 +44,12 @@ export async function POST(req: Request) {
     }
 
     const uid = decoded.uid;
-
     const partnerRef = adminDb.collection("partners").doc(uid);
-    const partnerSnap = await partnerRef.get();
 
+    const partnerSnap = await partnerRef.get();
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        { error: "Partner profile not found. Complete onboarding first." },
+        { error: "Partner profile not found" },
         { status: 404 }
       );
     }
@@ -57,35 +66,35 @@ export async function POST(req: Request) {
       };
     });
 
-    // -----------------------------
-    // 🔥 CREATE KYC RECORD IN SUBCOLLECTION
-    // -----------------------------
-    const kycDocRef = partnerRef.collection("kycDocs").doc();
-    const kycId = kycDocRef.id;
+    // ---------------------------------------
+    // 🔥 CREATE NEW KYC DOC
+    // ---------------------------------------
+    const kycRef = partnerRef.collection("kycDocs").doc();
+    const kycId = kycRef.id;
 
-    await kycDocRef.set({
+    await kycRef.set({
       idType,
       idNumberMasked,
       documents: cleanedDocs,
-      status: "pending",
+      status: "SUBMITTED",
       submittedAt: new Date(),
     });
 
-    // -----------------------------
-    // 🔥 UPDATE PARTNER ROOT STATUS
-    // -----------------------------
+    // ---------------------------------------
+    // 🔥 UPDATE PARTNER ROOT KYC STATUS
+    // ---------------------------------------
     await partnerRef.set(
       {
-        kycStatus: "pending",
+        kycStatus: "SUBMITTED",
         kycLastSubmitted: new Date(),
         updatedAt: new Date(),
       },
       { merge: true }
     );
 
-    // -----------------------------
+    // ---------------------------------------
     // 🔥 AUDIT LOG
-    // -----------------------------
+    // ---------------------------------------
     await partnerRef.collection("kycAudit").add({
       action: "submitted",
       kycId,
@@ -95,7 +104,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       kycId,
-      message: "KYC submitted successfully and is now pending review.",
+      message: "KYC submitted successfully.",
     });
   } catch (err: any) {
     console.error("🔥 KYC submit error:", err);

@@ -17,7 +17,7 @@ export async function GET(req: Request) {
       cookieHeader
         .split(";")
         .map((c) => c.trim())
-        .find((c) => c.startsWith("session="))   // ← FIXED HERE
+        .find((c) => c.startsWith("session="))
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     }
 
     // -------------------------------
-    // 2) Verify cookie
+    // 2) Verify session cookie
     // -------------------------------
     const decoded = await adminAuth
       .verifySessionCookie(sessionCookie, true)
@@ -38,7 +38,7 @@ export async function GET(req: Request) {
     const uid = decoded.uid;
 
     // -------------------------------
-    // 3) Fetch partner core info
+    // 3) Fetch partner document
     // -------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const snap = await partnerRef.get();
@@ -56,10 +56,10 @@ export async function GET(req: Request) {
     }
 
     const partner = snap.data() || {};
-    let onboardingStatus = partner.status || "PENDING_ONBOARDING";
+    const onboardingStatus = partner.status || "PENDING_ONBOARDING";
 
     // -------------------------------
-    // 4) Fetch latest KYC document submission
+    // 4) Fetch latest KYC document
     // -------------------------------
     const kycDocsSnap = await partnerRef
       .collection("kycDocs")
@@ -77,12 +77,21 @@ export async function GET(req: Request) {
         ...doc.data(),
       };
 
-      kycStatus =
-        latestKyc.status?.toUpperCase() ||
-        partner.kycStatus?.toUpperCase() ||
-        "UNDER_REVIEW";
+      const rawStatus = (latestKyc.status || "").toString().toUpperCase();
+
+      // Normalize status values
+      if (rawStatus === "SUBMITTED") kycStatus = "UNDER_REVIEW";
+      else if (rawStatus === "APPROVED") kycStatus = "APPROVED";
+      else if (rawStatus === "REJECTED") kycStatus = "REJECTED";
+      else kycStatus = "UNDER_REVIEW"; // fallback if unknown
+    } else {
+      // NO KYC documents exist → KYC not started
+      kycStatus = "NOT_STARTED";
     }
 
+    // -------------------------------
+    // 5) Return normalized profile
+    // -------------------------------
     return NextResponse.json({
       ok: true,
       exists: true,
@@ -97,8 +106,8 @@ export async function GET(req: Request) {
         status: onboardingStatus,
         kycStatus,
       },
-      kycStatus,
       onboardingStatus,
+      kycStatus,
       latestKyc,
       claims: {
         partner: decoded.partner || false,

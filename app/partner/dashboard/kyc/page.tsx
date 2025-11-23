@@ -1,14 +1,6 @@
-// app/partner/dashboard/kyc/page.tsx
-// ✔ FULLY FIXED KYC PAGE (FINAL VERSION)
-// ✔ Works with new backend: partners/{uid}.kyc + kycStatus
-// ✔ Uploads all documents correctly
-// ✔ Submits metadata to /api/partners/kyc/submit
-// ✔ Redirect logic 100% correct
-
 "use client";
 
 import React, { useEffect, useState } from "react";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { auth } from "@/lib/firebase-client";
 import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
@@ -33,9 +25,6 @@ export default function PartnerKYCPage() {
 
   const [uploading, setUploading] = useState(false);
 
-  // -----------------------------
-  // 1) AUTH + FETCH PROFILE
-  // -----------------------------
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) {
@@ -47,7 +36,6 @@ export default function PartnerKYCPage() {
       const t = await u.getIdToken();
       setToken(t);
 
-      // Fetch partner profile from backend
       const res = await fetch("/api/partners/profile", {
         method: "GET",
         credentials: "include",
@@ -70,9 +58,6 @@ export default function PartnerKYCPage() {
     return "****" + val.slice(-4);
   };
 
-  // -----------------------------
-  // 2) FILE UPLOAD (to backend)
-  // -----------------------------
   const uploadFile = async (file, docType) => {
     const form = new FormData();
     form.append("partnerId", user.uid);
@@ -88,15 +73,9 @@ export default function PartnerKYCPage() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || "Upload failed");
 
-    return {
-      docType,
-      storagePath: data.storagePath,
-    };
+    return { docType, storagePath: data.storagePath };
   };
 
-  // -----------------------------
-  // 3) SUBMIT FULL KYC
-  // -----------------------------
   const handleSubmit = async () => {
     try {
       if (!user || !token) {
@@ -109,7 +88,6 @@ export default function PartnerKYCPage() {
         return;
       }
 
-      // Check required files
       for (const key of Object.keys(docs)) {
         if (!docs[key] && key !== "gst") {
           toast.error(`Missing file: ${key}`);
@@ -121,16 +99,14 @@ export default function PartnerKYCPage() {
 
       const uploadedDocs = [];
 
-      // Upload files
       for (const key of Object.keys(docs)) {
         const file = docs[key];
-        if (!file) continue; // GST optional
+        if (!file) continue;
 
         const uploaded = await uploadFile(file, key);
         uploadedDocs.push(uploaded);
       }
 
-      // Submit metadata
       const submitRes = await fetch("/api/partners/kyc/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -146,7 +122,7 @@ export default function PartnerKYCPage() {
       if (!out.success) throw new Error(out.error || "Submission failed");
 
       toast.success("KYC submitted successfully!");
-      router.push("/partner/dashboard");
+      router.push("/partner/dashboard/kyc/pending");
     } catch (err) {
       toast.error(err.message || "Submission failed");
     } finally {
@@ -159,64 +135,59 @@ export default function PartnerKYCPage() {
   const kycStatus = profile?.kycStatus || "NOT_STARTED";
 
   return (
-    <DashboardLayout>
-      <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-md">
-        <h1 className="text-2xl font-bold mb-4">Partner KYC Verification</h1>
+    <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl shadow-md mt-6">
+      <h1 className="text-2xl font-bold mb-4">Partner KYC Verification</h1>
 
-        {/* Status */}
-        <div
-          className={`mb-6 p-3 rounded-lg text-sm font-medium ${
-            kycStatus === "APPROVED"
-              ? "bg-green-100 text-green-700"
-              : kycStatus === "REJECTED"
-              ? "bg-red-100 text-red-700"
-              : "bg-yellow-100 text-yellow-700"
-          }`}
-        >
-          Current Status: {kycStatus.replace(/_/g, " ")}
-        </div>
-
-        {/* ID Number */}
-        <div className="mb-4">
-          <label className="font-medium">Aadhaar/PAN Number</label>
-          <input
-            type="text"
-            value={idNumber}
-            onChange={(e) => setIdNumber(e.target.value)}
-            className="mt-1 w-full border rounded px-3 py-2"
-          />
-        </div>
-
-        {/* Uploads */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {[
-            { key: "aadharFront", label: "Aadhaar Front" },
-            { key: "aadharBack", label: "Aadhaar Back" },
-            { key: "pan", label: "PAN Card" },
-            { key: "selfie", label: "Selfie with ID" },
-            { key: "gst", label: "GST Certificate (Optional)" },
-            { key: "bankProof", label: "Bank Proof" },
-          ].map((item) => (
-            <div key={item.key}>
-              <label className="font-medium">{item.label}</label>
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                className="mt-2"
-                onChange={(e) => handleFileChange(e, item.key)}
-              />
-            </div>
-          ))}
-        </div>
-
-        <button
-          onClick={handleSubmit}
-          className="mt-6 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50"
-          disabled={uploading}
-        >
-          {uploading ? "Submitting..." : "Submit KYC"}
-        </button>
+      <div
+        className={`mb-6 p-3 rounded-lg text-sm font-medium ${
+          kycStatus === "APPROVED"
+            ? "bg-green-100 text-green-700"
+            : kycStatus === "REJECTED"
+            ? "bg-red-100 text-red-700"
+            : "bg-yellow-100 text-yellow-700"
+        }`}
+      >
+        Current Status: {kycStatus.replace(/_/g, " ")}
       </div>
-    </DashboardLayout>
+
+      <div className="mb-4">
+        <label className="font-medium">Aadhaar/PAN Number</label>
+        <input
+          type="text"
+          value={idNumber}
+          onChange={(e) => setIdNumber(e.target.value)}
+          className="mt-1 w-full border rounded px-3 py-2"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {[
+          { key: "aadharFront", label: "Aadhaar Front" },
+          { key: "aadharBack", label: "Aadhaar Back" },
+          { key: "pan", label: "PAN Card" },
+          { key: "selfie", label: "Selfie with ID" },
+          { key: "gst", label: "GST Certificate (Optional)" },
+          { key: "bankProof", label: "Bank Proof" },
+        ].map((item) => (
+          <div key={item.key}>
+            <label className="font-medium">{item.label}</label>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              className="mt-2"
+              onChange={(e) => handleFileChange(e, item.key)}
+            />
+          </div>
+        ))}
+      </div>
+
+      <button
+        onClick={handleSubmit}
+        className="mt-6 bg-green-600 text-white px-6 py-3 rounded-lg hover:bg-green-700 disabled:opacity-50"
+        disabled={uploading}
+      >
+        {uploading ? "Submitting..." : "Submit KYC"}
+      </button>
+    </div>
   );
 }

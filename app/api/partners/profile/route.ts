@@ -1,3 +1,4 @@
+// app/api/partners/profile/route.ts
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -16,7 +17,7 @@ export async function GET(req: Request) {
       cookieHeader
         .split(";")
         .map((c) => c.trim())
-        .find((c) => c.startsWith("__session="))
+        .find((c) => c.startsWith("session="))   // ← FIXED HERE
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
@@ -55,7 +56,6 @@ export async function GET(req: Request) {
     }
 
     const partner = snap.data() || {};
-
     let onboardingStatus = partner.status || "PENDING_ONBOARDING";
 
     // -------------------------------
@@ -68,7 +68,7 @@ export async function GET(req: Request) {
       .get();
 
     let latestKyc: any = null;
-    let kycStatus = "NOT_STARTED"; // DEFAULT
+    let kycStatus = "NOT_STARTED";
 
     if (!kycDocsSnap.empty) {
       const doc = kycDocsSnap.docs[0];
@@ -77,14 +77,10 @@ export async function GET(req: Request) {
         ...doc.data(),
       };
 
-      // Use document status if present
       kycStatus =
         latestKyc.status?.toUpperCase() ||
         partner.kycStatus?.toUpperCase() ||
         "UNDER_REVIEW";
-    } else {
-      // FORCE NOT_STARTED if no documents exist
-      kycStatus = "NOT_STARTED";
     }
 
     return NextResponse.json({
@@ -104,7 +100,6 @@ export async function GET(req: Request) {
       kycStatus,
       onboardingStatus,
       latestKyc,
-
       claims: {
         partner: decoded.partner || false,
         admin: decoded.admin || false,

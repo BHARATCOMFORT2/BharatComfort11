@@ -20,7 +20,7 @@ export default function PartnerDashboardLayout({ children }: any) {
         return;
       }
 
-      const token = await user.getIdToken();
+      const token = await user.getIdToken(true);
 
       // Fetch partner profile
       const res = await fetch(`/api/partners/profile`, {
@@ -31,46 +31,64 @@ export default function PartnerDashboardLayout({ children }: any) {
 
       const data = await res.json();
 
-      if (!res.ok || !data.partner) {
-        router.push("/partner/onboarding"); // fallback
+      // ------------------------------------------------
+      // ❗ FIXED: fallback must go to /partner/dashboard/kyc,
+      // NOT /partner/onboarding (which does NOT exist)
+      // ------------------------------------------------
+      if (!res.ok || !data?.partner) {
+        router.push("/partner/dashboard/kyc");
         return;
       }
 
       setPartner(data.partner);
 
-      const kyc = data.partner.kycStatus || "not_submitted";
+      // ------------------------------------------------
+      // Normalize KYC status exactly as backend returns
+      // ------------------------------------------------
+      const raw =
+        (data.partner.kycStatus ||
+          data.kycStatus ||
+          data.partner?.kyc?.status ||
+          "NOT_STARTED") + "";
 
-      // -----------------------------------
-      // 🚧 REDIRECT LOGIC
-      // -----------------------------------
+      const kyc = raw.toUpperCase();
 
-      // 1️⃣ NOT SUBMITTED → always show KYC form
-      if (kyc === "not_submitted") {
+      // ------------------------------------------------
+      // 🚦 KYC REDIRECT LOGIC (Matches your API)
+      // ------------------------------------------------
+
+      // 1) NOT_STARTED or NOT_CREATED → KYC form
+      if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
         if (!pathname.includes("/partner/dashboard/kyc")) {
           router.push("/partner/dashboard/kyc");
         }
+        return;
       }
 
-      // 2️⃣ PENDING → show pending screen
-      if (kyc === "kyc_pending") {
+      // 2) UNDER_REVIEW → Pending screen
+      if (kyc === "UNDER_REVIEW") {
         if (!pathname.includes("/partner/dashboard/kyc/pending")) {
           router.push("/partner/dashboard/kyc/pending");
         }
+        return;
       }
 
-      // 3️⃣ REJECTED → redirect to re-submit form
-      if (kyc === "kyc_rejected") {
+      // 3) REJECTED → re-submit
+      if (kyc === "REJECTED") {
         if (!pathname.includes("/partner/dashboard/kyc")) {
           router.push("/partner/dashboard/kyc?resubmit=1");
         }
+        return;
       }
 
-      // 4️⃣ APPROVED → allow full dashboard
-      if (kyc === "kyc_approved") {
-        // do nothing → continue normally
+      // 4) APPROVED → allow full access (no redirect)
+      if (kyc === "APPROVED") {
+        setLoading(false);
+        return;
       }
 
-      setLoading(false);
+      // 5) Fallback safety
+      router.push("/partner/dashboard/kyc");
     }
 
     load();

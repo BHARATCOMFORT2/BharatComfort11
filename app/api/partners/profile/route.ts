@@ -1,4 +1,3 @@
-// app/api/partners/profile/route.ts
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 

@@ -25,9 +25,6 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  /* ----------------------------------------------------
-     ✅ Capture redirect query if coming from Book Now
-  ---------------------------------------------------- */
   useEffect(() => {
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
@@ -39,45 +36,65 @@ export default function LoginPage() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
-  /* ----------------------------------------------------
-     🔐 LOGIN HANDLER
-  ---------------------------------------------------- */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      // 1️⃣ Firebase sign-in
+      // 1) Sign in
       const cred = await signInWithEmailAndPassword(
         auth,
         form.email.trim(),
         form.password
       );
-      const user = cred.user;
-      await user.reload();
 
-      // 2️⃣ Detect admin instantly
+      // Ensure SDK has currentUser populated
+      let attempts = 0;
+      while (!auth.currentUser && attempts < 10) {
+        await new Promise((r) => setTimeout(r, 150));
+        attempts++;
+      }
+
+      if (!auth.currentUser) {
+        throw new Error("Auth initialization failed after sign-in.");
+      }
+
+      const user = auth.currentUser;
+
+      // 2) Create server session cookie immediately (avoid race conditions)
+      const idToken = await getIdToken(user, false);
+      console.log("Token obtained (truncated):", idToken?.slice?.(0, 20) || "[no-token]");
+
+      const sessionRes = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: idToken }),
+      });
+
+      if (!sessionRes.ok) {
+        const bodyText = await sessionRes.text().catch(() => "");
+        throw new Error("Session setup failed: " + (bodyText || sessionRes.status));
+      }
+
+      // 3) Admin quick path
       if (ADMIN_EMAILS.includes(user.email || "")) {
-        console.log("👑 Admin login detected:", user.email);
-
-        // Create session for admin
-        const token = await getIdToken(user);
-        const res = await fetch("/api/auth/session", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ token }),
-        });
-
-        if (!res.ok) throw new Error("Session setup failed for admin.");
-
         router.push("/admin/dashboard");
         return;
       }
 
-      // 3️⃣ Regular user / partner flow
+      // 4) Now fetch user profile (this read should succeed because session cookie exists)
       const userRef = doc(db, "users", user.uid);
-      const snap = await getDoc(userRef);
+
+      let snap;
+      try {
+        snap = await getDoc(userRef);
+      } catch (fireErr: any) {
+        console.error("Firestore getDoc(users/<uid>) failed:", fireErr);
+        setError("⚠️ Could not load profile. Permission denied or network error.");
+        await auth.signOut();
+        return;
+      }
 
       if (!snap.exists()) {
         setError("⚠️ No profile found. Please contact support.");
@@ -87,10 +104,10 @@ export default function LoginPage() {
 
       const userData = snap.data();
       const role = userData.role || "user";
-      const emailVerified = user.emailVerified || userData.emailVerified;
+      const emailVerified = auth.currentUser?.emailVerified || userData.emailVerified;
       const phoneVerified = userData.phoneVerified || false;
 
-      // 4️⃣ Verification checks for non-admin users
+      // 5) Verification checks
       if (!emailVerified) {
         setError("📧 Please verify your email first.");
         router.push("/auth/verify");
@@ -103,26 +120,21 @@ export default function LoginPage() {
         return;
       }
 
-      // 5️⃣ Update Firestore flags if not synced
-      if (!userData.emailVerified || !userData.phoneVerified || !userData.verified) {
-        await updateDoc(userRef, {
-          emailVerified: true,
-          phoneVerified: true,
-          verified: true,
-        });
+      // 6) Update Firestore flags if not synced (best-effort)
+      try {
+        if (!userData.emailVerified || !userData.phoneVerified || !userData.verified) {
+          await updateDoc(userRef, {
+            emailVerified: true,
+            phoneVerified: true,
+            verified: true,
+            updatedAt: new Date(),
+          });
+        }
+      } catch (updErr: any) {
+        console.warn("Profile update blocked or failed (non-fatal):", updErr);
       }
 
-      // 6️⃣ Create session cookie
-      const token = await getIdToken(user);
-      const res = await fetch("/api/auth/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-
-      if (!res.ok) throw new Error("Session setup failed.");
-
-      // 7️⃣ Redirect Logic
+      // 7) Redirect logic
       if (redirectTo && redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
         router.push(redirectTo);
         return;
@@ -147,26 +159,22 @@ export default function LoginPage() {
       if (err.code === "auth/user-not-found") msg = "User not found.";
       if (err.code === "auth/wrong-password") msg = "Incorrect password.";
       if (err.code === "auth/too-many-requests") msg = "Too many attempts. Try again later.";
+      if (String(err).toLowerCase().includes("permission") || String(err).toLowerCase().includes("insufficient")) {
+        msg = "⚠️ Permission denied while loading profile. Check Firestore rules for users/{uid}.";
+      }
       setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  /* ----------------------------------------------------
-     🖼️ UI
-  ---------------------------------------------------- */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
-          Login
-        </h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
 
         {error && (
-          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm text-center">
-            {error}
-          </p>
+          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm text-center">{error}</p>
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -181,9 +189,7 @@ export default function LoginPage() {
           />
 
           <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
               name="password"
               type={showPassword ? "text" : "password"}
@@ -203,29 +209,17 @@ export default function LoginPage() {
             </button>
           </div>
 
-          <Button type="submit" disabled={loading}>
-            {loading ? "Logging in..." : "Login"}
-          </Button>
+          <Button type="submit" disabled={loading}>{loading ? "Logging in..." : "Login"}</Button>
         </form>
 
         <div className="mt-4 text-center text-gray-500 text-sm space-y-1">
           <p>
-            Forgot your password?{" "}
-            <a
-              href="/auth/forgot-password"
-              className="text-blue-600 font-medium hover:underline"
-            >
-              Reset here
-            </a>
+            Forgot your password? {" "}
+            <a href="/auth/forgot-password" className="text-blue-600 font-medium hover:underline">Reset here</a>
           </p>
           <p>
-            Don’t have an account?{" "}
-            <a
-              href="/auth/register"
-              className="text-blue-600 font-medium hover:underline"
-            >
-              Register
-            </a>
+            Don’t have an account? {" "}
+            <a href="/auth/register" className="text-blue-600 font-medium hover:underline">Register</a>
           </p>
         </div>
       </div>

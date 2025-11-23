@@ -10,7 +10,6 @@ export async function middleware(request: NextRequest) {
 
   /* ---------------------------------------------------
      1️⃣ FORCE DOMAIN CONSISTENCY
-     Redirect non-www → www
   ----------------------------------------------------*/
   if (host === "bharatcomfort.online") {
     return NextResponse.redirect(
@@ -30,7 +29,7 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     3️⃣ SKIP ALL API ROUTES
+     3️⃣ SKIP API ROUTES
   ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     return NextResponse.next();
@@ -61,21 +60,18 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     6️⃣ PROTECTED ROUTE CHECK
-     Accepts:
-     - __session cookie (server auth)
-     - Authorization: Bearer <token> (client fallback)
+     6️⃣ PROTECTED ROUTES
   ----------------------------------------------------*/
   const protectedPaths = ["/dashboard", "/partner", "/admin", "/chat", "/book"];
   const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
-  // Primary auth: Firebase session cookie
-  const cookieSession = request.cookies.get("__session")?.value || "";
+  // FIXED COOKIE NAME
+  const cookieSession = request.cookies.get("session")?.value || "";
 
-  // Secondary fallback: Bearer token (from client)
+  // Fallback for client-side Bearer token
   const authHeader = request.headers.get("authorization") || "";
   const bearerToken = authHeader.startsWith("Bearer ")
-    ? authHeader.replace("Bearer ", "")
+    ? authHeader.substring(7)
     : "";
 
   const isAuthenticated = cookieSession || bearerToken;
@@ -89,9 +85,6 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-/* ---------------------------------------------------
-   MATCHER — only run on real pages
-----------------------------------------------------*/
 export const config = {
   matcher: [
     "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",

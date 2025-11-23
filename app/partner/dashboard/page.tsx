@@ -61,6 +61,10 @@ export default function PartnerDashboard() {
 
   const [busy, setBusy] = useState(false);
 
+  // helper to normalize KYC value for UI comparison
+  const normalizeKyc = (raw?: string | null) =>
+    (raw || "NOT_STARTED").toString().toUpperCase();
+
   useEffect(() => {
     let mounted = true;
     const unsub = auth.onAuthStateChanged(async (user) => {
@@ -69,16 +73,16 @@ export default function PartnerDashboard() {
         return;
       }
 
+      // keep token available for endpoints that may require idToken
       const t = await user.getIdToken(true);
       if (!mounted) return;
       setToken(t);
       setLoading(true);
 
       try {
-        // 1) profile
-        // Prefer Authorization Bearer token (backend accepts this for status route)
+        // 1) profile — use cookie-based session (credentials: include)
         const pRes = await fetch("/api/partners/profile", {
-          headers: { Authorization: `Bearer ${t}` },
+          credentials: "include",
         });
         const pJson = await pRes.json().catch(() => null);
 
@@ -96,13 +100,18 @@ export default function PartnerDashboard() {
           const partnerObj = pJson.partner || {};
 
           // kycStatus might be available at top-level or inside partner
-          const rawKyc = pJson.kycStatus || partnerObj.kycStatus || partnerObj.kyc?.status;
-          const kycStatus = (rawKyc || "NOT_STARTED").toString().toUpperCase();
+          const rawKyc =
+            (pJson.kycStatus as string) ||
+            (partnerObj.kycStatus as string) ||
+            (partnerObj.kyc?.status as string);
+          const kycStatus = normalizeKyc(rawKyc);
 
           const normalized: PartnerProfile = {
-            uid: pJson.uid || partnerObj.uid,
-            displayName: partnerObj.displayName || partnerObj.name || partnerObj.businessName,
-            businessName: partnerObj.businessName || partnerObj.displayName || partnerObj.name,
+            uid: (pJson.uid as string) || partnerObj.uid,
+            displayName:
+              partnerObj.displayName || partnerObj.name || partnerObj.businessName,
+            businessName:
+              partnerObj.businessName || partnerObj.displayName || partnerObj.name,
             email: partnerObj.email,
             phone: partnerObj.phone,
             profilePic: partnerObj.profilePic || null,
@@ -117,17 +126,20 @@ export default function PartnerDashboard() {
 
           // RULES:
           // - If KYC NOT_STARTED or NOT_CREATED -> force them to KYC page
-          // - If UNDER_REVIEW or REJECTED -> allow access but show banner
+          // - If UNDER_REVIEW (SUBMITTED) or REJECTED -> allow access but show banner
           // - If APPROVED -> full access
           if (kycStatus === "NOT_STARTED" || kycStatus === "NOT_CREATED") {
-            router.push("/partner/dashboard/kyc");
-            return;
+            // Only redirect if not already on kyc page to avoid loops
+            if (window.location.pathname !== "/partner/dashboard/kyc") {
+              router.push("/partner/dashboard/kyc");
+              return;
+            }
           }
         }
 
-        // 2) bookings (first page)
+        // 2) bookings (first page) — use cookies for session
         const bookingsRes = await fetch("/api/partners/bookings?limit=10", {
-          headers: { Authorization: `Bearer ${t}` },
+          credentials: "include",
         });
         const bookingsJson = await bookingsRes.json().catch(() => null);
         if (bookingsJson?.ok) {
@@ -146,7 +158,7 @@ export default function PartnerDashboard() {
 
         // 3) finance
         const financeRes = await fetch("/api/partners/finance", {
-          headers: { Authorization: `Bearer ${t}` },
+          credentials: "include",
         });
         const fin = await financeRes.json().catch(() => null);
         if (fin?.ok) {
@@ -158,7 +170,7 @@ export default function PartnerDashboard() {
 
         // 4) insights (last 7 days)
         const insightsRes = await fetch("/api/partners/insights?days=7", {
-          headers: { Authorization: `Bearer ${t}` },
+          credentials: "include",
         });
         const ins = await insightsRes.json().catch(() => null);
         if (ins?.ok) {
@@ -205,9 +217,12 @@ export default function PartnerDashboard() {
     setBusy(true);
     try {
       const nextPage = bookingsPage + 1;
-      const res = await fetch(`/api/partners/bookings?limit=10&page=${nextPage}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `/api/partners/bookings?limit=10&page=${nextPage}`,
+        {
+          credentials: "include",
+        }
+      );
       const j = await res.json().catch(() => null);
       if (j?.ok) {
         setBookings((prev) => [...prev, ...(j.bookings || [])]);
@@ -224,13 +239,35 @@ export default function PartnerDashboard() {
     }
   };
 
+  const refetchProfile = async () => {
+    try {
+      const p = await fetch("/api/partners/profile", { credentials: "include" });
+      const pj = await p.json().catch(() => null);
+      if (pj?.ok && pj.partner) {
+        const rawKyc =
+          (pj.kycStatus as string) ||
+          (pj.partner?.kycStatus as string) ||
+          (pj.partner?.kyc?.status as string);
+        setProfile((prev) => ({
+          ...(prev || {}),
+          businessName: pj.partner.businessName || prev?.businessName,
+          bank: pj.partner.bank || prev?.bank,
+          kycStatus: normalizeKyc(rawKyc),
+        } as PartnerProfile));
+      }
+    } catch (e) {
+      console.error("refetchProfile failed", e);
+    }
+  };
+
   const saveBusiness = async () => {
-    if (!token || !profile?.uid) return;
+    if (!profile?.uid) return;
     setBusy(true);
     try {
       const res = await fetch("/api/partners/profile/update", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           businessName: bizDraft.businessName || profile.businessName || "",
           phone: bizDraft.phone || profile.phone || "",
@@ -239,9 +276,7 @@ export default function PartnerDashboard() {
       });
       const j = await res.json().catch(() => null);
       if (res.ok && j?.ok) {
-        const p = await fetch("/api/partners/profile", { headers: { Authorization: `Bearer ${token}` } });
-        const pj = await p.json().catch(() => null);
-        if (pj?.ok && pj.partner) setProfile((prev) => ({ ...prev, businessName: pj.partner.businessName }));
+        await refetchProfile();
         setOpenBusinessModal(false);
       } else {
         alert(j?.error || "Failed to save business");
@@ -255,19 +290,18 @@ export default function PartnerDashboard() {
   };
 
   const saveBank = async () => {
-    if (!token || !profile?.uid) return;
+    if (!profile?.uid) return;
     setBusy(true);
     try {
       const res = await fetch("/api/partners/profile/update", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bank: bankDraft }),
       });
       const j = await res.json().catch(() => null);
       if (res.ok && j?.ok) {
-        const p = await fetch("/api/partners/profile", { headers: { Authorization: `Bearer ${token}` } });
-        const pj = await p.json().catch(() => null);
-        if (pj?.ok && pj.partner) setProfile((prev) => ({ ...prev, bank: pj.partner.bank }));
+        await refetchProfile();
         setOpenBankModal(false);
       } else {
         alert(j?.error || "Failed to save bank");
@@ -281,8 +315,8 @@ export default function PartnerDashboard() {
   };
 
   const handleSettlementRequest = async () => {
-    if (!token || !profile) return;
-    const kycStatus = (profile.kycStatus || profile.kyc?.status || "").toString().toUpperCase();
+    if (!profile) return;
+    const kycStatus = normalizeKyc(profile.kycStatus || profile.kyc?.status || "");
     if (kycStatus !== "APPROVED") {
       return alert("KYC must be approved before requesting a settlement.");
     }
@@ -294,7 +328,8 @@ export default function PartnerDashboard() {
     try {
       const res = await fetch("/api/partners/settlements/request", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           bookingIds: eligibleBookings,
           totalAmount: settlementAmount,
@@ -322,6 +357,20 @@ export default function PartnerDashboard() {
 
   if (loading) return <p className="text-center py-10">Loading dashboard…</p>;
 
+  // UI helpers
+  const showKycBadge = (s?: string | null) => {
+    const st = normalizeKyc(s);
+    return st !== "NOT_STARTED";
+  };
+
+  const prettyKyc = (s?: string | null) => {
+    const st = normalizeKyc(s);
+    if (st === "UNDER_REVIEW" || st === "SUBMITTED") return "Pending";
+    if (st === "APPROVED") return "Approved";
+    if (st === "REJECTED") return "Rejected";
+    return "Not started";
+  };
+
   return (
     <DashboardLayout
       title="Partner Dashboard"
@@ -338,18 +387,17 @@ export default function PartnerDashboard() {
             <h1 className="text-2xl font-bold">Hello, {welcome} 👋</h1>
             <p className="text-gray-600">Manage your listings, bookings & payouts.</p>
 
-            {profile?.kycStatus && (
+            {showKycBadge(profile?.kycStatus) && (
               <div
                 className={`mt-2 inline-block px-3 py-1 text-sm rounded-full ${
-                  profile.kycStatus === "APPROVED"
+                  normalizeKyc(profile?.kycStatus) === "APPROVED"
                     ? "bg-green-100 text-green-700"
-                    : profile.kycStatus === "REJECTED"
+                    : normalizeKyc(profile?.kycStatus) === "REJECTED"
                     ? "bg-red-100 text-red-700"
                     : "bg-yellow-100 text-yellow-700"
                 }`}
               >
-                🧾 KYC{' '}
-                {profile.kycStatus.charAt(0).toUpperCase() + profile.kycStatus.slice(1)}
+                🧾 KYC {prettyKyc(profile?.kycStatus)}
               </div>
             )}
           </div>
@@ -367,7 +415,7 @@ export default function PartnerDashboard() {
             >
               Bank Settings
             </button>
-            {profile && (profile.kycStatus === "APPROVED") ? (
+            {profile && normalizeKyc(profile?.kycStatus) === "APPROVED" ? (
               <button
                 onClick={() => setOpenSettlementModal(true)}
                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
@@ -376,7 +424,7 @@ export default function PartnerDashboard() {
               </button>
             ) : (
               <div className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg border border-yellow-300 text-sm">
-                ⚠️ KYC {profile?.kycStatus || "Pending"} —{' '}
+                ⚠️ KYC {prettyKyc(profile?.kycStatus)} —{" "}
                 <button
                   onClick={() => router.push("/partner/dashboard/kyc")}
                   className="text-blue-600 underline hover:text-blue-800"
@@ -476,7 +524,7 @@ export default function PartnerDashboard() {
             </div>
 
             <div className="space-y-3">
-              {[["accountHolder","accountNumber","ifsc","bankName","branch","upi"]].map((f:any) => (
+              {["accountHolder","accountNumber","ifsc","bankName","branch","upi"].map((f:any) => (
                 <div key={f}>
                   <label className="block text-sm capitalize">{f}</label>
                   <input className="border rounded-lg w-full p-2" value={(bankDraft as any)[f] || (profile?.bank || {})[f] || ""} onChange={(e) => setBankDraft({ ...bankDraft, [f]: e.target.value })} />

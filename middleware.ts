@@ -8,19 +8,19 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const host = request.headers.get("host") || "";
 
-  /* -------------------------------
+  /* ---------------------------------------------------
      1️⃣ FORCE DOMAIN CONSISTENCY
-     Redirect root → www
-  --------------------------------*/
+     Redirect non-www → www
+  ----------------------------------------------------*/
   if (host === "bharatcomfort.online") {
     return NextResponse.redirect(
       `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
     );
   }
 
-  /* -------------------------------
+  /* ---------------------------------------------------
      2️⃣ SKIP STATIC / PUBLIC FILES
-  --------------------------------*/
+  ----------------------------------------------------*/
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
@@ -29,23 +29,23 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /* -------------------------------
+  /* ---------------------------------------------------
      3️⃣ SKIP ALL API ROUTES
-  --------------------------------*/
+  ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     return NextResponse.next();
   }
 
-  /* -------------------------------
+  /* ---------------------------------------------------
      4️⃣ SKIP AUTH ROUTES
-  --------------------------------*/
+  ----------------------------------------------------*/
   if (pathname.startsWith("/auth")) {
     return NextResponse.next();
   }
 
-  /* -------------------------------
+  /* ---------------------------------------------------
      5️⃣ CAPTURE REFERRAL CODE
-  --------------------------------*/
+  ----------------------------------------------------*/
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
     const response = NextResponse.next();
@@ -60,22 +60,27 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  /* -------------------------------
-     6️⃣ PROTECTED ROUTES
-  --------------------------------*/
-  const protectedPaths = [
-    "/dashboard",
-    "/partner",
-    "/admin",
-    "/chat",
-    "/book",
-  ];
+  /* ---------------------------------------------------
+     6️⃣ PROTECTED ROUTE CHECK
+     Accepts:
+     - __session cookie (server auth)
+     - Authorization: Bearer <token> (client fallback)
+  ----------------------------------------------------*/
+  const protectedPaths = ["/dashboard", "/partner", "/admin", "/chat", "/book"];
   const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
-  const sessionCookie =
-    request.cookies.get("__session")?.value || "";
+  // Primary auth: Firebase session cookie
+  const cookieSession = request.cookies.get("__session")?.value || "";
 
-  if (isProtected && !sessionCookie) {
+  // Secondary fallback: Bearer token (from client)
+  const authHeader = request.headers.get("authorization") || "";
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.replace("Bearer ", "")
+    : "";
+
+  const isAuthenticated = cookieSession || bearerToken;
+
+  if (isProtected && !isAuthenticated) {
     const loginUrl = new URL(`/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
@@ -84,9 +89,9 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-/* -------------------------------
+/* ---------------------------------------------------
    MATCHER — only run on real pages
---------------------------------*/
+----------------------------------------------------*/
 export const config = {
   matcher: [
     "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",

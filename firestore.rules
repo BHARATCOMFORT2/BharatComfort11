@@ -30,9 +30,12 @@ service cloud.firestore {
        👤 USERS
     ─────────────────────────────── */
     match /users/{uid} {
+      // Allow signed-in owner to read their profile OR admin
       allow read: if isSelf(uid) || isAdmin();
+
       allow create: if isSelf(uid);
 
+      // Users may update their doc but cannot set role/isAdmin
       allow update: if isSelf(uid)
                     && !("role" in request.resource.data)
                     && !("isAdmin" in request.resource.data);
@@ -45,23 +48,26 @@ service cloud.firestore {
        🧑‍💼 PARTNERS
     ─────────────────────────────── */
     match /partners/{uid} {
+      // partner doc read: owner or admin
       allow read: if isSelf(uid) || isAdmin();
       allow create: if isSelf(uid);
 
+      // partner can update their profile (not admin fields)
       allow update: if isSelf(uid)
                     && !("role" in request.resource.data)
                     && !("isAdmin" in request.resource.data);
 
       allow delete: if isSelf(uid) || isAdmin();
 
-      /* KYC Docs */
+      /* ───────────────────────────────
+         KYC Subcollections
+      ─────────────────────────────── */
       match /kycDocs/{docId} {
         allow read: if isSelf(uid) || isAdmin();
         allow create: if isSelf(uid);
         allow update, delete: if isAdmin();
       }
 
-      /* KYC Audit */
       match /kycAudit/{auditId} {
         allow read: if isSelf(uid) || isAdmin();
         allow create: if isSelf(uid) || isAdmin();
@@ -70,27 +76,28 @@ service cloud.firestore {
     }
 
     /* ───────────────────────────────
-       📅 BOOKINGS (FULLY FIXED)
+       📅 BOOKINGS (query-safe)
     ─────────────────────────────── */
     match /bookings/{bookingId} {
 
-      // USER dashboard queries
+      // allow query by userId: where("userId","==", request.auth.uid)
       allow read: if isSignedIn()
-                  && request.query != null
-                  && request.query.where[0].field == "userId"
-                  && request.query.where[0].value == request.auth.uid;
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "userId"
+                   && request.query.where[0].value == request.auth.uid;
 
-      // PARTNER dashboard queries
+      // allow query by partnerId: where("partnerId","==", request.auth.uid)
       allow read: if isSignedIn()
-                  && request.query != null
-                  && request.query.where[0].field == "partnerId"
-                  && request.query.where[0].value == request.auth.uid;
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "partnerId"
+                   && request.query.where[0].value == request.auth.uid;
 
-      // Admin global access
+      // admin may read all
       allow read: if isAdmin();
 
-      allow create: if isSignedIn()
-                    && request.resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
 
       allow update: if isAdmin()
                     || (isSignedIn() && resource.data.userId == request.auth.uid)
@@ -100,63 +107,92 @@ service cloud.firestore {
     }
 
     /* ───────────────────────────────
-       💳 PAYMENTS
+       💳 PAYMENTS (query-safe for owner)
     ─────────────────────────────── */
     match /payments/{paymentId} {
+      // allow reads when queried by userId
       allow read: if isSignedIn()
-                  && (resource.data.userId == request.auth.uid
-                      || resource.data.partnerId == request.auth.uid)
-                  || isAdmin();
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "userId"
+                   && request.query.where[0].value == request.auth.uid;
+
+      // allow reads when queried by partnerId
+      allow read: if isSignedIn()
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "partnerId"
+                   && request.query.where[0].value == request.auth.uid;
+
+      // fallback admin
+      allow read: if isAdmin();
 
       allow create, update, delete: if isAdmin();
     }
 
     /* ───────────────────────────────
-       💸 REFUNDS
+       💸 REFUNDS (query-safe)
     ─────────────────────────────── */
     match /refunds/{refundId} {
+      // allow queries by userId
       allow read: if isSignedIn()
-                  && (resource.data.userId == request.auth.uid
-                      || resource.data.partnerId == request.auth.uid)
-                  || isAdmin();
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "userId"
+                   && request.query.where[0].value == request.auth.uid;
 
-      allow create: if isSelf(request.resource.data.userId);
+      // allow queries by partnerId
+      allow read: if isSignedIn()
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "partnerId"
+                   && request.query.where[0].value == request.auth.uid;
 
-      allow update: if isSelf(resource.data.userId);
+      allow read: if isAdmin();
+
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+
       allow delete: if isAdmin();
     }
 
     /* ───────────────────────────────
-       💰 SETTLEMENTS
+       💰 SETTLEMENTS (query-safe)
     ─────────────────────────────── */
     match /settlements/{sid} {
 
-      allow read: if isAdmin()
-                  || (isSignedIn()
-                      && resource.data.partnerId == request.auth.uid);
+      // allow query reads by partnerId
+      allow read: if isSignedIn()
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "partnerId"
+                   && request.query.where[0].value == request.auth.uid;
 
+      // admin may read all
+      allow read: if isAdmin();
+
+      // create by partner themselves
       allow create: if isPartner()
                     && request.resource.data.partnerId == request.auth.uid;
 
-      allow update: if isSignedIn()
-                    && resource.data.partnerId == request.auth.uid;
+      // owner can update their settlement doc
+      allow update: if isSignedIn() && resource.data.partnerId == request.auth.uid;
 
       allow delete, write: if isAdmin();
     }
 
     /* ───────────────────────────────
-       ⚖️ SETTLEMENT DISPUTES
+       ⚖️ SETTLEMENT DISPUTES & messages
     ─────────────────────────────── */
     match /settlement_disputes/{disputeId} {
-
       allow read: if isAdmin()
-                  || (isSignedIn()
-                      && resource.data.partnerId == request.auth.uid);
+                  || (isSignedIn() && resource.data.partnerId == request.auth.uid);
 
-      allow create: if isPartner()
-                    && request.resource.data.partnerId == request.auth.uid;
+      allow create: if isPartner() && request.resource.data.partnerId == request.auth.uid;
 
-      allow update: if isSelf(resource.data.partnerId);
+      allow update: if isSignedIn() && resource.data.partnerId == request.auth.uid;
+
       allow delete: if isAdmin();
 
       match /messages/{msgId} {
@@ -166,46 +202,61 @@ service cloud.firestore {
                            .data.partnerId == request.auth.uid);
 
         allow create: if isAdmin()
-                      || (isSignedIn()
-                          && request.resource.data.uid == request.auth.uid);
+                      || (isSignedIn() && request.resource.data.uid == request.auth.uid);
 
         allow update, delete: if isAdmin();
       }
     }
 
     /* ───────────────────────────────
-       🔔 NOTIFICATIONS
+       🔔 NOTIFICATIONS (query-safe)
     ─────────────────────────────── */
     match /notifications/{id} {
-      allow read: if isSelf(resource.data.userId) || isAdmin();
-      allow update: if isSelf(resource.data.userId);
+      // allow queries that filter by userId == request.auth.uid
+      allow read: if isSignedIn()
+                   && request.query != null
+                   && request.query.where.size() > 0
+                   && request.query.where[0].field == "userId"
+                   && request.query.where[0].value == request.auth.uid;
+
+      allow read: if isAdmin();
+
+      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+
       allow delete, write: if isAdmin();
     }
 
     /* ───────────────────────────────
-       ⭐ REVIEWS / STORIES
+       ⭐ REVIEWS / STORIES (public reads)
     ─────────────────────────────── */
     match /reviews/{id} {
       allow read: if true;
-      allow create: if isSelf(request.resource.data.userId);
-      allow update, delete: if isSelf(resource.data.userId);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
     match /stories/{id} {
       allow read: if true;
-      allow create: if isSelf(request.resource.data.userId);
-      allow update, delete: if isSelf(resource.data.userId);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
     }
 
     /* ───────────────────────────────
        🎁 REFERRALS
     ─────────────────────────────── */
     match /referrals/{rid} {
+      // allow queries that include referrerId or referredUserId filters
       allow read: if isAdmin()
+                  || (isSignedIn() &&
+                      request.query != null
+                      && request.query.where.size() > 0
+                      && (request.query.where[0].field == "referrerId" && request.query.where[0].value == request.auth.uid
+                          || request.query.where[0].field == "referredUserId" && request.query.where[0].value == request.auth.uid)
+                     )
                   || isSelf(resource.data.referrerId)
                   || isSelf(resource.data.referredUserId);
 
-      allow create: if isSelf(request.resource.data.referrerId);
+      allow create: if isSignedIn() && request.resource.data.referrerId == request.auth.uid;
       allow update, delete: if isAdmin();
     }
 
@@ -217,7 +268,7 @@ service cloud.firestore {
     }
 
     match /rewards/{rewardId} {
-      allow read: if isSelf(resource.data.userId) || isAdmin();
+      allow read: if isSignedIn() && resource.data.userId == request.auth.uid || isAdmin();
       allow create, update, delete: if isAdmin();
     }
 

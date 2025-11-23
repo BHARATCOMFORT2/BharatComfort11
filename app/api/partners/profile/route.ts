@@ -1,10 +1,4 @@
 // app/api/partners/profile/route.ts
-// ✔ Now returns partner core info
-// ✔ Returns latest KYC submission + documents
-// ✔ Returns correct onboarding + KYC states
-// ✔ Protects session correctly
-// ✔ Fixed missing partner.uid issue
-
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -63,12 +57,10 @@ export async function GET(req: Request) {
 
     const partner = snap.data() || {};
 
-    // Normalize fields safely
-    const onboardingStatus = partner.status || "PENDING_ONBOARDING";
-    const kycStatus = partner.kycStatus || "NOT_STARTED";
+    let onboardingStatus = partner.status || "PENDING_ONBOARDING";
 
     // -------------------------------
-    // 4) Fetch latest KYC document entry
+    // 4) Fetch latest KYC document submission
     // -------------------------------
     const kycDocsSnap = await partnerRef
       .collection("kycDocs")
@@ -77,14 +69,23 @@ export async function GET(req: Request) {
       .get();
 
     let latestKyc: any = null;
+    let kycStatus = "NOT_STARTED"; // DEFAULT
 
     if (!kycDocsSnap.empty) {
       const doc = kycDocsSnap.docs[0];
-
       latestKyc = {
         kycId: doc.id,
         ...doc.data(),
       };
+
+      // Use document status if present
+      kycStatus =
+        latestKyc.status?.toUpperCase() ||
+        partner.kycStatus?.toUpperCase() ||
+        "UNDER_REVIEW";
+    } else {
+      // FORCE NOT_STARTED if no documents exist
+      kycStatus = "NOT_STARTED";
     }
 
     return NextResponse.json({
@@ -92,7 +93,7 @@ export async function GET(req: Request) {
       exists: true,
       uid,
       partner: {
-        uid, // FIXED — always return correct uid
+        uid,
         name: partner.name || null,
         email: partner.email || null,
         phone: partner.phone || null,
@@ -103,7 +104,8 @@ export async function GET(req: Request) {
       },
       kycStatus,
       onboardingStatus,
-      latestKyc, // NEW → dashboard needs this!
+      latestKyc,
+
       claims: {
         partner: decoded.partner || false,
         admin: decoded.admin || false,

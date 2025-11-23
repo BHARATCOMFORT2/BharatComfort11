@@ -21,8 +21,7 @@ export default function PartnerDashboardLayout({ children }) {
         return;
       }
 
-      // 🔥 IMPORTANT — NO AUTH HEADER
-      // backend only accepts cookies
+      // IMPORTANT — NO AUTH HEADER
       const res = await fetch("/api/partners/profile", {
         method: "GET",
         credentials: "include",
@@ -32,7 +31,6 @@ export default function PartnerDashboardLayout({ children }) {
 
       const isKycPage = pathname.startsWith("/partner/dashboard/kyc");
 
-      // 🔥 If no partner exists, only allow KYC pages
       if (!res.ok || !data?.partner) {
         if (!isKycPage) {
           router.push("/partner/dashboard/kyc");
@@ -44,22 +42,19 @@ export default function PartnerDashboardLayout({ children }) {
 
       setPartner(data.partner);
 
-      // Normalize
       const raw =
         data.partner.kycStatus ||
         data.kycStatus ||
-        data.partner.kyc?.status ||
+        data.partner?.kyc?.status ||
         "NOT_STARTED";
 
       const kyc = raw.toUpperCase();
 
-      // 🔥 Allow KYC pages always
       if (isKycPage) {
         setLoading(false);
         return;
       }
 
-      // 🔥 Enforce KYC flow
       if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
         router.push("/partner/dashboard/kyc");
         return;
@@ -80,7 +75,6 @@ export default function PartnerDashboardLayout({ children }) {
         return;
       }
 
-      // fallback
       router.push("/partner/dashboard/kyc");
     }
 

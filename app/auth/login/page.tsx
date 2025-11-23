@@ -9,9 +9,6 @@ import { auth, db } from "@/lib/firebase";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 
-/* ------------------------------------------------------------
-   👑 Admin Whitelist — Declared directly in Firebase
------------------------------------------------------------- */
 const ADMIN_EMAILS = [
   "founder@bharatcomfort.in",
   "shrrajbhar12340@gmail.com",
@@ -33,39 +30,35 @@ export default function LoginPage() {
     }
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) =>
+  const handleChange = (e) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
     try {
-      // 1) Sign in
+      // 1) Firebase sign-in
       const cred = await signInWithEmailAndPassword(
         auth,
         form.email.trim(),
         form.password
       );
 
-      // Ensure SDK has currentUser populated
-      let attempts = 0;
-      while (!auth.currentUser && attempts < 10) {
-        await new Promise((r) => setTimeout(r, 150));
-        attempts++;
+      let user = auth.currentUser;
+      let tries = 0;
+
+      while (!user && tries < 10) {
+        await new Promise((r) => setTimeout(r, 120));
+        user = auth.currentUser;
+        tries++;
       }
 
-      if (!auth.currentUser) {
-        throw new Error("Auth initialization failed after sign-in.");
-      }
+      if (!user) throw new Error("Failed to initialize Firebase user session.");
 
-      const user = auth.currentUser;
-
-      // 2) Create server session cookie immediately (avoid race conditions)
+      // 2) Create secure session cookie
       const idToken = await getIdToken(user, false);
-      console.log("Token obtained (truncated):", idToken?.slice?.(0, 20) || "[no-token]");
-
       const sessionRes = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -73,38 +66,37 @@ export default function LoginPage() {
       });
 
       if (!sessionRes.ok) {
-        const bodyText = await sessionRes.text().catch(() => "");
-        throw new Error("Session setup failed: " + (bodyText || sessionRes.status));
+        throw new Error("Session cookie creation failed.");
       }
 
-      // 3) Admin quick path
+      // 3) Admin immediate redirect
       if (ADMIN_EMAILS.includes(user.email || "")) {
         router.push("/admin/dashboard");
         return;
       }
 
-      // 4) Now fetch user profile (this read should succeed because session cookie exists)
+      // 4) Load user profile from Firestore
       const userRef = doc(db, "users", user.uid);
-
       let snap;
+
       try {
         snap = await getDoc(userRef);
-      } catch (fireErr: any) {
-        console.error("Firestore getDoc(users/<uid>) failed:", fireErr);
-        setError("⚠️ Could not load profile. Permission denied or network error.");
+      } catch (err) {
+        console.error("Firestore read failed:", err);
+        setError("⚠️ Unable to load profile. Permission denied.");
         await auth.signOut();
         return;
       }
 
       if (!snap.exists()) {
-        setError("⚠️ No profile found. Please contact support.");
+        setError("⚠️ No profile found.");
         await auth.signOut();
         return;
       }
 
       const userData = snap.data();
       const role = userData.role || "user";
-      const emailVerified = auth.currentUser?.emailVerified || userData.emailVerified;
+      const emailVerified = user.emailVerified || userData.emailVerified;
       const phoneVerified = userData.phoneVerified || false;
 
       // 5) Verification checks
@@ -120,7 +112,7 @@ export default function LoginPage() {
         return;
       }
 
-      // 6) Update Firestore flags if not synced (best-effort)
+      // 6) Sync verified flags
       try {
         if (!userData.emailVerified || !userData.phoneVerified || !userData.verified) {
           await updateDoc(userRef, {
@@ -130,38 +122,67 @@ export default function LoginPage() {
             updatedAt: new Date(),
           });
         }
-      } catch (updErr: any) {
-        console.warn("Profile update blocked or failed (non-fatal):", updErr);
+      } catch {}
+
+      // ------------------------------
+      // ⭐ 7) PARTNER KYC REDIRECT LOGIC
+      // ------------------------------
+      if (role === "partner") {
+        const partnerRef = doc(db, "partners", user.uid);
+        let partnerSnap = null;
+
+        try {
+          partnerSnap = await getDoc(partnerRef);
+        } catch (err) {
+          console.error("Partner doc read error:", err);
+        }
+
+        let kycStatus = "NOT_STARTED";
+
+        if (partnerSnap?.exists()) {
+          const pdata = partnerSnap.data();
+          kycStatus = pdata.kycStatus || pdata.kyc?.status || "NOT_STARTED";
+          kycStatus = kycStatus.toUpperCase();
+        }
+
+        // 🌟 FORCE KYC BEFORE DASHBOARD
+        if (kycStatus === "NOT_STARTED" || kycStatus === "NOT_CREATED") {
+          router.push("/partner/dashboard/kyc");
+          return;
+        }
+
+        router.push("/partner/dashboard");
+        return;
       }
 
-      // 7) Redirect logic
-      if (redirectTo && redirectTo.startsWith("/listing/") && redirectTo.includes("/book")) {
+      // ------------------------------
+      // 8) USER DASHBOARD
+      // ------------------------------
+      if (
+        redirectTo &&
+        redirectTo.startsWith("/listing/") &&
+        redirectTo.includes("/book")
+      ) {
         router.push(redirectTo);
         return;
       }
 
-      switch (role) {
-        case "partner":
-          if (userData.status === "pending") {
-            alert("⚠️ Your partner account is pending admin approval.");
-            router.push("/auth/verify");
-          } else {
-            router.push("/partner/dashboard");
-          }
-          break;
-        default:
-          router.push("/user/dashboard");
-      }
-    } catch (err: any) {
-      console.error("❌ Login error:", err);
-      let msg = "❌ Login failed. Please try again.";
-      if (err.code === "auth/invalid-email") msg = "Invalid email address.";
+      router.push("/user/dashboard");
+    } catch (err) {
+      console.error("❌ Login Error:", err);
+
+      let msg = "❌ Login failed. Try again.";
+
+      if (err.code === "auth/invalid-email") msg = "Invalid email.";
       if (err.code === "auth/user-not-found") msg = "User not found.";
       if (err.code === "auth/wrong-password") msg = "Incorrect password.";
-      if (err.code === "auth/too-many-requests") msg = "Too many attempts. Try again later.";
-      if (String(err).toLowerCase().includes("permission") || String(err).toLowerCase().includes("insufficient")) {
-        msg = "⚠️ Permission denied while loading profile. Check Firestore rules for users/{uid}.";
+      if (err.code === "auth/too-many-requests")
+        msg = "Too many attempts. Try again later.";
+
+      if (String(err).includes("permission")) {
+        msg = "⚠️ Firestore permissions error.";
       }
+
       setError(msg);
     } finally {
       setLoading(false);
@@ -171,10 +192,14 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">Login</h1>
+        <h1 className="text-3xl font-bold text-gray-800 mb-6 text-center">
+          Login
+        </h1>
 
         {error && (
-          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm text-center">{error}</p>
+          <p className="bg-red-100 text-red-700 p-3 rounded-lg mb-4 text-sm text-center">
+            {error}
+          </p>
         )}
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
@@ -189,37 +214,45 @@ export default function LoginPage() {
           />
 
           <div className="relative">
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Password
+            </label>
             <input
               name="password"
               type={showPassword ? "text" : "password"}
-              placeholder="Enter your password"
+              placeholder="Enter password"
               value={form.password}
               onChange={handleChange}
-              className="w-full border rounded-lg p-3 pr-10 focus:ring focus:ring-blue-100"
+              className="w-full border rounded-lg p-3 pr-10"
               required
             />
+
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-3 top-9 text-gray-500 hover:text-gray-700"
-              aria-label="Toggle password visibility"
             >
               {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
             </button>
           </div>
 
-          <Button type="submit" disabled={loading}>{loading ? "Logging in..." : "Login"}</Button>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Logging in..." : "Login"}
+          </Button>
         </form>
 
         <div className="mt-4 text-center text-gray-500 text-sm space-y-1">
           <p>
-            Forgot your password? {" "}
-            <a href="/auth/forgot-password" className="text-blue-600 font-medium hover:underline">Reset here</a>
+            Forgot password?{" "}
+            <a className="text-blue-600 hover:underline" href="/auth/forgot-password">
+              Reset here
+            </a>
           </p>
           <p>
-            Don’t have an account? {" "}
-            <a href="/auth/register" className="text-blue-600 font-medium hover:underline">Register</a>
+            Don’t have an account?{" "}
+            <a className="text-blue-600 hover:underline" href="/auth/register">
+              Register
+            </a>
           </p>
         </div>
       </div>

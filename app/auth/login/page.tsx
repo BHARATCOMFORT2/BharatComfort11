@@ -16,6 +16,7 @@ const ADMIN_EMAILS = [
 
 export default function LoginPage() {
   const router = useRouter();
+
   const [redirectTo, setRedirectTo] = useState("/user/dashboard");
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
@@ -39,54 +40,36 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1) Firebase sign-in
-      const cred = await signInWithEmailAndPassword(
+      // 1️⃣ Firebase login
+      await signInWithEmailAndPassword(
         auth,
         form.email.trim(),
         form.password
       );
 
       let user = auth.currentUser;
-      let tries = 0;
+      if (!user) throw new Error("Auth initialization failed.");
 
-      while (!user && tries < 10) {
-        await new Promise((r) => setTimeout(r, 120));
-        user = auth.currentUser;
-        tries++;
-      }
-
-      if (!user) throw new Error("Failed to initialize Firebase user session.");
-
-      // 2) Create secure session cookie
+      // 2️⃣ Create secure session cookie
       const idToken = await getIdToken(user, false);
+
       const sessionRes = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: idToken }),
       });
 
-      if (!sessionRes.ok) {
-        throw new Error("Session cookie creation failed.");
-      }
+      if (!sessionRes.ok) throw new Error("Session cookie creation failed.");
 
-      // 3) Admin immediate redirect
+      // 3️⃣ Admin direct access
       if (ADMIN_EMAILS.includes(user.email || "")) {
         router.push("/admin/dashboard");
         return;
       }
 
-      // 4) Load user profile from Firestore
+      // 4️⃣ Load user profile document
       const userRef = doc(db, "users", user.uid);
-      let snap;
-
-      try {
-        snap = await getDoc(userRef);
-      } catch (err) {
-        console.error("Firestore read failed:", err);
-        setError("⚠️ Unable to load profile. Permission denied.");
-        await auth.signOut();
-        return;
-      }
+      const snap = await getDoc(userRef);
 
       if (!snap.exists()) {
         setError("⚠️ No profile found.");
@@ -94,70 +77,83 @@ export default function LoginPage() {
         return;
       }
 
-      const userData = snap.data();
-      const role = userData.role || "user";
-      const emailVerified = user.emailVerified || userData.emailVerified;
-      const phoneVerified = userData.phoneVerified || false;
+      const data = snap.data();
+      const role = data.role || "user";
 
-      // 5) Verification checks
-      if (!emailVerified) {
-        setError("📧 Please verify your email first.");
+      // 5️⃣ Email + phone verification checks
+      if (!user.emailVerified || !data.emailVerified) {
         router.push("/auth/verify");
         return;
       }
 
-      if (!phoneVerified) {
-        setError("📱 Please verify your phone number first.");
+      if (!data.phoneVerified) {
         router.push("/auth/verify");
         return;
       }
 
-      // 6) Sync verified flags
+      // Sync verification flags
       try {
-        if (!userData.emailVerified || !userData.phoneVerified || !userData.verified) {
-          await updateDoc(userRef, {
-            emailVerified: true,
-            phoneVerified: true,
-            verified: true,
-            updatedAt: new Date(),
-          });
-        }
+        await updateDoc(userRef, {
+          emailVerified: true,
+          phoneVerified: true,
+          verified: true,
+          updatedAt: new Date(),
+        });
       } catch {}
 
-      // ------------------------------
-      // ⭐ 7) PARTNER KYC REDIRECT LOGIC
-      // ------------------------------
+      // ======================================================
+      // ⭐ PARTNER LOGIN LOGIC + FULL KYC CONTROL
+      // ======================================================
       if (role === "partner") {
         const partnerRef = doc(db, "partners", user.uid);
-        let partnerSnap = null;
+        let pSnap = null;
 
         try {
-          partnerSnap = await getDoc(partnerRef);
+          pSnap = await getDoc(partnerRef);
         } catch (err) {
-          console.error("Partner doc read error:", err);
+          console.error("Partner read error:", err);
         }
 
         let kycStatus = "NOT_STARTED";
 
-        if (partnerSnap?.exists()) {
-          const pdata = partnerSnap.data();
-          kycStatus = pdata.kycStatus || pdata.kyc?.status || "NOT_STARTED";
-          kycStatus = kycStatus.toUpperCase();
+        if (pSnap?.exists()) {
+          const pdata = pSnap.data();
+          kycStatus = (
+            pdata.kycStatus ||
+            pdata.kyc?.status ||
+            "NOT_STARTED"
+          ).toUpperCase();
         }
 
-        // 🌟 FORCE KYC BEFORE DASHBOARD
+        // 🚧 BLOCK DASHBOARD UNTIL KYC IS DONE
         if (kycStatus === "NOT_STARTED" || kycStatus === "NOT_CREATED") {
           router.push("/partner/dashboard/kyc");
           return;
         }
 
-        router.push("/partner/dashboard");
+        if (kycStatus === "UNDER_REVIEW") {
+          router.push("/partner/dashboard/kyc/pending");
+          return;
+        }
+
+        if (kycStatus === "REJECTED") {
+          router.push("/partner/dashboard/kyc?resubmit=1");
+          return;
+        }
+
+        if (kycStatus === "APPROVED") {
+          router.push("/partner/dashboard");
+          return;
+        }
+
+        // fallback safety
+        router.push("/partner/dashboard/kyc");
         return;
       }
 
-      // ------------------------------
-      // 8) USER DASHBOARD
-      // ------------------------------
+      // ======================================================
+      // ⭐ NORMAL USER LOGIN LOGIC
+      // ======================================================
       if (
         redirectTo &&
         redirectTo.startsWith("/listing/") &&
@@ -169,19 +165,15 @@ export default function LoginPage() {
 
       router.push("/user/dashboard");
     } catch (err) {
-      console.error("❌ Login Error:", err);
+      console.error("❌ Login error:", err);
 
-      let msg = "❌ Login failed. Try again.";
-
-      if (err.code === "auth/invalid-email") msg = "Invalid email.";
+      let msg = "❌ Login failed.";
       if (err.code === "auth/user-not-found") msg = "User not found.";
-      if (err.code === "auth/wrong-password") msg = "Incorrect password.";
-      if (err.code === "auth/too-many-requests")
-        msg = "Too many attempts. Try again later.";
+      if (err.code === "auth/wrong-password") msg = "Wrong password.";
+      if (err.code === "auth/invalid-email") msg = "Invalid email.";
 
-      if (String(err).includes("permission")) {
-        msg = "⚠️ Firestore permissions error.";
-      }
+      if (String(err).includes("permission"))
+        msg = "⚠️ Firestore permission error.";
 
       setError(msg);
     } finally {
@@ -220,7 +212,7 @@ export default function LoginPage() {
             <input
               name="password"
               type={showPassword ? "text" : "password"}
-              placeholder="Enter password"
+              placeholder="Enter your password"
               value={form.password}
               onChange={handleChange}
               className="w-full border rounded-lg p-3 pr-10"

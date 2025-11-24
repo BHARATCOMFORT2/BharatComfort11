@@ -9,12 +9,15 @@ export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // ------------------------
-    // 1) Parse JSON
-    // ------------------------
+    // -----------------------
+    // 1. Parse and validate payload
+    // -----------------------
     const body = await req.json().catch(() => null);
     if (!body) {
-      return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
     }
 
     const { token, idType, idNumberMasked, documents } = body;
@@ -26,9 +29,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // ------------------------
-    // 2) Authenticate user
-    // ------------------------
+    // -----------------------
+    // 2. Verify user token
+    // -----------------------
     const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
     if (!decoded) {
       return NextResponse.json(
@@ -39,34 +42,22 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    // ------------------------
-    // 3) Check Partner existence
-    // ------------------------
+    // -----------------------
+    // 3. Validate partner exists
+    // -----------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        {
-          error: "Partner profile not found. Complete onboarding first.",
-        },
+        { error: "Partner profile not found. Complete onboarding first." },
         { status: 404 }
       );
     }
 
-    const partner = partnerSnap.data() || {};
-
-    // Prevent resubmission while under review
-    if (partner.kycStatus === "UNDER_REVIEW") {
-      return NextResponse.json(
-        { error: "KYC already submitted. Awaiting approval." },
-        { status: 409 }
-      );
-    }
-
-    // ------------------------
-    // 4) Validate documents
-    // ------------------------
+    // -----------------------
+    // 4. Prepare document objects
+    // -----------------------
     const cleanedDocs = documents.map((doc: any) => {
       if (!doc.docType || !doc.storagePath) {
         throw new Error("Each document must include docType & storagePath");
@@ -78,35 +69,35 @@ export async function POST(req: Request) {
       };
     });
 
-    // ------------------------
-    // 5) Create KYC record
-    // ------------------------
+    // -----------------------
+    // 5. Create KYC record inside subcollection
+    // -----------------------
     const kycDocRef = partnerRef.collection("kycDocs").doc();
     const kycId = kycDocRef.id;
 
     await kycDocRef.set({
-      idType: idType.toUpperCase(),
+      idType,
       idNumberMasked: idNumberMasked || null,
       documents: cleanedDocs,
-      status: "PENDING", // KYC waiting for admin approval
+      status: "PENDING",
       submittedAt: new Date(),
     });
 
-    // ------------------------
-    // 6) Update partner root doc
-    // ------------------------
+    // -----------------------
+    // 6. Update partner main profile
+    // -----------------------
     await partnerRef.set(
       {
-        kycStatus: "UNDER_REVIEW",
+        kycStatus: "PENDING",
         kycLastSubmitted: new Date(),
         updatedAt: new Date(),
       },
       { merge: true }
     );
 
-    // ------------------------
-    // 7) Add audit log
-    // ------------------------
+    // -----------------------
+    // 7. Audit log entry
+    // -----------------------
     await partnerRef.collection("kycAudit").add({
       action: "submitted",
       kycId,
@@ -116,7 +107,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       kycId,
-      message: "KYC submitted successfully and is now under review.",
+      message: "KYC submitted successfully and is now pending review.",
     });
   } catch (err: any) {
     console.error("🔥 KYC submit error:", err);

@@ -10,18 +10,21 @@ export async function GET(req: Request) {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
     // -------------------------------
-    // 1) Extract Firebase session cookie
+    // 1) Extract Firebase SESSION cookie
     // -------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
         .split(";")
         .map((c) => c.trim())
-        .find((c) => c.startsWith("session="))
+        .find((c) => c.startsWith("__session=")) // correct cookie name
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Not authenticated (no session)" },
+        { status: 401 }
+      );
     }
 
     // -------------------------------
@@ -32,18 +35,22 @@ export async function GET(req: Request) {
       .catch(() => null);
 
     if (!decoded) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid or expired session" },
+        { status: 401 }
+      );
     }
 
     const uid = decoded.uid;
 
     // -------------------------------
-    // 3) Fetch partner document
+    // 3) Fetch partner main document
     // -------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const snap = await partnerRef.get();
 
     if (!snap.exists) {
+      // Partner doc not created yet → KYC NOT_STARTED
       return NextResponse.json({
         ok: true,
         exists: false,
@@ -51,15 +58,21 @@ export async function GET(req: Request) {
         partner: null,
         onboardingStatus: "NOT_CREATED",
         kycStatus: "NOT_STARTED",
-        kyc: null,
+        latestKyc: null,
+        claims: {
+          partner: decoded.partner || false,
+          admin: decoded.admin || false,
+        },
       });
     }
 
     const partner = snap.data() || {};
-    const onboardingStatus = partner.status || "PENDING_ONBOARDING";
+
+    // Normalize partner onboarding status
+    let onboardingStatus = partner.status || "PENDING_ONBOARDING";
 
     // -------------------------------
-    // 4) Fetch latest KYC document
+    // 4) Fetch latest KYC submission (subcollection)
     // -------------------------------
     const kycDocsSnap = await partnerRef
       .collection("kycDocs")
@@ -67,31 +80,27 @@ export async function GET(req: Request) {
       .limit(1)
       .get();
 
-    let latestKyc: any = null;
+    let latestKyc = null;
     let kycStatus = "NOT_STARTED";
 
     if (!kycDocsSnap.empty) {
       const doc = kycDocsSnap.docs[0];
-      latestKyc = {
-        kycId: doc.id,
-        ...doc.data(),
-      };
+      latestKyc = { kycId: doc.id, ...doc.data() };
 
-      const rawStatus = (latestKyc.status || "").toString().toUpperCase();
+      // Normalize status to consistent values
+      const raw =
+        latestKyc.status ||
+        partner.kycStatus ||
+        "SUBMITTED";
 
-      // Normalize status values
-      if (rawStatus === "SUBMITTED") kycStatus = "UNDER_REVIEW";
-      else if (rawStatus === "APPROVED") kycStatus = "APPROVED";
-      else if (rawStatus === "REJECTED") kycStatus = "REJECTED";
-      else kycStatus = "UNDER_REVIEW"; // fallback if unknown
+      kycStatus = raw.toString().toUpperCase();
     } else {
-      // NO KYC documents exist → KYC not started
-      kycStatus = "NOT_STARTED";
+      // No KYC submitted yet
+      kycStatus = partner.kycStatus
+        ? partner.kycStatus.toString().toUpperCase()
+        : "NOT_STARTED";
     }
 
-    // -------------------------------
-    // 5) Return normalized profile
-    // -------------------------------
     return NextResponse.json({
       ok: true,
       exists: true,

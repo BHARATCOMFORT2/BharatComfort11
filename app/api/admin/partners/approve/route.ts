@@ -5,120 +5,167 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 export const dynamic = "force-dynamic";
 
 /**
- * Admin: approve a partner
- * - Expects admin session cookie (__session)
- * - Body: { partnerId: string, remarks?: string, rewardAmount?: number }
+ * Admin: Approve Partner
+ * Requires: Admin session cookie (__session)
  */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    // 1) Verify session cookie
+    // -----------------------------------
+    // 1) Verify Admin Session Cookie
+    // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
         .split(";")
-        .find((c) => c.trim().startsWith("__session="))
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
-      return NextResponse.json({ error: "Not authenticated (no session)" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Not authenticated (no session)" },
+        { status: 401 }
+      );
     }
 
-    const decodedAdmin = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
-    if (!decodedAdmin) {
-      return NextResponse.json({ error: "Invalid or expired session" }, { status: 401 });
+    const decoded = await adminAuth
+      .verifySessionCookie(sessionCookie, true)
+      .catch(() => null);
+
+    if (!decoded) {
+      return NextResponse.json(
+        { error: "Invalid or expired admin session" },
+        { status: 401 }
+      );
     }
 
-    if (!decodedAdmin.admin) {
-      return NextResponse.json({ error: "Admin access required" }, { status: 403 });
+    if (!decoded.admin) {
+      return NextResponse.json(
+        { error: "Admin access required" },
+        { status: 403 }
+      );
     }
 
-    // 2) Parse body
+    // -----------------------------------
+    // 2) Parse Request Body
+    // -----------------------------------
     const body = await req.json().catch(() => ({}));
-    const partnerId = body.partnerId;
-    const remarks = body.remarks ?? null;
-    const rewardAmount = typeof body.rewardAmount === "number" ? body.rewardAmount : 500;
+    const partnerId = body?.partnerId;
+    const remarks = body?.remarks || null;
+    const rewardAmount =
+      typeof body?.rewardAmount === "number" ? body.rewardAmount : 500;
 
     if (!partnerId) {
-      return NextResponse.json({ error: "partnerId is required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "partnerId is required" },
+        { status: 400 }
+      );
     }
 
-    // 3) Partner record
+    // -----------------------------------
+    // 3) Fetch Partner Document
+    // -----------------------------------
     const partnerRef = adminDb.collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
-      return NextResponse.json({ error: "Partner not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Partner not found" },
+        { status: 404 }
+      );
     }
 
     const partner = partnerSnap.data() || {};
     const partnerUid = partner.uid;
 
     if (!partnerUid) {
-      return NextResponse.json({ error: "Partner doc missing uid" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Partner doc missing UID" },
+        { status: 400 }
+      );
     }
 
-    // Prevent duplicate approvals
+    // Block repeat approvals
     if (partner.status === "approved" || partner.approved === true) {
-      return NextResponse.json({ error: "Partner already approved" }, { status: 409 });
+      return NextResponse.json(
+        { error: "Partner already approved" },
+        { status: 409 }
+      );
     }
 
-    const adminUid = decodedAdmin.uid;
     const now = admin.firestore.FieldValue.serverTimestamp();
+    const adminUid = decoded.uid;
 
-    // 4) Update partner doc correctly (KYC FIXED!)
+    // -----------------------------------
+    // 4) Update Partner Document
+    // -----------------------------------
     await partnerRef.update({
       status: "approved",
       approved: true,
       approvedAt: now,
       approvedBy: adminUid,
-      remarks: remarks,
-      kycStatus: "APPROVED",      // FIXED
-      kycApprovedAt: now,         // FIXED
+      remarks,
+      kycStatus: "APPROVED",
+      kycApprovedAt: now,
       updatedAt: now,
     });
 
-    // 5) Set custom claims
+    // -----------------------------------
+    // 5) Set Custom Claims (Partner Role)
+    // -----------------------------------
     const existingUser = await adminAuth.getUser(partnerUid).catch(() => null);
-    const existingClaims = existingUser?.customClaims || {};
+    if (!existingUser) {
+      return NextResponse.json(
+        { error: "Auth user not found for partner" },
+        { status: 404 }
+      );
+    }
 
-    await adminAuth.setCustomUserClaims(partnerUid, {
+    const existingClaims = existingUser.customClaims || {};
+    const newClaims = {
       ...existingClaims,
       partner: true,
       partnerId,
-    });
+    };
 
-    // 6) Log approval
+    await adminAuth.setCustomUserClaims(partnerUid, newClaims);
+
+    // -----------------------------------
+    // 6) Log approval event
+    // -----------------------------------
     await adminDb.collection("partnerApprovals").add({
       partnerId,
       partnerUid,
       adminId: adminUid,
       action: "approve",
-      remarks: remarks || null,
+      remarks,
       createdAt: now,
     });
 
-    // 7) Referral reward — safe transaction
-    const referralQ = await adminDb
+    // -----------------------------------
+    // 7) Referral Reward Processing
+    // -----------------------------------
+    const referralsQ = await adminDb
       .collection("referrals")
       .where("referredUserId", "==", partnerUid)
       .where("status", "==", "pending")
       .limit(1)
       .get();
 
-    if (!referralQ.empty) {
-      const refDoc = referralQ.docs[0];
-      const refData = refDoc.data();
-      const referrerId = refData.referrerId;
+    if (!referralsQ.empty) {
+      const refDoc = referralsQ.docs[0];
+      const ref = refDoc.data();
+      const referrerId = ref.referrerId;
 
       if (referrerId) {
         const referrerRef = adminDb.collection("users").doc(referrerId);
 
         await adminDb.runTransaction(async (tx) => {
-          const rSnap = await tx.get(referrerRef);
+          const refSnap = await tx.get(referrerRef);
 
-          if (!rSnap.exists) {
+          if (!refSnap.exists) {
             tx.set(
               referrerRef,
               {
@@ -130,8 +177,12 @@ export async function POST(req: Request) {
             );
           } else {
             tx.update(referrerRef, {
-              walletBalance: admin.firestore.FieldValue.increment(rewardAmount),
-              totalEarnings: admin.firestore.FieldValue.increment(rewardAmount),
+              walletBalance: admin.firestore.FieldValue.increment(
+                rewardAmount
+              ),
+              totalEarnings: admin.firestore.FieldValue.increment(
+                rewardAmount
+              ),
               updatedAt: now,
             });
           }
@@ -158,7 +209,7 @@ export async function POST(req: Request) {
       message: "Partner approved successfully",
     });
   } catch (err: any) {
-    console.error("Error approving partner:", err);
+    console.error("Admin Partner Approve Error:", err);
     return NextResponse.json(
       { error: err.message || "Internal server error" },
       { status: 500 }

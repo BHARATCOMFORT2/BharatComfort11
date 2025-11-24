@@ -26,6 +26,7 @@ export async function POST(req: Request) {
     // 🔐 VERIFY TOKEN
     // --------------------------
     const { adminAuth, adminStorage } = getFirebaseAdmin();
+
     const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
 
     if (!decoded || decoded.uid !== partnerId) {
@@ -47,14 +48,24 @@ export async function POST(req: Request) {
     const filePath = `partner_kyc/${partnerId}/${cleanDocType}-${timestamp}.${ext}`;
 
     // --------------------------
-    // 🪣 FIXED: Proper bucket reference
+    // 🪣 BUCKET HANDLING (fix)
     // --------------------------
-    const bucket = adminStorage.bucket ? adminStorage.bucket() : adminStorage;
+    // adminStorage may be either:
+    // - admin.storage() --> has .bucket()
+    // - direct bucket instance
+    let bucket: any;
+
+    if (typeof adminStorage.bucket === "function") {
+      bucket = adminStorage.bucket(); // firebase-admin v10+
+    } else {
+      bucket = adminStorage; // already a bucket instance
+    }
+
     const bucketFile = bucket.file(filePath);
 
     await bucketFile.save(buffer, {
       contentType: file.type,
-      public: false, // NEVER allow public access
+      resumable: false,
     });
 
     const gsUrl = `gs://${bucket.name}/${filePath}`;
@@ -62,11 +73,11 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       storagePath: gsUrl,
+      filePath,
       message: "Upload successful",
     });
   } catch (err: any) {
     console.error("🔥 File upload error:", err);
-
     return NextResponse.json(
       { error: err.message || "Internal error" },
       { status: 500 }

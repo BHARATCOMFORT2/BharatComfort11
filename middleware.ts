@@ -60,15 +60,34 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     6️⃣ PROTECTED ROUTES
+     6️⃣ PROTECTED ROUTES (SAFE VERSION)
   ----------------------------------------------------*/
-  const protectedPaths = ["/dashboard", "/partner", "/admin", "/chat", "/book"];
-  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
+  const protectedPaths = [
+    "/dashboard",
+    "/partner/dashboard",  // STRICT — does NOT block /partner/dashboard/kyc
+    "/admin",
+    "/chat",
+    "/book",
+  ];
 
-  // FIXED COOKIE NAME
-  const cookieSession = request.cookies.get("session")?.value || "";
+  const isProtected = protectedPaths.some((p) =>
+    pathname.startsWith(p)
+  );
 
-  // Fallback for client-side Bearer token
+  // FIX: Do not block KYC onboarding
+  if (pathname.startsWith("/partner/dashboard/kyc")) {
+    return NextResponse.next();
+  }
+
+  /* ---------------------------------------------------
+     SESSION COOKIE FIX
+  ----------------------------------------------------*/
+  const cookieSession =
+    request.cookies.get("session")?.value ||
+    request.cookies.get("__session")?.value ||
+    request.cookies.get("firebase_session")?.value ||
+    "";
+
   const authHeader = request.headers.get("authorization") || "";
   const bearerToken = authHeader.startsWith("Bearer ")
     ? authHeader.substring(7)
@@ -85,6 +104,9 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
+/* ---------------------------------------------------
+   MATCHER — FIXED
+----------------------------------------------------*/
 export const config = {
   matcher: [
     "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",

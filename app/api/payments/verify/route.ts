@@ -73,7 +73,7 @@ export const POST = withAuth(
 
     const payment = paySnap.data() as any;
 
-    // Already processed
+    // Already processed => idempotent
     if (payment.status === "success" && payment.bookingId) {
       return NextResponse.json({
         success: true,
@@ -84,6 +84,7 @@ export const POST = withAuth(
 
     /* ------------------ Fetch Existing Booking ------------------ */
     const bookingId = payment.bookingId;
+
     if (!bookingId) {
       return NextResponse.json(
         { success: false, error: "Payment intent missing bookingId" },
@@ -105,8 +106,8 @@ export const POST = withAuth(
     const now = FieldValue.serverTimestamp();
 
     await bookingRef.update({
-      paymentStatus: "paid",
-      status: "confirmed",
+      paymentStatus: "paid",     // match bookings API
+      status: "confirmed",       // confirmed booking
       razorpayOrderId: razorpay_order_id,
       razorpayPaymentId: razorpay_payment_id,
       updatedAt: now,
@@ -122,11 +123,16 @@ export const POST = withAuth(
       { merge: true }
     );
 
-    /* ------------------ Generate Invoice (Best-effort) ------------------ */
+    /* ------------------ Generate Invoice (Safe Mode) ------------------ */
     let invoiceUrl = null;
+
     try {
-      const { generateBookingInvoice } = await import("@/lib/invoices/generateBookingInvoice");
-      const { uploadInvoiceToFirebase } = await import("@/lib/storage/uploadInvoice");
+      const { generateBookingInvoice } = await import(
+        "@/lib/invoices/generateBookingInvoice"
+      );
+      const { uploadInvoiceToFirebase } = await import(
+        "@/lib/storage/uploadInvoice"
+      );
 
       const pdf = await generateBookingInvoice({
         bookingId,
@@ -138,7 +144,11 @@ export const POST = withAuth(
       invoiceUrl =
         typeof pdf === "string"
           ? pdf
-          : await uploadInvoiceToFirebase(pdf, `INV-${bookingId}`, "booking");
+          : await uploadInvoiceToFirebase(
+              pdf,
+              `INV-${bookingId}`,
+              "booking"
+            );
 
       await adminDb.collection("invoices").add({
         type: "booking",
@@ -151,7 +161,7 @@ export const POST = withAuth(
         createdAt: now,
       });
     } catch (e) {
-      console.warn("Invoice generation failed:", e);
+      console.warn("Invoice generation failed (ignored):", e);
     }
 
     return NextResponse.json({
@@ -163,6 +173,6 @@ export const POST = withAuth(
     });
   },
 
-  // No login required — verified safely by Razorpay signature
+  // No auth required (Razorpay webhook / frontend callback)
   { allowGuest: true }
 );

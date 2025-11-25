@@ -4,21 +4,28 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 export const dynamic = "force-dynamic";
 export const preferredRegion = "auto";
 
+/**
+ * FIXED COOKIE OPTIONS
+ * - Do NOT hardcode domain for dev/local
+ * - Only apply domain in production using env var
+ */
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax",
   path: "/",
-  domain: ".bharatcomfort.online",
+  ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
 };
 
 export async function POST(req: Request) {
   try {
     const { token } = await req.json();
-    if (!token) return NextResponse.json({ error: "Missing token" }, { status: 400 });
+    if (!token) {
+      return NextResponse.json({ error: "Missing token" }, { status: 400 });
+    }
 
     const { adminAuth } = getFirebaseAdmin();
-    const expiresIn = 7 * 24 * 60 * 60 * 1000;
+    const expiresIn = 7 * 24 * 60 * 60 * 1000; // 7 days
 
     const sessionCookie = await adminAuth.createSessionCookie(token, { expiresIn });
 
@@ -34,7 +41,10 @@ export async function POST(req: Request) {
     return res;
   } catch (error: any) {
     console.error("🔥 Session creation error:", error);
-    return NextResponse.json({ error: error.message || "Internal error" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Internal error" },
+      { status: 500 }
+    );
   }
 }
 
@@ -53,9 +63,14 @@ export async function GET(req: Request) {
     let decoded;
     try {
       decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-    } catch (e) {
+    } catch (err) {
       const resp = NextResponse.json({ authenticated: false }, { status: 401 });
-      resp.cookies.set({ name: "__session", value: "", maxAge: 0, ...COOKIE_OPTIONS });
+      resp.cookies.set({
+        name: "__session",
+        value: "",
+        maxAge: 0,
+        ...COOKIE_OPTIONS,
+      });
       return resp;
     }
 
@@ -67,13 +82,23 @@ export async function GET(req: Request) {
     });
   } catch (err) {
     const resp = NextResponse.json({ authenticated: false }, { status: 401 });
-    resp.cookies.set({ name: "__session", value: "", maxAge: 0, ...COOKIE_OPTIONS });
+    resp.cookies.set({
+      name: "__session",
+      value: "",
+      maxAge: 0,
+      ...COOKIE_OPTIONS,
+    });
     return resp;
   }
 }
 
 export async function DELETE() {
   const res = NextResponse.json({ success: true });
-  res.cookies.set({ name: "__session", value: "", maxAge: 0, ...COOKIE_OPTIONS });
+  res.cookies.set({
+    name: "__session",
+    value: "",
+    maxAge: 0,
+    ...COOKIE_OPTIONS,
+  });
   return res;
 }

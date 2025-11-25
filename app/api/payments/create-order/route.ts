@@ -1,50 +1,26 @@
-// app/api/payments/create-order/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { wrapRoute } from "@/lib/universal-wrapper";
 import { getRazorpayServerInstance } from "@/lib/payments-razorpay";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
 
-const { adminDb, adminAuth } = getFirebaseAdmin();
+/**
+ * POST: Create Razorpay Order
+ * Secured by universal wrapper:
+ *  - verifies session cookie OR idToken
+ *  - exposes ctx.uid, ctx.adminDb, ctx.adminAuth
+ */
+export const POST = wrapRoute(
+  async (req, ctx) => {
+    const { adminDb } = ctx;
 
-/* -------------------------------------------------------
-   POST — Create Razorpay Order (Unified)
-------------------------------------------------------- */
-export async function POST(req: NextRequest) {
-  try {
-    const { amount, bookingId, listingId } = await req.json();
+    // Parse incoming request
+    const body = await req.json().catch(() => ({}));
+    const { amount, bookingId, listingId } = body;
 
-    /* -------------------------------------------------------
-       1️⃣ Verify session cookie AUTH
-    ------------------------------------------------------- */
-    const cookieHeader = req.headers.get("cookie") || "";
-    const token = cookieHeader.match(/__session=([^;]+)/)?.[1];
-
-    if (!token) {
-      return NextResponse.json(
-        { success: false, error: "Unauthorized: No session" },
-        { status: 401 }
-      );
-    }
-
-    let decoded;
-    try {
-      decoded = await adminAuth.verifySessionCookie(token, true);
-    } catch (err) {
-      console.log("❌ Invalid session cookie", err);
-      return NextResponse.json(
-        { success: false, error: "Invalid or expired session" },
-        { status: 403 }
-      );
-    }
-
-    const userId = decoded.uid;
-
-    /* -------------------------------------------------------
-       2️⃣ Validate input
-    ------------------------------------------------------- */
+    // Basic validation
     if (!amount || amount <= 0) {
       return NextResponse.json(
         { success: false, error: "Invalid amount" },
@@ -59,35 +35,30 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    /* -------------------------------------------------------
-       3️⃣ Get Razorpay instance
-    ------------------------------------------------------- */
+    // Razorpay instance
     const razorpay = getRazorpayServerInstance();
     if (!razorpay) {
-      console.error("❌ Razorpay instance not initialized");
       return NextResponse.json(
-        { success: false, error: "Razorpay misconfigured" },
+        { success: false, error: "Razorpay not configured" },
         { status: 500 }
       );
     }
 
-    /* -------------------------------------------------------
-       4️⃣ Create Razorpay Order
-    ------------------------------------------------------- */
+    // Create Razorpay Order
     const order = await razorpay.orders.create({
-      amount: Math.round(amount * 100),
+      amount: Math.round(amount * 100), // paise
       currency: "INR",
       receipt: `booking_${bookingId}`,
-      notes: { userId, bookingId, listingId },
+      notes: {
+        userId: ctx.uid,
+        bookingId,
+        listingId: listingId || null,
+      },
     });
 
-    console.log("✅ Razorpay order created:", order.id);
-
-    /* -------------------------------------------------------
-       5️⃣ Store payment session
-    ------------------------------------------------------- */
+    // Store order record
     await adminDb.collection("payments").doc(order.id).set({
-      userId,
+      userId: ctx.uid,
       bookingId,
       listingId: listingId || null,
       amount,
@@ -97,20 +68,11 @@ export async function POST(req: NextRequest) {
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    /* -------------------------------------------------------
-       6️⃣ Return full order data
-    ------------------------------------------------------- */
     return NextResponse.json({
       success: true,
       razorpayOrder: order,
       key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
     });
-
-  } catch (error: any) {
-    console.error("❌ create-order API error:", error);
-    return NextResponse.json(
-      { success: false, error: error.message || "Something went wrong" },
-      { status: 500 }
-    );
-  }
-}
+  },
+  { requireAuth: true } // must be signed in
+);

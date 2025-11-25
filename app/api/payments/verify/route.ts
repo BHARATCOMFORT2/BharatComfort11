@@ -3,9 +3,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { withAuth } from "@/lib/universal-wrapper"; 
 import crypto from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
+import { withAuth } from "@/lib/universal-wrapper";
 
 /* ------------------ Resolve Razorpay Secret ------------------ */
 function resolveRazorpaySecret(): string {
@@ -19,11 +19,11 @@ function resolveRazorpaySecret(): string {
 }
 
 /* -------------------------------------------------------------
-   POST: Verify Payment Signature + Create Booking
+   POST: Verify Payment Signature + Mark Booking Paid
 ------------------------------------------------------------- */
 export const POST = withAuth(
   async (req, ctx) => {
-    const { adminDb, decoded } = ctx;
+    const { adminDb } = ctx;
 
     const body = await req.json().catch(() => ({}));
     const {
@@ -42,12 +42,12 @@ export const POST = withAuth(
     /* ------------------ Signature Verification ------------------ */
     try {
       const secret = resolveRazorpaySecret();
-      const actual = crypto
+      const expected = crypto
         .createHmac("sha256", secret)
         .update(`${razorpay_order_id}|${razorpay_payment_id}`)
         .digest("hex");
 
-      if (actual !== razorpay_signature) {
+      if (expected !== razorpay_signature) {
         return NextResponse.json(
           { success: false, error: "Invalid Razorpay signature" },
           { status: 400 }
@@ -71,7 +71,7 @@ export const POST = withAuth(
       );
     }
 
-    const payment = paySnap.data();
+    const payment = paySnap.data() as any;
 
     // Already processed
     if (payment.status === "success" && payment.bookingId) {
@@ -82,89 +82,87 @@ export const POST = withAuth(
       });
     }
 
-    /* ------------------ Create Booking ------------------ */
-    try {
-      const now = FieldValue.serverTimestamp();
-
-      const bookingData = {
-        userId: payment.userId,
-        userEmail: payment.userEmail || decoded?.email || null,
-        partnerId: payment.partnerId,
-        listingId: payment.listingId,
-        amount: payment.amount,
-        checkIn: payment.checkIn,
-        checkOut: payment.checkOut,
-        paymentMode: "razorpay",
-        paymentStatus: "paid",
-        status: "confirmed",
-        refundStatus: "none",
-        razorpayOrderId: razorpay_order_id,
-        razorpayPaymentId: razorpay_payment_id,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const bookingRef = await adminDb.collection("bookings").add(bookingData);
-      const bookingId = bookingRef.id;
-
-      /* Update payment doc */
-      await payRef.set(
-        {
-          status: "success",
-          bookingId,
-          razorpayPaymentId: razorpay_payment_id,
-          verifiedAt: now,
-        },
-        { merge: true }
-      );
-
-      /* ------------------ Generate Invoice (Best-effort) ------------------ */
-      let invoiceUrl = null;
-      try {
-        const { generateBookingInvoice } = await import("@/lib/invoices/generateBookingInvoice");
-        const { uploadInvoiceToFirebase } = await import("@/lib/storage/uploadInvoice");
-
-        const pdf = await generateBookingInvoice({
-          bookingId,
-          userId: payment.userId,
-          paymentId: razorpay_payment_id,
-          amount: payment.amount,
-        });
-
-        invoiceUrl =
-          typeof pdf === "string"
-            ? pdf
-            : await uploadInvoiceToFirebase(pdf, `INV-${bookingId}`, "booking");
-
-        await adminDb.collection("invoices").add({
-          type: "booking",
-          bookingId,
-          userId: payment.userId,
-          partnerId: payment.partnerId,
-          amount: payment.amount,
-          invoiceUrl,
-          paymentId: razorpay_payment_id,
-          createdAt: now,
-        });
-      } catch (e) {
-        console.warn("Invoice generation failed:", e);
-      }
-
-      return NextResponse.json({
-        success: true,
-        bookingId,
-        paymentId: razorpay_payment_id,
-        invoiceUrl,
-        message: "Payment verified and booking created",
-      });
-    } catch (e: any) {
+    /* ------------------ Fetch Existing Booking ------------------ */
+    const bookingId = payment.bookingId;
+    if (!bookingId) {
       return NextResponse.json(
-        { success: false, error: e.message || "Booking creation failed" },
+        { success: false, error: "Payment intent missing bookingId" },
         { status: 500 }
       );
     }
+
+    const bookingRef = adminDb.collection("bookings").doc(bookingId);
+    const bookingSnap = await bookingRef.get();
+
+    if (!bookingSnap.exists) {
+      return NextResponse.json(
+        { success: false, error: "Booking not found for this payment" },
+        { status: 404 }
+      );
+    }
+
+    /* ------------------ Update Booking ------------------ */
+    const now = FieldValue.serverTimestamp();
+
+    await bookingRef.update({
+      paymentStatus: "paid",
+      status: "confirmed",
+      razorpayOrderId: razorpay_order_id,
+      razorpayPaymentId: razorpay_payment_id,
+      updatedAt: now,
+    });
+
+    /* ------------------ Update Payment Intent ------------------ */
+    await payRef.set(
+      {
+        status: "success",
+        razorpayPaymentId: razorpay_payment_id,
+        verifiedAt: now,
+      },
+      { merge: true }
+    );
+
+    /* ------------------ Generate Invoice (Best-effort) ------------------ */
+    let invoiceUrl = null;
+    try {
+      const { generateBookingInvoice } = await import("@/lib/invoices/generateBookingInvoice");
+      const { uploadInvoiceToFirebase } = await import("@/lib/storage/uploadInvoice");
+
+      const pdf = await generateBookingInvoice({
+        bookingId,
+        userId: payment.userId,
+        paymentId: razorpay_payment_id,
+        amount: payment.amount,
+      });
+
+      invoiceUrl =
+        typeof pdf === "string"
+          ? pdf
+          : await uploadInvoiceToFirebase(pdf, `INV-${bookingId}`, "booking");
+
+      await adminDb.collection("invoices").add({
+        type: "booking",
+        bookingId,
+        userId: payment.userId,
+        partnerId: payment.partnerId,
+        amount: payment.amount,
+        invoiceUrl,
+        paymentId: razorpay_payment_id,
+        createdAt: now,
+      });
+    } catch (e) {
+      console.warn("Invoice generation failed:", e);
+    }
+
+    return NextResponse.json({
+      success: true,
+      bookingId,
+      paymentId: razorpay_payment_id,
+      invoiceUrl,
+      message: "Payment verified & booking updated",
+    });
   },
 
-  // ⚠️ No login required — Razorpay signature is enough
+  // No login required — verified safely by Razorpay signature
   { allowGuest: true }
 );

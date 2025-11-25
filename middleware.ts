@@ -38,18 +38,16 @@ export async function middleware(request: NextRequest) {
       request.cookies.get("firebase_session")?.value ||
       "";
 
-    if (!sessionCookie) {
-      return NextResponse.next();
-    }
-
     const newHeaders = new Headers(request.headers);
     const existingCookie = request.headers.get("cookie") || "";
 
-    const updatedCookie = existingCookie.includes("__session=")
-      ? existingCookie.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
-      : `__session=${sessionCookie}; ${existingCookie}`;
+    if (sessionCookie) {
+      const updatedCookie = existingCookie.includes("__session=")
+        ? existingCookie.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
+        : `__session=${sessionCookie}; ${existingCookie}`;
 
-    newHeaders.set("cookie", updatedCookie);
+      newHeaders.set("cookie", updatedCookie);
+    }
 
     return NextResponse.next({
       request: {
@@ -93,9 +91,7 @@ export async function middleware(request: NextRequest) {
     "/book",
   ];
 
-  const isProtected = protectedPaths.some((p) =>
-    pathname.startsWith(p)
-  );
+  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
   const cookieSession =
     request.cookies.get("__session")?.value ||
@@ -117,49 +113,10 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     7️⃣ PARTNER KYC FORCED FLOW
-     Partners CANNOT access dashboard until:
-     - KYC submitted
-     - Admin approved
+     ❌ 7️⃣ REMOVED — NO KYC FORCED REDIRECTS ANYMORE
+     Partner dashboard will load normally.
+     KYC sections will show INSIDE dashboard.
   ----------------------------------------------------*/
-  if (pathname.startsWith("/partner/dashboard")) {
-    try {
-      const profileRes = await fetch(request.nextUrl.origin + "/api/partners/profile", {
-        headers: {
-          cookie: request.headers.get("cookie") || "",
-        },
-      });
-
-      const profile = await profileRes.json();
-      const kyc = (profile.kycStatus || "NOT_STARTED").toUpperCase();
-
-      // Force KYC Submission before accessing dashboard
-      if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
-        return NextResponse.redirect(
-          new URL("/partner/dashboard/kyc", request.url)
-        );
-      }
-
-      // Under Review
-      if (kyc === "UNDER_REVIEW" || kyc === "SUBMITTED") {
-        return NextResponse.redirect(
-          new URL("/partner/dashboard/kyc/pending", request.url)
-        );
-      }
-
-      // Rejected → resubmit
-      if (kyc === "REJECTED") {
-        return NextResponse.redirect(
-          new URL("/partner/dashboard/kyc?resubmit=1", request.url)
-        );
-      }
-
-      // APPROVED → allow dashboard access
-    } catch (err) {
-      console.error("KYC Middleware Error:", err);
-      return NextResponse.redirect(new URL("/auth/login", request.url));
-    }
-  }
 
   return NextResponse.next();
 }

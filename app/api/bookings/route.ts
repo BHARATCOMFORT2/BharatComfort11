@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/universal-wrapper";
 import { FieldValue } from "firebase-admin/firestore";
+import Razorpay from "razorpay";
 
 /* ---------------------------------------------------------
    GET — Fetch Bookings
@@ -44,7 +45,7 @@ export const GET = withAuth(
 );
 
 /* ---------------------------------------------------------
-   POST — Create booking (supports BOTH payment modes)
+   POST — Create booking (supports Razorpay + Pay at Hotel)
 --------------------------------------------------------- */
 export const POST = withAuth(
   async (req, ctx) => {
@@ -58,7 +59,7 @@ export const POST = withAuth(
       amount,
       checkIn,
       checkOut,
-      paymentMode = "razorpay",
+      paymentMode = "razorpay", // razorpay | pay_at_hotel
     } = body;
 
     if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
@@ -84,7 +85,11 @@ export const POST = withAuth(
 
     let bookingStatus = "pending_payment";
     let paymentStatus = "pending";
+    let razorpayOrder = null;
 
+    /* ---------------------------------------------------------
+        CASE A — PAY AT HOTEL
+    --------------------------------------------------------- */
     if (paymentMode === "pay_at_hotel") {
       if (!allowPayAtHotel) {
         return NextResponse.json(
@@ -97,7 +102,35 @@ export const POST = withAuth(
       paymentStatus = "unpaid";
     }
 
-    // Create booking FIRST (matches your UI flow)
+    /* ---------------------------------------------------------
+        CASE B — RAZORPAY PAYMENT
+    --------------------------------------------------------- */
+    if (paymentMode === "razorpay") {
+      try {
+        const razor = new Razorpay({
+          key_id: process.env.RAZORPAY_KEY_ID!,
+          key_secret: process.env.RAZORPAY_KEY_SECRET!,
+        });
+
+        const order = await razor.orders.create({
+          amount: Number(amount) * 100,
+          currency: "INR",
+          receipt: `order_rcpt_${Date.now()}`,
+        });
+
+        razorpayOrder = order;
+      } catch (err) {
+        console.error("Razorpay Error:", err);
+        return NextResponse.json(
+          { success: false, error: "Razorpay order creation failed" },
+          { status: 500 }
+        );
+      }
+    }
+
+    /* ---------------------------------------------------------
+       CREATE BOOKING — common for both modes
+    --------------------------------------------------------- */
     const bookingData = {
       userId,
       userEmail: decoded?.email || null,
@@ -107,10 +140,10 @@ export const POST = withAuth(
       checkIn,
       checkOut,
       paymentMode,
-      paymentStatus,
-      status: bookingStatus,
+      paymentStatus,         // pending / unpaid
+      status: bookingStatus, // pending_payment / confirmed_unpaid
       refundStatus: "none",
-      razorpayOrderId: null,
+      razorpayOrderId: razorpayOrder?.id || null,
       createdAt: now,
       updatedAt: now,
     };
@@ -121,10 +154,11 @@ export const POST = withAuth(
       success: true,
       bookingId: bookingRef.id,
       paymentMode,
+      razorpayOrder,
       message:
         paymentMode === "pay_at_hotel"
-          ? "Booking created (pay at hotel)."
-          : "Booking created (pending payment).",
+          ? "Booking created (Pay at Hotel)."
+          : "Booking created (Razorpay pending payment).",
     });
   },
   { requireRole: ["user", "partner", "admin"] }
@@ -136,6 +170,7 @@ export const POST = withAuth(
 export const PUT = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
+
     const role =
       decoded?.role ||
       (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
@@ -158,6 +193,7 @@ export const PUT = withAuth(
     }
 
     const updates: any = { updatedAt: FieldValue.serverTimestamp() };
+
     if (status) updates.status = status;
     if (paymentStatus) updates.paymentStatus = paymentStatus;
 

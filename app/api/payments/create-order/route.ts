@@ -1,37 +1,23 @@
+// app/api/payments/create-order/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { wrapRoute } from "@/lib/universal-wrapper";
-import { createOrder as createRzpOrder } from "@/lib/payments-razorpay"; // server-safe
+import { withAuth } from "@/lib/universal-wrapper";
+import { createOrder as createRzpOrder } from "@/lib/payments-razorpay";
 import { FieldValue } from "firebase-admin/firestore";
 
 /**
- * POST: Create Razorpay Order (Hybrid Mode)
- *
- * Body:
- * {
- *   listingId,
- *   partnerId,
- *   amount,
- *   checkIn,
- *   checkOut,
- *   paymentMode? = "razorpay" | "pay_at_hotel"
- * }
- *
- * Behavior:
- * - If listing.allowPayAtHotel === true and paymentMode === "pay_at_hotel":
- *     -> create booking immediately (no Razorpay)
- * - Else:
- *     -> create Razorpay order via server SDK
- *     -> create a payment-intent document in `payments` collection (status: "created")
- *     -> return razorpayOrderId + NEXT_PUBLIC_RAZORPAY_KEY_ID
+ * POST — Create Razorpay Order OR
+ * Pay-at-Hotel Booking Generator
  */
-export const POST = wrapRoute(
+export const POST = withAuth(
   async (req, ctx) => {
-    const { adminDb, uid: userId } = ctx;
+    const { adminDb, decoded } = ctx;
+    const userId = decoded.uid;
 
     const body = await req.json().catch(() => ({}));
+
     const {
       listingId,
       partnerId,
@@ -48,24 +34,29 @@ export const POST = wrapRoute(
       );
     }
 
-    // Load listing to check pay-at-hotel flag and other validations
+    // Load listing
     const listingRef = adminDb.collection("listings").doc(listingId);
     const listingSnap = await listingRef.get();
+
     if (!listingSnap.exists) {
       return NextResponse.json(
         { success: false, error: "Listing not found" },
         { status: 404 }
       );
     }
-    const listing = listingSnap.data() || {};
-    const allowPayAtHotel = !!listing.allowPayAtHotel;
 
-    // PAY-AT-HOTEL flow -> immediate booking
+    const listing = listingSnap.data();
+    const allowPayAtHotel = listing.allowPayAtHotel ?? false;
+
+    /* ---------------------------------------------------------
+       PAY-AT-HOTEL FLOW
+    --------------------------------------------------------- */
     if (paymentMode === "pay_at_hotel" && allowPayAtHotel) {
       const now = FieldValue.serverTimestamp();
+
       const bookingData = {
         userId,
-        userEmail: ctx.decoded?.email || null,
+        userEmail: decoded.email || null,
         partnerId,
         listingId,
         amount: Number(amount),
@@ -83,18 +74,25 @@ export const POST = wrapRoute(
       const bookingRef = await adminDb.collection("bookings").add(bookingData);
       const bookingId = bookingRef.id;
 
-      // optional: generate invoice for pay-at-hotel (unpaid)
+      // Optional invoice generation
       try {
-        const invoicePdf = await import("@/lib/invoices/generateBookingInvoice").then(m => m.generateBookingInvoice).then(fn => fn({
-          bookingId,
-          userId,
-          paymentId: `PAYLATER-${bookingId}`,
-          amount: Number(amount),
-        }));
+        const invoicePdf = await import("@/lib/invoices/generateBookingInvoice")
+          .then((m) => m.generateBookingInvoice)
+          .then((fn) =>
+            fn({
+              bookingId,
+              userId,
+              paymentId: `PAYLATER-${bookingId}`,
+              amount: Number(amount),
+            })
+          );
 
-        const invoiceUrl = typeof invoicePdf === "string"
-          ? invoicePdf
-          : await import("@/lib/storage/uploadInvoice").then(m => m.uploadInvoiceToFirebase).then(fn => fn(invoicePdf, `INV-${bookingId}`, "booking"));
+        const invoiceUrl =
+          typeof invoicePdf === "string"
+            ? invoicePdf
+            : await import("@/lib/storage/uploadInvoice")
+                .then((m) => m.uploadInvoiceToFirebase)
+                .then((fn) => fn(invoicePdf, `INV-${bookingId}`, "booking"));
 
         await adminDb.collection("invoices").add({
           bookingId,
@@ -107,7 +105,7 @@ export const POST = wrapRoute(
           createdAt: now,
         });
       } catch (e) {
-        console.warn("Invoice generation failed (pay_at_hotel):", e);
+        console.warn("Invoice generation failed:", e);
       }
 
       return NextResponse.json({
@@ -118,21 +116,22 @@ export const POST = wrapRoute(
       });
     }
 
-    // Otherwise -> create Razorpay order and a payment-intent
+    /* ---------------------------------------------------------
+       RAZORPAY FLOW
+    --------------------------------------------------------- */
     try {
-      // Create Razorpay order (server-side)
       const rzpOrder = await createRzpOrder({
         amount: Number(amount),
         currency: "INR",
         receipt: `intent_${Date.now()}_${Math.floor(Math.random() * 999999)}`,
       });
 
-      if (!rzpOrder || !rzpOrder.id) {
-        throw new Error("Razorpay order creation failed");
+      if (!rzpOrder?.id) {
+        throw new Error("Failed to create Razorpay order");
       }
 
-      // Save payment-intent metadata in payments collection
-      const paymentDoc = {
+      // Save payment intent
+      await adminDb.collection("payments").doc(rzpOrder.id).set({
         status: "created",
         razorpayOrderId: rzpOrder.id,
         amount: Number(amount),
@@ -144,9 +143,7 @@ export const POST = wrapRoute(
         checkOut,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
-      };
-
-      await adminDb.collection("payments").doc(rzpOrder.id).set(paymentDoc);
+      });
 
       return NextResponse.json({
         success: true,
@@ -161,5 +158,5 @@ export const POST = wrapRoute(
       );
     }
   },
-  { requireAuth: true }
+  { requireRole: ["user", "partner", "admin"] }
 );

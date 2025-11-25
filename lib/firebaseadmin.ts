@@ -45,13 +45,17 @@ export function getAdminApp(): admin.app.App {
     throw new Error("❌ Missing Firebase Admin environment variables");
   }
 
+  // THE FIX IS HERE 👇
+  const storageBucket =
+    getEnv("FIREBASE_STORAGE_BUCKET") || `${projectId}.appspot.com`;
+
   global._firebaseAdminApp = admin.initializeApp({
     credential: admin.credential.cert({
       projectId,
       clientEmail,
       privateKey,
     }),
-    storageBucket: `${projectId}.appspot.com`,
+    storageBucket,
   });
 
   return global._firebaseAdminApp;
@@ -66,7 +70,7 @@ export const adminAuth = adminApp.auth();
 export const adminStorage = adminApp.storage().bucket();
 
 /* -------------------------------------------------------
-   FULL backward compatibility (matching old imports)
+   Backward compatibility
 ------------------------------------------------------- */
 export const db = adminDb;
 export const auth = adminAuth;

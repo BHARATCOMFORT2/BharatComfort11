@@ -26,11 +26,13 @@ export default function PartnerKYCPage() {
     { docType: "pan_card", file: null },
   ]);
 
-  const [kycStatus, setKycStatus] = useState<"NOT_STARTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED">(
-    "NOT_STARTED"
-  );
+  const [kycStatus, setKycStatus] = useState<
+    "NOT_STARTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED"
+  >("NOT_STARTED");
 
-  // Load user & profile
+  // ---------------------------------------------
+  // LOAD USER + CURRENT KYC STATUS
+  // ---------------------------------------------
   useEffect(() => {
     let mounted = true;
 
@@ -44,7 +46,7 @@ export default function PartnerKYCPage() {
       if (!mounted) return;
       setToken(t);
 
-      // Fetch partner status
+      // Fetch profile from API
       const res = await fetch("/api/partners/profile", {
         credentials: "include",
       });
@@ -63,7 +65,7 @@ export default function PartnerKYCPage() {
       setKycStatus(status);
       setLoading(false);
 
-      // If APPROVED → move back to dashboard
+      // If APPROVED → redirect to dashboard
       if (status === "APPROVED") {
         router.push("/partner/dashboard");
       }
@@ -75,9 +77,11 @@ export default function PartnerKYCPage() {
     };
   }, [router]);
 
-  // Upload a single file
+  // ---------------------------------------------
+  // UPLOAD FILE TO BACKEND
+  // ---------------------------------------------
   const uploadFile = async (doc: UploadDoc, index: number) => {
-    if (!doc.file || !token) return;
+    if (!doc.file) return;
 
     const form = new FormData();
     form.append("file", doc.file);
@@ -100,17 +104,20 @@ export default function PartnerKYCPage() {
     }
   };
 
+  // ---------------------------------------------
+  // FINAL SUBMIT
+  // ---------------------------------------------
   const handleSubmit = async () => {
     if (!token) return;
 
     if (!idType || !idMasked) {
-      return alert("Enter ID type and masked ID");
+      return alert("Enter ID Type and Masked ID Number");
     }
 
-    // Ensure all docs uploaded
+    // Validate all uploads
     for (const doc of uploadedDocs) {
       if (!doc.storagePath) {
-        return alert("Upload all required documents before submitting.");
+        return alert("Please upload all required documents.");
       }
     }
 
@@ -139,22 +146,22 @@ export default function PartnerKYCPage() {
       return;
     }
 
-    alert("KYC submitted! Await admin approval.");
+    alert("KYC submitted successfully!");
     router.push("/partner/dashboard");
   };
 
   if (loading) return <p className="text-center py-10">Loading KYC…</p>;
 
-  // ----------------------------------------
-  // STATUS HANDLING SCREENS
-  // ----------------------------------------
+  // ---------------------------------------------
+  // KYC STATUS UI
+  // ---------------------------------------------
 
   if (kycStatus === "UNDER_REVIEW") {
     return (
       <div className="max-w-xl mx-auto p-6">
         <h1 className="text-3xl font-bold mb-3">KYC Submitted</h1>
         <p className="text-gray-700 mb-4">
-          Your KYC is under review. Once approved, you will get access to all dashboard features.
+          Your KYC is under review. You will be notified once it is approved.
         </p>
         <button
           onClick={() => router.push("/partner/dashboard")}
@@ -171,15 +178,21 @@ export default function PartnerKYCPage() {
     return null;
   }
 
-  // ----------------------------------------
-  // MAIN FORM
-  // ----------------------------------------
-
+  // ---------------------------------------------
+  // KYC FORM PAGE
+  // ---------------------------------------------
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-2xl shadow">
       <h1 className="text-2xl font-bold mb-4">Partner KYC</h1>
       <p className="text-gray-700 mb-6">Submit your KYC documents for verification.</p>
 
+      {kycStatus === "REJECTED" && (
+        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+          Your previous KYC submission was rejected. Please resubmit all documents correctly.
+        </div>
+      )}
+
+      {/* ID Details */}
       <div className="space-y-4 mb-8">
         <label className="block text-sm">ID Type</label>
         <input
@@ -198,11 +211,14 @@ export default function PartnerKYCPage() {
         />
       </div>
 
+      {/* File Upload Section */}
       <h2 className="text-lg font-semibold mb-4">Upload Documents</h2>
 
       {uploadedDocs.map((doc, index) => (
         <div key={doc.docType} className="mb-4 p-4 border rounded-lg">
-          <p className="font-medium mb-2">Document: {doc.docType}</p>
+          <p className="font-medium mb-2 capitalize">
+            {doc.docType.replace("_", " ")}
+          </p>
 
           <input
             type="file"
@@ -218,7 +234,9 @@ export default function PartnerKYCPage() {
           />
 
           {doc.storagePath && (
-            <p className="text-green-700 text-sm">Uploaded: {doc.storagePath}</p>
+            <p className="text-green-700 text-sm">
+              Uploaded: {doc.storagePath}
+            </p>
           )}
         </div>
       ))}

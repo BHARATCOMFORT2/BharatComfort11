@@ -9,13 +9,13 @@ export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -----------------------
-    // 1. Parse and validate payload
-    // -----------------------
+    // ---------------------------------------------------------
+    // 1. Parse request body
+    // ---------------------------------------------------------
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json(
-        { error: "Invalid JSON body" },
+        { error: "Invalid request body" },
         { status: 400 }
       );
     }
@@ -24,15 +24,16 @@ export async function POST(req: Request) {
 
     if (!token || !idType || !documents || !Array.isArray(documents)) {
       return NextResponse.json(
-        { error: "Missing token, idType, documents[]" },
+        { error: "Missing fields: token, idType, documents[]" },
         { status: 400 }
       );
     }
 
-    // -----------------------
-    // 2. Verify user token
-    // -----------------------
+    // ---------------------------------------------------------
+    // 2. Verify Firebase ID token
+    // ---------------------------------------------------------
     const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
+
     if (!decoded) {
       return NextResponse.json(
         { error: "Invalid or expired token" },
@@ -42,25 +43,25 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    // -----------------------
-    // 3. Validate partner exists
-    // -----------------------
+    // ---------------------------------------------------------
+    // 3. Ensure partner exists
+    // ---------------------------------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        { error: "Partner profile not found. Complete onboarding first." },
+        { error: "Partner profile not found" },
         { status: 404 }
       );
     }
 
-    // -----------------------
-    // 4. Prepare document objects
-    // -----------------------
+    // ---------------------------------------------------------
+    // 4. Validate documents
+    // ---------------------------------------------------------
     const cleanedDocs = documents.map((doc: any) => {
       if (!doc.docType || !doc.storagePath) {
-        throw new Error("Each document must include docType & storagePath");
+        throw new Error("Each document must have docType & storagePath");
       }
       return {
         docType: doc.docType,
@@ -69,35 +70,35 @@ export async function POST(req: Request) {
       };
     });
 
-    // -----------------------
-    // 5. Create KYC record inside subcollection
-    // -----------------------
-    const kycDocRef = partnerRef.collection("kycDocs").doc();
-    const kycId = kycDocRef.id;
+    // ---------------------------------------------------------
+    // 5. Create KYC submission (subcollection)
+    // ---------------------------------------------------------
+    const kycRef = partnerRef.collection("kycDocs").doc();
+    const kycId = kycRef.id;
 
-    await kycDocRef.set({
+    await kycRef.set({
       idType,
       idNumberMasked: idNumberMasked || null,
       documents: cleanedDocs,
-      status: "PENDING",
+      status: "UNDER_REVIEW",   // 🔥 Corrected (NOT PENDING)
       submittedAt: new Date(),
     });
 
-    // -----------------------
-    // 6. Update partner main profile
-    // -----------------------
+    // ---------------------------------------------------------
+    // 6. Update main partner profile
+    // ---------------------------------------------------------
     await partnerRef.set(
       {
-        kycStatus: "PENDING",
+        kycStatus: "UNDER_REVIEW", // 🔥 Correct unified status
         kycLastSubmitted: new Date(),
         updatedAt: new Date(),
       },
       { merge: true }
     );
 
-    // -----------------------
-    // 7. Audit log entry
-    // -----------------------
+    // ---------------------------------------------------------
+    // 7. KYC Audit log
+    // ---------------------------------------------------------
     await partnerRef.collection("kycAudit").add({
       action: "submitted",
       kycId,
@@ -106,13 +107,15 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
+      message: "KYC submitted successfully. Status: UNDER_REVIEW",
       kycId,
-      message: "KYC submitted successfully and is now pending review.",
     });
   } catch (err: any) {
-    console.error("🔥 KYC submit error:", err);
+    console.error("🔥 KYC Submit Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      {
+        error: err.message || "Internal server error",
+      },
       { status: 500 }
     );
   }

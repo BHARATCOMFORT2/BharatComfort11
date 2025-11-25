@@ -2,45 +2,73 @@
 
 import React, { useEffect, useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { auth } from "@/lib/firebase-client";
+import { auth } from "@/lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 
 export default function KYCResubmitPage() {
-  const [user, setUser] = useState<any>(null);
-  const [token, setToken] = useState<string | null>(null);
-  const [partner, setPartner] = useState<any>(null);
   const router = useRouter();
 
-  const [files, setFiles] = useState<Record<string, File | null>>({
-    aadharFront: null,
-    aadharBack: null,
-    pan: null,
+  const [user, setUser] = useState<any>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [latestKyc, setLatestKyc] = useState<any>(null);
+
+  const [docs, setDocs] = useState<Record<string, File | null>>({
+    aadhar_front: null,
+    aadhar_back: null,
+    pan_card: null,
     selfie: null,
     gst: null,
-    bankProof: null,
+    bank_proof: null,
   });
 
   const [uploading, setUploading] = useState(false);
 
+  // Convert gs:// to public https link
+  const publicURL = (gs: string) => {
+    return gs.replace(
+      /^gs:\/\/([^/]+)\//,
+      "https://storage.googleapis.com/$1/"
+    );
+  };
+
   useEffect(() => {
     onAuthStateChanged(auth, async (u) => {
       if (!u) return router.push("/auth/login");
+
       setUser(u);
       const t = await u.getIdToken();
       setToken(t);
 
-      // fetch partner profile
-      const res = await fetch("/api/partners/profile", { headers: { "Content-Type": "application/json" } });
+      // Load partner profile
+      const res = await fetch("/api/partners/profile", {
+        credentials: "include"
+      });
+
       const data = await res.json();
-      setPartner(data.partner || null);
+
+      if (!data.ok) {
+        toast.error("Unable to load profile");
+        return;
+      }
+
+      setProfile(data.partner || null);
+
+      // Load latest KYC
+      setLatestKyc(data.latestKyc || null);
+
+      // If KYC approved → redirect away
+      if (data.kycStatus === "APPROVED") {
+        router.push("/partner/dashboard");
+      }
     });
   }, [router]);
 
   const handleFile = (e: any, key: string) => {
-    const f = e.target.files?.[0] ?? null;
-    setFiles((p) => ({ ...p, [key]: f }));
+    const file = e.target.files?.[0] || null;
+    setDocs((p) => ({ ...p, [key]: file }));
   };
 
   const uploadOne = async (file: File, docType: string) => {
@@ -50,112 +78,157 @@ export default function KYCResubmitPage() {
     form.append("docType", docType);
     form.append("file", file);
 
-    const res = await fetch("/api/partners/kyc/upload", { method: "POST", body: form });
+    const res = await fetch("/api/partners/kyc/upload", {
+      method: "POST",
+      body: form,
+    });
+
     const json = await res.json();
     if (!res.ok || !json.success) throw new Error(json.error || "Upload failed");
-    return { docType, storagePath: json.storagePath };
+
+    return {
+      docType,
+      storagePath: json.storagePath,
+    };
   };
 
   const handleSubmit = async () => {
+    if (!user || !token) {
+      toast.error("Not logged in");
+      return;
+    }
+
+    setUploading(true);
+
     try {
-      if (!user || !token) { toast.error("Not signed in"); return; }
+      const uploadedDocs: any[] = [];
 
-      // require at least one new file or allow reusing existing docs
-      const toUpload: any[] = [];
-      for (const key of Object.keys(files)) {
-        const f = files[key];
-        if (f) toUpload.push({ key, file: f });
+      // Upload only changed files
+      for (const docType of Object.keys(docs)) {
+        if (docs[docType]) {
+          const up = await uploadOne(docs[docType]!, docType);
+          uploadedDocs.push(up);
+        }
       }
 
-      setUploading(true);
-      const uploaded: any[] = [];
+      // Merge with existing KYC document’s docs
+      const existingDocs = latestKyc?.documents || [];
+      const map: Record<string, any> = {};
 
-      // upload new files
-      for (const item of toUpload) {
-        const up = await uploadOne(item.file, item.key);
-        uploaded.push(up);
-      }
+      existingDocs.forEach((d: any) => {
+        map[d.docType] = d;
+      });
 
-      // build documents list — include existing partner docs (if present) + uploaded
-      const existingDocs = partner?.kyc?.documents ?? [];
-      const docsMap: Record<string, any> = {};
-      existingDocs.forEach((d: any) => (docsMap[d.docType] = d));
+      uploadedDocs.forEach((d) => {
+        map[d.docType] = d;
+      });
 
-      for (const u of uploaded) docsMap[u.docType] = u;
+      const finalDocuments = Object.values(map);
 
-      const finalDocs = Object.values(docsMap);
-
-      if (finalDocs.length === 0) {
+      if (finalDocuments.length === 0) {
         toast.error("Please upload at least one document");
         setUploading(false);
         return;
       }
 
-      // submit metadata
-      const submitRes = await fetch("/api/partners/kyc/submit", {
+      // Submit KYC again
+      const res = await fetch("/api/partners/kyc/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "include",
         body: JSON.stringify({
           token,
-          idType: partner?.idType ?? "aadhaar_pan",
-          idNumberMasked: partner?.idNumberMasked ?? "****",
-          documents: finalDocs,
+          idType: latestKyc?.idType || "aadhaar/pan",
+          idNumberMasked: latestKyc?.idNumberMasked || "****",
+          documents: finalDocuments,
         }),
       });
 
-      const out = await submitRes.json();
-      if (!submitRes.ok) throw new Error(out.error || "Submit failed");
+      const json = await res.json();
 
-      toast.success("KYC resubmitted. Admin will review.");
+      if (!res.ok || !json.success) {
+        throw new Error(json.error || "Submit failed");
+      }
+
+      toast.success("KYC re-submitted successfully");
       router.push("/partner/dashboard/kyc/pending");
     } catch (err: any) {
-      console.error(err);
-      toast.error(err.message || "Error during KYC resubmit");
+      toast.error(err.message || "Failed to submit");
     } finally {
       setUploading(false);
     }
   };
 
-  return (
-    <DashboardLayout title="KYC Re-submit">
-      <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl">
-        <h2 className="text-xl font-semibold mb-4">Re-submit KYC Documents</h2>
+  if (!profile) {
+    return (
+      <DashboardLayout title="KYC Resubmit">
+        <p className="text-center py-10">Loading…</p>
+      </DashboardLayout>
+    );
+  }
 
-        {partner?.kycStatus === "kyc_rejected" && (
-          <div className="mb-4 p-3 bg-red-50 text-sm rounded">
-            Previous submission was rejected. Please upload corrected documents and resubmit.
-            <div className="mt-2 text-gray-600">{partner?.kycRemarks}</div>
+  return (
+    <DashboardLayout title="Re-submit KYC">
+      <div className="max-w-3xl mx-auto bg-white p-6 rounded-xl">
+        <h2 className="text-2xl font-semibold mb-4">Re-submit Updated KYC Documents</h2>
+
+        {profile.kycStatus === "REJECTED" && (
+          <div className="mb-4 p-3 bg-red-50 rounded text-sm">
+            Your previous KYC was rejected. Please correct the documents and re-submit.
+            <div className="text-gray-600 mt-2">
+              {latestKyc?.remarks || "No remarks provided."}
+            </div>
           </div>
         )}
 
         <div className="grid md:grid-cols-2 gap-4">
           {[
-            { k: "aadharFront", l: "Aadhaar Front" },
-            { k: "aadharBack", l: "Aadhaar Back" },
-            { k: "pan", l: "PAN Card" },
-            { k: "selfie", l: "Selfie with ID" },
-            { k: "gst", l: "GST (optional)" },
-            { k: "bankProof", l: "Bank Proof" },
-          ].map((it) => (
-            <div key={it.k}>
-              <label className="font-medium">{it.l}</label>
-              <input className="mt-2" type="file" accept="image/*,application/pdf" onChange={(e) => handleFile(e, it.k)} />
-              <div className="text-sm text-gray-500 mt-1">
-                {partner?.kyc?.documents?.find((d:any)=>d.docType===it.k)?.storagePath ? (
-                  <a className="text-blue-600" target="_blank" rel="noreferrer" href={
-                    partner!.kyc!.documents.find((d:any)=>d.docType===it.k)!.storagePath.replace(/^gs:\/\//,"https://storage.googleapis.com/")
-                  }>View current</a>
-                ) : "No existing file"}
+            ["aadhar_front", "Aadhaar Front"],
+            ["aadhar_back", "Aadhaar Back"],
+            ["pan_card", "PAN Card"],
+            ["selfie", "Selfie with ID"],
+            ["gst", "GST (optional)"],
+            ["bank_proof", "Bank Proof"],
+          ].map(([key, label]) => {
+            const existing = latestKyc?.documents?.find((d: any) => d.docType === key);
+
+            return (
+              <div key={key}>
+                <label className="block font-medium">{label}</label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  className="mt-2"
+                  onChange={(e) => handleFile(e, key)}
+                />
+                {existing?.storagePath && (
+                  <a
+                    href={publicURL(existing.storagePath)}
+                    target="_blank"
+                    className="text-blue-600 text-sm mt-1 block"
+                  >
+                    View existing
+                  </a>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="mt-6 flex gap-3">
-          <button className="px-4 py-2 bg-green-600 text-white rounded" onClick={handleSubmit} disabled={uploading}>
-            {uploading ? "Submitting..." : "Resubmit KYC"}
+          <button
+            className="px-4 py-2 bg-green-600 text-white rounded"
+            onClick={handleSubmit}
+            disabled={uploading}
+          >
+            {uploading ? "Submitting…" : "Re-submit KYC"}
           </button>
-          <button className="px-4 py-2 border rounded" onClick={() => router.push("/partner/dashboard")}>Cancel</button>
+          <button
+            className="px-4 py-2 border rounded"
+            onClick={() => router.push("/partner/dashboard")}
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </DashboardLayout>

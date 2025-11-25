@@ -86,15 +86,23 @@ export default function PartnerDashboard() {
         });
         const pJson = await pRes.json().catch(() => null);
 
-        // pJson shape (from backend): { ok: true/false, exists, uid, partner, kycStatus }
+        // CASE: partner doc not created yet
         if (!pJson || pJson.ok === false) {
-          // If partner doc not created -> send them to KYC/onboarding
-          // We redirect only when there's no partner record.
           if (pJson?.exists === false) {
-            // create a lightweight partner record via create-verified-user is expected
-            // redirect to KYC page to continue onboarding
-            router.push("/partner/dashboard/kyc");
-            return;
+            // do NOT redirect — show KYC UI inside dashboard instead
+            setProfile({
+              uid: pJson?.uid || user.uid,
+              displayName: user.displayName || undefined,
+              businessName: null,
+              email: user.email || undefined,
+              phone: user.phoneNumber || undefined,
+              profilePic: null,
+              status: "NOT_CREATED",
+              kycStatus: "NOT_STARTED",
+              kyc: null,
+              bank: null,
+              address: null,
+            });
           }
         } else {
           const partnerObj = pJson.partner || {};
@@ -107,13 +115,13 @@ export default function PartnerDashboard() {
           const kycStatus = normalizeKyc(rawKyc);
 
           const normalized: PartnerProfile = {
-            uid: (pJson.uid as string) || partnerObj.uid,
+            uid: (pJson.uid as string) || partnerObj.uid || user.uid,
             displayName:
-              partnerObj.displayName || partnerObj.name || partnerObj.businessName,
+              partnerObj.displayName || partnerObj.name || partnerObj.businessName || user.displayName,
             businessName:
-              partnerObj.businessName || partnerObj.displayName || partnerObj.name,
-            email: partnerObj.email,
-            phone: partnerObj.phone,
+              partnerObj.businessName || partnerObj.displayName || partnerObj.name || null,
+            email: partnerObj.email || user.email || null,
+            phone: partnerObj.phone || user.phoneNumber || null,
             profilePic: partnerObj.profilePic || null,
             status: (partnerObj.status || pJson.onboardingStatus || null) as any,
             kycStatus,
@@ -124,17 +132,8 @@ export default function PartnerDashboard() {
 
           setProfile(normalized);
 
-          // RULES:
-          // - If KYC NOT_STARTED or NOT_CREATED -> force them to KYC page
-          // - If UNDER_REVIEW (SUBMITTED) or REJECTED -> allow access but show banner
-          // - If APPROVED -> full access
-          if (kycStatus === "NOT_STARTED" || kycStatus === "NOT_CREATED") {
-            // Only redirect if not already on kyc page to avoid loops
-            if (window.location.pathname !== "/partner/dashboard/kyc") {
-              router.push("/partner/dashboard/kyc");
-              return;
-            }
-          }
+          // IMPORTANT: Do not redirect — only show the KYC card if not approved
+          // previous redirect logic removed intentionally
         }
 
         // 2) bookings (first page) — use cookies for session
@@ -371,6 +370,9 @@ export default function PartnerDashboard() {
     return "Not started";
   };
 
+  // current normalized kycStatus for UI
+  const kycStatus = normalizeKyc(profile?.kycStatus);
+
   return (
     <DashboardLayout
       title="Partner Dashboard"
@@ -380,6 +382,32 @@ export default function PartnerDashboard() {
         profilePic: profile?.profilePic,
       }}
     >
+      {/* ========== PREMIUM KYC CARD ========== */}
+      {kycStatus !== "APPROVED" && (
+        <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-xl p-5">
+          <h2 className="text-lg font-semibold text-yellow-800">🔐 KYC Verification Required</h2>
+
+          {kycStatus === "NOT_STARTED" && (
+            <p className="text-yellow-700 mt-1">You have not submitted your KYC yet. Please complete your KYC to enable full access and settlements.</p>
+          )}
+
+          {kycStatus === "UNDER_REVIEW" && (
+            <p className="text-yellow-700 mt-1">Your KYC is under review. Our team will verify it shortly.</p>
+          )}
+
+          {kycStatus === "REJECTED" && (
+            <p className="text-red-700 mt-1">Your KYC was rejected. Please resubmit your information.</p>
+          )}
+
+          <button
+            onClick={() => router.push("/partner/dashboard/kyc")}
+            className="mt-3 px-4 py-2 bg-yellow-700 text-white rounded-lg hover:bg-yellow-800"
+          >
+            Complete / View KYC
+          </button>
+        </div>
+      )}
+
       {/* Greeting */}
       <div className="mb-6 bg-white rounded-2xl p-6 shadow">
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4">

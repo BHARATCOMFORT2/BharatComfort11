@@ -4,21 +4,16 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { cookies } from "next/headers";
 
 export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
     // -------------------------------
-    // 1) Extract Firebase SESSION cookie
+    // 1) Extract Firebase SESSION cookie (FIXED)
     // -------------------------------
-    const cookieHeader = req.headers.get("cookie") || "";
-    const sessionCookie =
-      cookieHeader
-        .split(";")
-        .map((c) => c.trim())
-        .find((c) => c.startsWith("__session=")) // correct cookie name
-        ?.split("=")[1] || "";
+    const sessionCookie = cookies().get("__session")?.value || "";
 
     if (!sessionCookie) {
       return NextResponse.json(
@@ -50,7 +45,6 @@ export async function GET(req: Request) {
     const snap = await partnerRef.get();
 
     if (!snap.exists) {
-      // Partner doc not created yet → KYC NOT_STARTED
       return NextResponse.json({
         ok: true,
         exists: false,
@@ -67,12 +61,10 @@ export async function GET(req: Request) {
     }
 
     const partner = snap.data() || {};
-
-    // Normalize partner onboarding status
     let onboardingStatus = partner.status || "PENDING_ONBOARDING";
 
     // -------------------------------
-    // 4) Fetch latest KYC submission (subcollection)
+    // 4) Fetch latest KYC submission
     // -------------------------------
     const kycDocsSnap = await partnerRef
       .collection("kycDocs")
@@ -87,7 +79,6 @@ export async function GET(req: Request) {
       const doc = kycDocsSnap.docs[0];
       latestKyc = { kycId: doc.id, ...doc.data() };
 
-      // Normalize status to consistent values
       const raw =
         latestKyc.status ||
         partner.kycStatus ||
@@ -95,7 +86,6 @@ export async function GET(req: Request) {
 
       kycStatus = raw.toString().toUpperCase();
     } else {
-      // No KYC submitted yet
       kycStatus = partner.kycStatus
         ? partner.kycStatus.toString().toUpperCase()
         : "NOT_STARTED";

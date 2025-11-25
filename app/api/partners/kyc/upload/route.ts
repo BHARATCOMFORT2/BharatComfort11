@@ -35,7 +35,7 @@ export async function POST(req: Request) {
     }
 
     // ---------------------------------------------------
-    // 2️⃣ Convert file to Buffer
+    // 2️⃣ Convert file to buffer
     // ---------------------------------------------------
     const buffer = Buffer.from(await file.arrayBuffer());
     const ext = file.name.split(".").pop() || "jpg";
@@ -45,24 +45,15 @@ export async function POST(req: Request) {
     const filePath = `partner_kyc/${partnerId}/${cleanDocType}-${timestamp}.${ext}`;
 
     // ---------------------------------------------------
-    // 3️⃣ Universal Bucket Detection (100% Stable)
+    // 3️⃣ ALWAYS USE Firebase Admin Default Bucket
     // ---------------------------------------------------
-    let bucket: any;
-
-    if (adminStorage?.bucket && typeof adminStorage.bucket === "function") {
-      bucket = adminStorage.bucket(); // Normal expected case
-    } else if (adminStorage?.bucket) {
-      bucket = adminStorage.bucket; // Bucket instance directly
-    } else if (typeof adminStorage === "object" && adminStorage.file) {
-      bucket = adminStorage; // direct bucket passed
-    } else {
-      throw new Error("Firebase Storage bucket not initialized.");
-    }
+    // ❗ This is the actual fix — never manually detect buckets
+    const bucket = adminStorage.bucket(); // <-- Always valid
 
     const bucketFile = bucket.file(filePath);
 
     // ---------------------------------------------------
-    // 4️⃣ Upload file
+    // 4️⃣ Upload
     // ---------------------------------------------------
     await bucketFile.save(buffer, {
       contentType: file.type || "application/octet-stream",
@@ -72,12 +63,10 @@ export async function POST(req: Request) {
       },
     });
 
-    const gsUrl = `gs://${bucket.name}/${filePath}`;
-
     return NextResponse.json({
       success: true,
-      storagePath: gsUrl,
       filePath,
+      storagePath: `gs://${bucket.name}/${filePath}`,
       message: "Upload successful",
     });
   } catch (err: any) {

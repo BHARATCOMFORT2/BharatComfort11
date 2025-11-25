@@ -8,8 +8,14 @@ import { createOrder as createRzpOrder } from "@/lib/payments-razorpay";
 import { FieldValue } from "firebase-admin/firestore";
 
 /**
- * POST — Create Razorpay Order OR
- * Pay-at-Hotel Booking Generator
+ * NEW LOGIC (matches UI):
+ *
+ * → Booking is already created in /api/bookings
+ * → This route ONLY:
+ *     - Creates Razorpay order
+ *     - Saves payment intent
+ *
+ * Pay-at-hotel must NOT be handled here anymore.
  */
 export const POST = withAuth(
   async (req, ctx) => {
@@ -19,128 +25,59 @@ export const POST = withAuth(
     const body = await req.json().catch(() => ({}));
 
     const {
-      listingId,
-      partnerId,
+      bookingId,
       amount,
-      checkIn,
-      checkOut,
-      paymentMode = "razorpay",
+      listingId,
     } = body;
 
-    if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
+    if (!bookingId || !amount || !listingId) {
       return NextResponse.json(
-        { success: false, error: "Missing required fields" },
+        { success: false, error: "Missing bookingId, amount, listingId" },
         { status: 400 }
       );
     }
 
-    // Load listing
-    const listingRef = adminDb.collection("listings").doc(listingId);
-    const listingSnap = await listingRef.get();
+    /* ----------------------------------------------------
+       1️⃣ Fetch booking (MUST EXIST)
+    ---------------------------------------------------- */
+    const bookingSnap = await adminDb.collection("bookings").doc(bookingId).get();
 
-    if (!listingSnap.exists) {
+    if (!bookingSnap.exists) {
       return NextResponse.json(
-        { success: false, error: "Listing not found" },
+        { success: false, error: "Booking not found" },
         { status: 404 }
       );
     }
 
-    const listing = listingSnap.data();
-    const allowPayAtHotel = listing.allowPayAtHotel ?? false;
+    const booking = bookingSnap.data();
+    const partnerId = booking.partnerId;
 
-    /* ---------------------------------------------------------
-       PAY-AT-HOTEL FLOW
-    --------------------------------------------------------- */
-    if (paymentMode === "pay_at_hotel" && allowPayAtHotel) {
-      const now = FieldValue.serverTimestamp();
-
-      const bookingData = {
-        userId,
-        userEmail: decoded.email || null,
-        partnerId,
-        listingId,
-        amount: Number(amount),
-        checkIn,
-        checkOut,
-        paymentMode: "pay_at_hotel",
-        paymentStatus: "unpaid",
-        status: "confirmed_unpaid",
-        refundStatus: "none",
-        razorpayOrderId: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      const bookingRef = await adminDb.collection("bookings").add(bookingData);
-      const bookingId = bookingRef.id;
-
-      // Optional invoice generation
-      try {
-        const invoicePdf = await import("@/lib/invoices/generateBookingInvoice")
-          .then((m) => m.generateBookingInvoice)
-          .then((fn) =>
-            fn({
-              bookingId,
-              userId,
-              paymentId: `PAYLATER-${bookingId}`,
-              amount: Number(amount),
-            })
-          );
-
-        const invoiceUrl =
-          typeof invoicePdf === "string"
-            ? invoicePdf
-            : await import("@/lib/storage/uploadInvoice")
-                .then((m) => m.uploadInvoiceToFirebase)
-                .then((fn) => fn(invoicePdf, `INV-${bookingId}`, "booking"));
-
-        await adminDb.collection("invoices").add({
-          bookingId,
-          userId,
-          partnerId,
-          amount: Number(amount),
-          paymentMode: "pay_at_hotel",
-          status: "unpaid",
-          invoiceUrl,
-          createdAt: now,
-        });
-      } catch (e) {
-        console.warn("Invoice generation failed:", e);
-      }
-
-      return NextResponse.json({
-        success: true,
-        bookingId,
-        paymentMode: "pay_at_hotel",
-        message: "Booking created for pay-at-hotel",
-      });
-    }
-
-    /* ---------------------------------------------------------
-       RAZORPAY FLOW
-    --------------------------------------------------------- */
+    /* ----------------------------------------------------
+       2️⃣ Create Razorpay order
+    ---------------------------------------------------- */
     try {
       const rzpOrder = await createRzpOrder({
         amount: Number(amount),
         currency: "INR",
-        receipt: `intent_${Date.now()}_${Math.floor(Math.random() * 999999)}`,
+        receipt: `booking_${bookingId}`,
       });
 
       if (!rzpOrder?.id) {
-        throw new Error("Failed to create Razorpay order");
+        throw new Error("Razorpay order creation failed");
       }
 
-      // Save payment intent
+      /* ----------------------------------------------------
+         3️⃣ Save payment intent
+      ---------------------------------------------------- */
       await adminDb.collection("payments").doc(rzpOrder.id).set({
         status: "created",
         razorpayOrderId: rzpOrder.id,
+        bookingId,
+        listingId,
+        partnerId,
+        userId,
         amount: Number(amount),
         currency: "INR",
-        userId,
-        partnerId,
-        listingId,
-        checkIn,
-        checkOut,
         createdAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
@@ -148,12 +85,13 @@ export const POST = withAuth(
       return NextResponse.json({
         success: true,
         razorpayOrder: rzpOrder,
-        razorpayKey: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
+        key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
       });
+
     } catch (err: any) {
-      console.error("create-order error:", err);
+      console.error("Create-order error:", err);
       return NextResponse.json(
-        { success: false, error: err.message || "Failed to create order" },
+        { success: false, error: err.message || "Failed to create Razorpay order" },
         { status: 500 }
       );
     }

@@ -1,42 +1,36 @@
+// app/api/payments/verify/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { wrapRoute } from "@/lib/universal-wrapper";
+import { withAuth } from "@/lib/universal-wrapper"; 
 import crypto from "crypto";
 import { FieldValue } from "firebase-admin/firestore";
 
+/* ------------------ Resolve Razorpay Secret ------------------ */
 function resolveRazorpaySecret(): string {
   const plain = process.env.RAZORPAY_KEY_SECRET?.trim();
   const base64 = process.env.RAZORPAY_KEY_SECRET_BASE64?.trim();
+
   if (plain) return plain;
   if (base64) return Buffer.from(base64, "base64").toString("utf8");
+
   throw new Error("Missing Razorpay secret");
 }
 
-/**
- * POST: Verify payment + create booking
- *
- * Body expected (from client after payment):
- * {
- *   razorpay_order_id,
- *   razorpay_payment_id,
- *   razorpay_signature
- * }
- *
- * Behavior:
- * - Verify HMAC signature.
- * - Lookup payment intent (payments collection doc with id == razorpay_order_id).
- * - If found and not yet completed:
- *     - Create booking using payment-intent meta
- *     - Update payment doc with status=success and payment ids
- *     - Generate invoice, store invoice doc, send email/notification
- */
-export const POST = wrapRoute(
+/* -------------------------------------------------------------
+   POST: Verify Payment Signature + Create Booking
+------------------------------------------------------------- */
+export const POST = withAuth(
   async (req, ctx) => {
-    const { adminDb } = ctx;
+    const { adminDb, decoded } = ctx;
+
     const body = await req.json().catch(() => ({}));
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = body;
+    const {
+      razorpay_order_id,
+      razorpay_payment_id,
+      razorpay_signature,
+    } = body;
 
     if (!razorpay_order_id || !razorpay_payment_id || !razorpay_signature) {
       return NextResponse.json(
@@ -45,56 +39,56 @@ export const POST = wrapRoute(
       );
     }
 
-    // Verify signature
+    /* ------------------ Signature Verification ------------------ */
     try {
       const secret = resolveRazorpaySecret();
-      const expected = crypto
+      const actual = crypto
         .createHmac("sha256", secret)
         .update(`${razorpay_order_id}|${razorpay_payment_id}`)
         .digest("hex");
 
-      if (expected !== razorpay_signature) {
-        console.error("Invalid Razorpay signature");
+      if (actual !== razorpay_signature) {
         return NextResponse.json(
-          { success: false, error: "Invalid signature" },
+          { success: false, error: "Invalid Razorpay signature" },
           { status: 400 }
         );
       }
     } catch (e: any) {
-      console.error("Signature verification failed:", e);
       return NextResponse.json(
-        { success: false, error: e.message || "Signature verification failed" },
+        { success: false, error: e.message },
         { status: 500 }
       );
     }
 
-    // Find payment intent
-    const paymentRef = adminDb.collection("payments").doc(razorpay_order_id);
-    const paymentSnap = await paymentRef.get();
-    if (!paymentSnap.exists) {
+    /* ------------------ Fetch Payment Intent ------------------ */
+    const payRef = adminDb.collection("payments").doc(razorpay_order_id);
+    const paySnap = await payRef.get();
+
+    if (!paySnap.exists) {
       return NextResponse.json(
         { success: false, error: "Payment intent not found" },
         { status: 404 }
       );
     }
 
-    const payment = paymentSnap.data() as any;
+    const payment = paySnap.data();
 
-    // Already processed?
-    if (payment.status === "success" || payment.bookingId) {
+    // Already processed
+    if (payment.status === "success" && payment.bookingId) {
       return NextResponse.json({
         success: true,
         message: "Payment already processed",
-        bookingId: payment.bookingId || null,
+        bookingId: payment.bookingId,
       });
     }
 
-    // Create booking from payment meta
+    /* ------------------ Create Booking ------------------ */
     try {
       const now = FieldValue.serverTimestamp();
-      const bookingData: any = {
+
+      const bookingData = {
         userId: payment.userId,
-        userEmail: payment.userEmail || ctx.decoded?.email || null,
+        userEmail: payment.userEmail || decoded?.email || null,
         partnerId: payment.partnerId,
         listingId: payment.listingId,
         amount: payment.amount,
@@ -113,18 +107,18 @@ export const POST = wrapRoute(
       const bookingRef = await adminDb.collection("bookings").add(bookingData);
       const bookingId = bookingRef.id;
 
-      // Update payment doc
-      await paymentRef.set(
+      /* Update payment doc */
+      await payRef.set(
         {
           status: "success",
+          bookingId,
           razorpayPaymentId: razorpay_payment_id,
           verifiedAt: now,
-          bookingId,
         },
         { merge: true }
       );
 
-      // Generate invoice (using your helper)
+      /* ------------------ Generate Invoice (Best-effort) ------------------ */
       let invoiceUrl = null;
       try {
         const { generateBookingInvoice } = await import("@/lib/invoices/generateBookingInvoice");
@@ -142,7 +136,6 @@ export const POST = wrapRoute(
             ? pdf
             : await uploadInvoiceToFirebase(pdf, `INV-${bookingId}`, "booking");
 
-        // store invoice record
         await adminDb.collection("invoices").add({
           type: "booking",
           bookingId,
@@ -153,42 +146,6 @@ export const POST = wrapRoute(
           paymentId: razorpay_payment_id,
           createdAt: now,
         });
-
-        // Send invoice email (best-effort)
-        try {
-          const { sendInvoiceEmail } = await import("@/lib/emails/sendInvoiceEmail");
-          if (payment.userEmail) {
-            await sendInvoiceEmail({
-              to: payment.userEmail,
-              pdfUrl: invoiceUrl,
-              invoiceId: `INV-${bookingId}`,
-              type: "booking",
-              details: {
-                name: payment.userName || "Guest",
-                bookingId,
-                amount: payment.amount,
-                date: new Date().toLocaleDateString("en-IN"),
-              },
-            });
-          }
-        } catch (e) {
-          console.warn("Failed to send invoice email:", e);
-        }
-
-        // Push notification (best-effort)
-        try {
-          const { pushInvoiceNotification } = await import("@/lib/notifications/pushInvoiceNotification");
-          await pushInvoiceNotification({
-            type: "booking",
-            invoiceId: `INV-${bookingId}`,
-            invoiceUrl,
-            userId: payment.userId,
-            amount: payment.amount,
-            relatedId: bookingId,
-          });
-        } catch (e) {
-          console.warn("Failed to push invoice notification:", e);
-        }
       } catch (e) {
         console.warn("Invoice generation failed:", e);
       }
@@ -198,15 +155,16 @@ export const POST = wrapRoute(
         bookingId,
         paymentId: razorpay_payment_id,
         invoiceUrl,
-        message: "Payment verified & booking created",
+        message: "Payment verified and booking created",
       });
     } catch (e: any) {
-      console.error("Failed to create booking after payment:", e);
       return NextResponse.json(
-        { success: false, error: e.message || "Failed to create booking" },
+        { success: false, error: e.message || "Booking creation failed" },
         { status: 500 }
       );
     }
   },
-  { requireAuth: false } // client calls this after Razorpay payment; signature verifies authenticity
+
+  // ⚠️ No login required — Razorpay signature is enough
+  { allowGuest: true }
 );

@@ -1,49 +1,53 @@
+// app/api/bookings/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { wrapRoute } from "@/lib/universal-wrapper";
+import { withAuth } from "@/lib/universal-wrapper";
 import { FieldValue } from "firebase-admin/firestore";
 
-/**
- * GET: list bookings
- * POST: create booking for pay_at_hotel only (online payments -> use create-order/verify)
- * PUT: update booking status (admin / partner)
- */
-
-/* ---------- GET ---------- */
-export const GET = wrapRoute(
+/* ---------------------------------------------------------
+   GET — Fetch Bookings
+--------------------------------------------------------- */
+export const GET = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
     const uid = decoded?.uid;
-    const role = (decoded?.role || "user").toString();
+    const role = decoded?.role || (decoded?.admin ? "admin" : decoded?.partner ? "partner" : "user");
 
-    let q;
+    let query;
+
     if (role === "admin") {
-      q = adminDb.collection("bookings").orderBy("createdAt", "desc");
+      query = adminDb.collection("bookings").orderBy("createdAt", "desc");
     } else if (role === "partner") {
-      q = adminDb
+      query = adminDb
         .collection("bookings")
         .where("partnerId", "==", uid)
         .orderBy("createdAt", "desc");
     } else {
-      q = adminDb
+      query = adminDb
         .collection("bookings")
         .where("userId", "==", uid)
         .orderBy("createdAt", "desc");
     }
 
-    const snap = await q.get();
-    const bookings = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    return NextResponse.json({ success: true, bookings });
+    const snap = await query.get();
+    return NextResponse.json({
+      success: true,
+      bookings: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+    });
   },
-  { requireAuth: true }
+  { requireRole: ["user", "partner", "admin"] }
 );
 
-/* ---------- POST ---------- */
-export const POST = wrapRoute(
+/* ---------------------------------------------------------
+   POST — Create PAY-AT-HOTEL Booking Only
+--------------------------------------------------------- */
+export const POST = withAuth(
   async (req, ctx) => {
-    const { adminDb, uid: userId, decoded } = ctx;
+    const { adminDb, decoded } = ctx;
+    const userId = decoded.uid;
+
     const body = await req.json().catch(() => ({}));
 
     const {
@@ -53,7 +57,6 @@ export const POST = wrapRoute(
       checkIn,
       checkOut,
       paymentMode = "razorpay",
-      // In hybrid mode: if client wants a pay_at_hotel booking, call this endpoint with paymentMode="pay_at_hotel"
     } = body;
 
     if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
@@ -63,33 +66,38 @@ export const POST = wrapRoute(
       );
     }
 
-    // Confirm listing exists & allows pay_at_hotel if requested
     const listingSnap = await adminDb.collection("listings").doc(listingId).get();
     if (!listingSnap.exists) {
-      return NextResponse.json({ success: false, error: "Listing not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: "Listing not found" },
+        { status: 404 }
+      );
     }
-    const listing = listingSnap.data() || {};
-    const allowPayAtHotel = !!listing.allowPayAtHotel;
+
+    const listing = listingSnap.data();
+    const allowPayAtHotel = listing.allowPayAtHotel ?? false;
 
     if (paymentMode !== "pay_at_hotel") {
-      // For online payments we instruct client to use /api/payments/create-order flow
-      return NextResponse.json({
-        success: false,
-        error:
-          "For online payments, use /api/payments/create-order to create a Razorpay order, then verify.",
-        code: "USE_CREATE_ORDER",
-      }, { status: 400 });
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "For online payments, use /api/payments/create-order then /verify.",
+          code: "USE_CREATE_ORDER",
+        },
+        { status: 400 }
+      );
     }
 
     if (!allowPayAtHotel) {
-      return NextResponse.json({
-        success: false,
-        error: "Listing does not allow pay-at-hotel",
-      }, { status: 403 });
+      return NextResponse.json(
+        { success: false, error: "Listing does not allow pay-at-hotel" },
+        { status: 403 }
+      );
     }
 
-    // Create pay-at-hotel booking
     const now = FieldValue.serverTimestamp();
+
     const bookingData = {
       userId,
       userEmail: decoded?.email || null,
@@ -109,33 +117,39 @@ export const POST = wrapRoute(
 
     const bookingRef = await adminDb.collection("bookings").add(bookingData);
 
-    // Optionally generate invoice & email code could be added here (mirror create-order flow)
     return NextResponse.json({
       success: true,
       bookingId: bookingRef.id,
       paymentMode: "pay_at_hotel",
-      message: "Booking created for pay-at-hotel",
+      message: "Booking created successfully.",
     });
   },
-  { requireAuth: true }
+  { requireRole: ["user", "partner", "admin"] }
 );
 
-/* ---------- PUT ---------- */
-export const PUT = wrapRoute(
+/* ---------------------------------------------------------
+   PUT — Update Booking (admin & partner only)
+--------------------------------------------------------- */
+export const PUT = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
-    const role = (decoded?.role || "user").toString();
+    const role = decoded?.role || (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
 
-    // Only admin or partner allowed to change booking outside user
     if (!["admin", "partner"].includes(role)) {
-      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+      return NextResponse.json(
+        { success: false, error: "Forbidden" },
+        { status: 403 }
+      );
     }
 
     const body = await req.json().catch(() => ({}));
     const { bookingId, status, paymentStatus } = body;
 
     if (!bookingId) {
-      return NextResponse.json({ success: false, error: "bookingId required" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "bookingId required" },
+        { status: 400 }
+      );
     }
 
     const updates: any = { updatedAt: FieldValue.serverTimestamp() };
@@ -146,5 +160,5 @@ export const PUT = wrapRoute(
 
     return NextResponse.json({ success: true, updates });
   },
-  { requireAuth: true }
+  { requireRole: ["admin", "partner"] }
 );

@@ -5,26 +5,33 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-/**
- * GET = return KYC status + latest submission
- */
+/* -------------------------------------------------------
+   READ AUTH COOKIE (Corrected)
+------------------------------------------------------- */
+function extractSessionCookie(req: Request) {
+  const cookieHeader = req.headers.get("cookie") || "";
+  const cookies = cookieHeader.split(";").map((c) => c.trim());
+
+  return (
+    cookies.find((c) => c.startsWith("__session="))?.split("=")[1] ||
+    cookies.find((c) => c.startsWith("session="))?.split("=")[1] ||
+    ""
+  );
+}
+
+/* -------------------------------------------------------
+   GET → return latest KYC status
+------------------------------------------------------- */
 export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // ---------------------------------------------------
-    // 1. Read Firebase session cookie (required)
-    // ---------------------------------------------------
-    const cookieHeader = req.headers.get("cookie") || "";
-    const sessionCookie =
-      cookieHeader
-        .split(";")
-        .map((c) => c.trim())
-        .find((c) => c.startsWith("session="))
-        ?.split("=")[1] || "";
-
+    const sessionCookie = extractSessionCookie(req);
     if (!sessionCookie) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json(
+        { error: "No authentication session" },
+        { status: 401 }
+      );
     }
 
     const decoded = await adminAuth
@@ -33,16 +40,14 @@ export async function GET(req: Request) {
 
     if (!decoded) {
       return NextResponse.json(
-        { error: "Invalid or expired auth session" },
+        { error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
 
-    // ---------------------------------------------------
-    // 2. Load partner profile
-    // ---------------------------------------------------
+    // Partner profile
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
@@ -57,46 +62,45 @@ export async function GET(req: Request) {
 
     const partner = partnerSnap.data() || {};
 
-    // ---------------------------------------------------
-    // 3. Read latest KYC document
-    // ---------------------------------------------------
+    // Latest KYC Doc
     const kycSnap = await partnerRef
       .collection("kycDocs")
       .orderBy("submittedAt", "desc")
       .limit(1)
       .get();
 
-    let kycStatus = "NOT_STARTED";
+    let kycStatus = (partner.kycStatus || "NOT_STARTED").toUpperCase();
     let latestKyc = null;
 
     if (!kycSnap.empty) {
-      const doc = kycSnap.docs[0];
-      latestKyc = { id: doc.id, ...doc.data() };
+      const d = kycSnap.docs[0];
+      latestKyc = { id: d.id, ...d.data() };
 
-      const raw = latestKyc.status || partner.kycStatus || "pending";
-      kycStatus = raw.toUpperCase();
+      const raw = latestKyc.status || partner.kycStatus || "NOT_STARTED";
+
+      // normalize status
+      if (raw === "PENDING") kycStatus = "UNDER_REVIEW";
+      else kycStatus = raw.toUpperCase();
     }
 
     return NextResponse.json({
       ok: true,
-      exists: true,
       uid,
       kycStatus,
       latestKyc,
     });
   } catch (err: any) {
-    console.error("🔥 KYC Status Error:", err);
+    console.error("🔥 KYC GET Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { error: err.message || "Server error" },
       { status: 500 }
     );
   }
 }
 
-/**
- * POST = submit KYC (same as /submit, but optional)
- * If you don’t want POST here, you can delete it.
- */
+/* -------------------------------------------------------
+   POST → SUBMIT KYC
+------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
@@ -107,9 +111,10 @@ export async function POST(req: Request) {
     }
 
     const { token, idType, idNumberMasked, documents } = body;
-    if (!token || !idType || !documents) {
+
+    if (!token || !idType || !idNumberMasked || !documents) {
       return NextResponse.json(
-        { error: "Missing fields" },
+        { error: "Missing required fields" },
         { status: 400 }
       );
     }
@@ -125,32 +130,36 @@ export async function POST(req: Request) {
     const uid = decoded.uid;
 
     const partnerRef = adminDb.collection("partners").doc(uid);
-    const snap = await partnerRef.get();
-    if (!snap.exists) {
+    const partnerSnap = await partnerRef.get();
+
+    if (!partnerSnap.exists) {
       return NextResponse.json(
         { error: "Partner not found" },
         { status: 404 }
       );
     }
 
-    const cleaned = documents.map((d: any) => ({
+    // Clean docs
+    const cleanedDocs = documents.map((d: any) => ({
       docType: d.docType,
       storagePath: d.storagePath,
       uploadedAt: new Date(),
     }));
 
+    // Create new KYC submission
     const kycRef = partnerRef.collection("kycDocs").doc();
     await kycRef.set({
       idType,
       idNumberMasked,
-      documents: cleaned,
-      status: "PENDING",
+      documents: cleanedDocs,
+      status: "UNDER_REVIEW", // 🔥 corrected
       submittedAt: new Date(),
     });
 
+    // update main partner profile
     await partnerRef.set(
       {
-        kycStatus: "PENDING",
+        kycStatus: "UNDER_REVIEW",
         updatedAt: new Date(),
       },
       { merge: true }
@@ -158,13 +167,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      kycId: kycRef.id,
       message: "KYC submitted successfully",
+      kycId: kycRef.id,
     });
   } catch (err: any) {
     console.error("🔥 KYC POST Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

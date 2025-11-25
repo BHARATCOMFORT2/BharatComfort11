@@ -11,36 +11,50 @@ export async function GET(req: Request) {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
     // -------------------------------
-    // 1) Extract Session Cookie
+    // 1) Try SESSION COOKIE first
     // -------------------------------
+    let uid: string | null = null;
+
     const sessionCookie = cookies().get("__session")?.value || "";
-    if (!sessionCookie) {
+    if (sessionCookie) {
+      try {
+        const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+        uid = decoded.uid;
+      } catch (e) {
+        uid = null;
+      }
+    }
+
+    // -------------------------------
+    // 2) If no session-cookie → try Bearer token
+    // -------------------------------
+    if (!uid) {
+      const authHeader = req.headers.get("authorization");
+      if (authHeader?.startsWith("Bearer ")) {
+        const token = authHeader.replace("Bearer ", "");
+        try {
+          const decoded = await adminAuth.verifyIdToken(token);
+          uid = decoded.uid;
+        } catch (e) {
+          // still null
+        }
+      }
+    }
+
+    // Not authenticated at all
+    if (!uid) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
-
-    // -------------------------------
-    // 2) Verify Cookie
-    // -------------------------------
-    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
-    if (!decoded) {
-      return NextResponse.json({ error: "Invalid session" }, { status: 401 });
-    }
-
-    const uid = decoded.uid;
 
     // -------------------------------
     // 3) Fetch USER Document
     // -------------------------------
     const userSnap = await adminDb.collection("users").doc(uid).get();
     const userData = userSnap.exists ? userSnap.data() : {};
-
     const role = userData.role || "user";
 
     if (role !== "partner") {
-      return NextResponse.json(
-        { error: "User is not a partner", role },
-        { status: 403 }
-      );
+      return NextResponse.json({ error: "User is not a partner", role }, { status: 403 });
     }
 
     // -------------------------------
@@ -63,12 +77,11 @@ export async function GET(req: Request) {
     }
 
     const partner = partnerSnap.data();
-
-    // Partner status
     let onboardingStatus = partner.status || "PENDING_ONBOARDING";
+    let kycStatus = partner.kycStatus || "NOT_STARTED";
 
     // -------------------------------
-    // 5) Fetch Latest KYC Entry
+    // 5) Get latest KYC entry
     // -------------------------------
     const kycDocsSnap = await partnerRef
       .collection("kycDocs")
@@ -77,21 +90,18 @@ export async function GET(req: Request) {
       .get();
 
     let latestKyc = null;
-    let kycStatus = partner.kycStatus || "NOT_STARTED";
-
     if (!kycDocsSnap.empty) {
       const doc = kycDocsSnap.docs[0];
       latestKyc = { kycId: doc.id, ...doc.data() };
       kycStatus = (latestKyc.status || "SUBMITTED").toUpperCase();
     }
 
-    // Normalize KYC flags
     if (kycStatus === "APPROVED") onboardingStatus = "APPROVED";
     if (kycStatus === "REJECTED") onboardingStatus = "REJECTED";
     if (kycStatus === "UNDER_REVIEW") onboardingStatus = "UNDER_REVIEW";
 
     // -------------------------------
-    // 6) Respond with Correct Data
+    // 6) Respond
     // -------------------------------
     return NextResponse.json({
       ok: true,
@@ -106,13 +116,10 @@ export async function GET(req: Request) {
         kycStatus,
       },
       latestKyc,
-      claims: {
-        partner: true, // FIXED
-        admin: !!decoded.admin,
-      },
+      claims: { partner: true },
     });
   } catch (err: any) {
     console.error("Partner profile error:", err);
-    return NextResponse.json({ error: err.message || "Server Error" }, { status: 500 });
+    return NextResponse.json({ error: err.message }, { status: 500 });
   }
 }

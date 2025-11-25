@@ -59,7 +59,8 @@ export default function LoginPage() {
         body: JSON.stringify({ token: idToken }),
       });
 
-      if (!sessionRes.ok) throw new Error("Session cookie creation failed.");
+      if (!sessionRes.ok)
+        throw new Error("Session cookie creation failed.");
 
       // 3️⃣ Admin direct access
       if (ADMIN_EMAILS.includes(user.email || "")) {
@@ -102,52 +103,10 @@ export default function LoginPage() {
       } catch {}
 
       // ======================================================
-      // ⭐ PARTNER LOGIN LOGIC + FULL KYC CONTROL
+      // ⭐ PARTNER LOGIN — NO KYC BLOCKING ⭐
       // ======================================================
       if (role === "partner") {
-        const partnerRef = doc(db, "partners", user.uid);
-        let pSnap = null;
-
-        try {
-          pSnap = await getDoc(partnerRef);
-        } catch (err) {
-          console.error("Partner read error:", err);
-        }
-
-        let kycStatus = "NOT_STARTED";
-
-        if (pSnap?.exists()) {
-          const pdata = pSnap.data();
-          kycStatus = (
-            pdata.kycStatus ||
-            pdata.kyc?.status ||
-            "NOT_STARTED"
-          ).toUpperCase();
-        }
-
-        // 🚧 BLOCK DASHBOARD UNTIL KYC IS DONE
-        if (kycStatus === "NOT_STARTED" || kycStatus === "NOT_CREATED") {
-          router.push("/partner/dashboard/kyc");
-          return;
-        }
-
-        if (kycStatus === "UNDER_REVIEW") {
-          router.push("/partner/dashboard/kyc/pending");
-          return;
-        }
-
-        if (kycStatus === "REJECTED") {
-          router.push("/partner/dashboard/kyc?resubmit=1");
-          return;
-        }
-
-        if (kycStatus === "APPROVED") {
-          router.push("/partner/dashboard");
-          return;
-        }
-
-        // fallback safety
-        router.push("/partner/dashboard/kyc");
+        router.push("/partner/dashboard");
         return;
       }
 

@@ -8,14 +8,18 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const host = request.headers.get("host") || "";
 
-  /* 1) Force www domain */
+  /* ---------------------------------------------------
+     1️⃣ FORCE DOMAIN CONSISTENCY
+  ----------------------------------------------------*/
   if (host === "bharatcomfort.online") {
     return NextResponse.redirect(
       `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
     );
   }
 
-  /* 2) Skip files */
+  /* ---------------------------------------------------
+     2️⃣ SKIP STATIC / PUBLIC FILES
+  ----------------------------------------------------*/
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
@@ -24,7 +28,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /* 3) UNIVERSAL API FIX — add __session to headers */
+  /* ---------------------------------------------------
+     3️⃣ UNIVERSAL API FIX — INJECT __session INTO HEADERS
+  ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     const sessionCookie =
       request.cookies.get("__session")?.value ||
@@ -32,26 +38,36 @@ export async function middleware(request: NextRequest) {
       request.cookies.get("firebase_session")?.value ||
       "";
 
-    if (!sessionCookie) return NextResponse.next();
+    if (!sessionCookie) {
+      return NextResponse.next();
+    }
 
     const newHeaders = new Headers(request.headers);
-    const existing = request.headers.get("cookie") || "";
+    const existingCookie = request.headers.get("cookie") || "";
 
-    const updatedCookie = existing.includes("__session=")
-      ? existing.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
-      : `__session=${sessionCookie}; ${existing}`;
+    const updatedCookie = existingCookie.includes("__session=")
+      ? existingCookie.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
+      : `__session=${sessionCookie}; ${existingCookie}`;
 
     newHeaders.set("cookie", updatedCookie);
 
     return NextResponse.next({
-      request: { headers: newHeaders },
+      request: {
+        headers: newHeaders,
+      },
     });
   }
 
-  /* 4) Skip /auth */
-  if (pathname.startsWith("/auth")) return NextResponse.next();
+  /* ---------------------------------------------------
+     4️⃣ SKIP AUTH ROUTES
+  ----------------------------------------------------*/
+  if (pathname.startsWith("/auth")) {
+    return NextResponse.next();
+  }
 
-  /* 5) Referral capture */
+  /* ---------------------------------------------------
+     5️⃣ CAPTURE REFERRAL CODE
+  ----------------------------------------------------*/
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
     const response = NextResponse.next();
@@ -66,7 +82,9 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  /* 6) Protected areas */
+  /* ---------------------------------------------------
+     6️⃣ PROTECTED ROUTES (General)
+  ----------------------------------------------------*/
   const protectedPaths = [
     "/dashboard",
     "/partner/dashboard",
@@ -74,24 +92,23 @@ export async function middleware(request: NextRequest) {
     "/chat",
     "/book",
   ];
-  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
-  // Allow partner KYC flow
-  if (pathname.startsWith("/partner/dashboard/kyc")) {
-    return NextResponse.next();
-  }
+  const isProtected = protectedPaths.some((p) =>
+    pathname.startsWith(p)
+  );
 
-  /* 7) Validate session for protected areas */
   const cookieSession =
     request.cookies.get("__session")?.value ||
     request.cookies.get("session")?.value ||
     request.cookies.get("firebase_session")?.value ||
     "";
 
-  const bearer = request.headers.get("authorization") || "";
-  const token = bearer.startsWith("Bearer ") ? bearer.slice(7) : "";
+  const authHeader = request.headers.get("authorization") || "";
+  const bearerToken = authHeader.startsWith("Bearer ")
+    ? authHeader.substring(7)
+    : "";
 
-  const isAuthenticated = cookieSession || token;
+  const isAuthenticated = cookieSession || bearerToken;
 
   if (isProtected && !isAuthenticated) {
     const loginUrl = new URL(`/auth/login`, request.url);
@@ -99,9 +116,57 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
+  /* ---------------------------------------------------
+     7️⃣ PARTNER KYC FORCED FLOW
+     Partners CANNOT access dashboard until:
+     - KYC submitted
+     - Admin approved
+  ----------------------------------------------------*/
+  if (pathname.startsWith("/partner/dashboard")) {
+    try {
+      const profileRes = await fetch(request.nextUrl.origin + "/api/partners/profile", {
+        headers: {
+          cookie: request.headers.get("cookie") || "",
+        },
+      });
+
+      const profile = await profileRes.json();
+      const kyc = (profile.kycStatus || "NOT_STARTED").toUpperCase();
+
+      // Force KYC Submission before accessing dashboard
+      if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
+        return NextResponse.redirect(
+          new URL("/partner/dashboard/kyc", request.url)
+        );
+      }
+
+      // Under Review
+      if (kyc === "UNDER_REVIEW" || kyc === "SUBMITTED") {
+        return NextResponse.redirect(
+          new URL("/partner/dashboard/kyc/pending", request.url)
+        );
+      }
+
+      // Rejected → resubmit
+      if (kyc === "REJECTED") {
+        return NextResponse.redirect(
+          new URL("/partner/dashboard/kyc?resubmit=1", request.url)
+        );
+      }
+
+      // APPROVED → allow dashboard access
+    } catch (err) {
+      console.error("KYC Middleware Error:", err);
+      return NextResponse.redirect(new URL("/auth/login", request.url));
+    }
+  }
+
   return NextResponse.next();
 }
 
+/* ---------------------------------------------------
+   8️⃣ MATCHER
+----------------------------------------------------*/
 export const config = {
   matcher: [
     "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",

@@ -31,10 +31,10 @@ export default function LoginPage() {
     }
   }, []);
 
-  const handleChange = (e) =>
+  const handleChange = (e: any) =>
     setForm({ ...form, [e.target.name]: e.target.value });
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = async (e: any) => {
     e.preventDefault();
     setError("");
     setLoading(true);
@@ -47,7 +47,7 @@ export default function LoginPage() {
         form.password
       );
 
-      let user = auth.currentUser;
+      const user = auth.currentUser;
       if (!user) throw new Error("Auth initialization failed.");
 
       // 2️⃣ Create secure session cookie
@@ -59,8 +59,7 @@ export default function LoginPage() {
         body: JSON.stringify({ token: idToken }),
       });
 
-      if (!sessionRes.ok)
-        throw new Error("Session cookie creation failed.");
+      if (!sessionRes.ok) throw new Error("Session cookie creation failed.");
 
       // 3️⃣ Admin direct access
       if (ADMIN_EMAILS.includes(user.email || "")) {
@@ -68,11 +67,12 @@ export default function LoginPage() {
         return;
       }
 
-      // 4️⃣ Load user profile document
+      // 4️⃣ Load user profile document (role detection)
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
 
       if (!snap.exists()) {
+        // No profile — sign out with message
         setError("⚠️ No profile found.");
         await auth.signOut();
         return;
@@ -81,7 +81,31 @@ export default function LoginPage() {
       const data = snap.data();
       const role = data.role || "user";
 
-      // 5️⃣ Email + phone verification checks
+      // ======================================================
+      // ⭐ PARTNER LOGIN: handle partner early (allow dashboard access)
+      // ======================================================
+      if (role === "partner") {
+        try {
+          // Fetch partner doc (not strictly required, but useful to decide KYC state)
+          const partnerRef = doc(db, "partners", user.uid);
+          const pSnap = await getDoc(partnerRef);
+
+          // If partner document does not exist or KYC not started, we still allow
+          // dashboard access. The dashboard will show a KYC card and route the user
+          // to the KYC form when they click it.
+          router.push("/partner/dashboard");
+          return;
+        } catch (err) {
+          console.error("Partner read error (login):", err);
+          // Still allow them to dashboard — we don't want auth to be blocked here.
+          router.push("/partner/dashboard");
+          return;
+        }
+      }
+
+      // ======================================================
+      // ⭐ NON-PARTNER: Email + phone verification checks (unchanged)
+      // ======================================================
       if (!user.emailVerified || !data.emailVerified) {
         router.push("/auth/verify");
         return;
@@ -92,7 +116,7 @@ export default function LoginPage() {
         return;
       }
 
-      // Sync verification flags
+      // Sync verification flags if possible (best-effort)
       try {
         await updateDoc(userRef, {
           emailVerified: true,
@@ -100,14 +124,8 @@ export default function LoginPage() {
           verified: true,
           updatedAt: new Date(),
         });
-      } catch {}
-
-      // ======================================================
-      // ⭐ PARTNER LOGIN — NO KYC BLOCKING ⭐
-      // ======================================================
-      if (role === "partner") {
-        router.push("/partner/dashboard");
-        return;
+      } catch (e) {
+        // ignore sync failures
       }
 
       // ======================================================
@@ -123,15 +141,15 @@ export default function LoginPage() {
       }
 
       router.push("/user/dashboard");
-    } catch (err) {
+    } catch (err: any) {
       console.error("❌ Login error:", err);
 
       let msg = "❌ Login failed.";
-      if (err.code === "auth/user-not-found") msg = "User not found.";
-      if (err.code === "auth/wrong-password") msg = "Wrong password.";
-      if (err.code === "auth/invalid-email") msg = "Invalid email.";
+      if (err?.code === "auth/user-not-found") msg = "User not found.";
+      if (err?.code === "auth/wrong-password") msg = "Wrong password.";
+      if (err?.code === "auth/invalid-email") msg = "Invalid email.";
 
-      if (String(err).includes("permission"))
+      if (String(err).toLowerCase().includes("permission"))
         msg = "⚠️ Firestore permission error.";
 
       setError(msg);

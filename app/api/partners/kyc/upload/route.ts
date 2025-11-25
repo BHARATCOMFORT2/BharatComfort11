@@ -1,5 +1,4 @@
 // app/api/partners/kyc/upload/route.ts
-
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -17,16 +16,15 @@ export async function POST(req: Request) {
 
     if (!partnerId || !file || !docType || !token) {
       return NextResponse.json(
-        { error: "Missing partnerId, file, docType or token" },
+        { error: "Missing partnerId, token, file or docType" },
         { status: 400 }
       );
     }
 
-    // --------------------------
-    // 🔐 VERIFY TOKEN
-    // --------------------------
+    // ---------------------------------------------------
+    // 1️⃣ VERIFY TOKEN
+    // ---------------------------------------------------
     const { adminAuth, adminStorage } = getFirebaseAdmin();
-
     const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
 
     if (!decoded || decoded.uid !== partnerId) {
@@ -36,10 +34,12 @@ export async function POST(req: Request) {
       );
     }
 
-    // --------------------------
-    // 📦 PREPARE FILE
-    // --------------------------
-    const buffer = Buffer.from(await file.arrayBuffer());
+    // ---------------------------------------------------
+    // 2️⃣ PREPARE FILE BUFFER
+    // ---------------------------------------------------
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
     const ext = file.name.split(".").pop() || "jpg";
     const timestamp = Date.now();
 
@@ -47,24 +47,31 @@ export async function POST(req: Request) {
 
     const filePath = `partner_kyc/${partnerId}/${cleanDocType}-${timestamp}.${ext}`;
 
-    // --------------------------
-    // 🪣 BUCKET HANDLING (fix)
-    // --------------------------
-    // adminStorage may be either:
-    // - admin.storage() --> has .bucket()
-    // - direct bucket instance
+    // ---------------------------------------------------
+    // 3️⃣ DETECT STORAGE BUCKET (Fix for all Firebase versions)
+    // ---------------------------------------------------
     let bucket: any;
 
     if (typeof adminStorage.bucket === "function") {
-      bucket = adminStorage.bucket(); // firebase-admin v10+
+      // Firebase Admin v10+
+      bucket = adminStorage.bucket();
+    } else if (adminStorage?.bucket) {
+      // Direct bucket reference
+      bucket = adminStorage.bucket;
     } else {
-      bucket = adminStorage; // already a bucket instance
+      throw new Error("Firebase Storage bucket not initialized properly.");
     }
 
     const bucketFile = bucket.file(filePath);
 
+    // ---------------------------------------------------
+    // 4️⃣ SAVE FILE
+    // ---------------------------------------------------
     await bucketFile.save(buffer, {
-      contentType: file.type,
+      contentType: file.type || "application/octet-stream",
+      metadata: {
+        firebaseStorageDownloadTokens: timestamp.toString(),
+      },
       resumable: false,
     });
 
@@ -77,9 +84,9 @@ export async function POST(req: Request) {
       message: "Upload successful",
     });
   } catch (err: any) {
-    console.error("🔥 File upload error:", err);
+    console.error("🔥 File Upload Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal error" },
+      { error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

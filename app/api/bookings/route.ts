@@ -13,25 +13,28 @@ export const GET = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
     const uid = decoded?.uid;
-    const role = decoded?.role || (decoded?.admin ? "admin" : decoded?.partner ? "partner" : "user");
 
-    let query;
+    const role =
+      decoded?.role ||
+      (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
+
+    let q;
 
     if (role === "admin") {
-      query = adminDb.collection("bookings").orderBy("createdAt", "desc");
+      q = adminDb.collection("bookings").orderBy("createdAt", "desc");
     } else if (role === "partner") {
-      query = adminDb
+      q = adminDb
         .collection("bookings")
         .where("partnerId", "==", uid)
         .orderBy("createdAt", "desc");
     } else {
-      query = adminDb
+      q = adminDb
         .collection("bookings")
         .where("userId", "==", uid)
         .orderBy("createdAt", "desc");
     }
 
-    const snap = await query.get();
+    const snap = await q.get();
     return NextResponse.json({
       success: true,
       bookings: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
@@ -41,7 +44,7 @@ export const GET = withAuth(
 );
 
 /* ---------------------------------------------------------
-   POST — Create PAY-AT-HOTEL Booking Only
+   POST — Create booking (supports BOTH payment modes)
 --------------------------------------------------------- */
 export const POST = withAuth(
   async (req, ctx) => {
@@ -49,7 +52,6 @@ export const POST = withAuth(
     const userId = decoded.uid;
 
     const body = await req.json().catch(() => ({}));
-
     const {
       listingId,
       partnerId,
@@ -66,6 +68,7 @@ export const POST = withAuth(
       );
     }
 
+    // Validate listing exists
     const listingSnap = await adminDb.collection("listings").doc(listingId).get();
     if (!listingSnap.exists) {
       return NextResponse.json(
@@ -77,27 +80,24 @@ export const POST = withAuth(
     const listing = listingSnap.data();
     const allowPayAtHotel = listing.allowPayAtHotel ?? false;
 
-    if (paymentMode !== "pay_at_hotel") {
-      return NextResponse.json(
-        {
-          success: false,
-          error:
-            "For online payments, use /api/payments/create-order then /verify.",
-          code: "USE_CREATE_ORDER",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (!allowPayAtHotel) {
-      return NextResponse.json(
-        { success: false, error: "Listing does not allow pay-at-hotel" },
-        { status: 403 }
-      );
-    }
-
     const now = FieldValue.serverTimestamp();
 
+    let bookingStatus = "pending_payment";
+    let paymentStatus = "pending";
+
+    if (paymentMode === "pay_at_hotel") {
+      if (!allowPayAtHotel) {
+        return NextResponse.json(
+          { success: false, error: "Listing does not allow pay-at-hotel" },
+          { status: 403 }
+        );
+      }
+
+      bookingStatus = "confirmed_unpaid";
+      paymentStatus = "unpaid";
+    }
+
+    // Create booking FIRST (matches your UI flow)
     const bookingData = {
       userId,
       userEmail: decoded?.email || null,
@@ -106,9 +106,9 @@ export const POST = withAuth(
       amount: Number(amount),
       checkIn,
       checkOut,
-      paymentMode: "pay_at_hotel",
-      paymentStatus: "unpaid",
-      status: "confirmed_unpaid",
+      paymentMode,
+      paymentStatus,
+      status: bookingStatus,
       refundStatus: "none",
       razorpayOrderId: null,
       createdAt: now,
@@ -120,20 +120,25 @@ export const POST = withAuth(
     return NextResponse.json({
       success: true,
       bookingId: bookingRef.id,
-      paymentMode: "pay_at_hotel",
-      message: "Booking created successfully.",
+      paymentMode,
+      message:
+        paymentMode === "pay_at_hotel"
+          ? "Booking created (pay at hotel)."
+          : "Booking created (pending payment).",
     });
   },
   { requireRole: ["user", "partner", "admin"] }
 );
 
 /* ---------------------------------------------------------
-   PUT — Update Booking (admin & partner only)
+   PUT — Update Booking (admin / partner only)
 --------------------------------------------------------- */
 export const PUT = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
-    const role = decoded?.role || (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
+    const role =
+      decoded?.role ||
+      (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
 
     if (!["admin", "partner"].includes(role)) {
       return NextResponse.json(

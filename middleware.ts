@@ -8,18 +8,14 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const host = request.headers.get("host") || "";
 
-  /* ---------------------------------------------------
-     1️⃣ FORCE DOMAIN CONSISTENCY (NO CHANGE)
-  ----------------------------------------------------*/
+  /* 1) Force www domain */
   if (host === "bharatcomfort.online") {
     return NextResponse.redirect(
       `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
     );
   }
 
-  /* ---------------------------------------------------
-     2️⃣ SKIP STATIC / PUBLIC FILES (NO CHANGE)
-  ----------------------------------------------------*/
+  /* 2) Skip files */
   if (
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
@@ -28,10 +24,7 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
-  /* ---------------------------------------------------
-     3️⃣ UNIVERSAL API FIX — INJECT __session INTO HEADERS
-        (THIS FIXES *ALL* API ROUTES AUTOMATICALLY)
-  ----------------------------------------------------*/
+  /* 3) UNIVERSAL API FIX — add __session to headers */
   if (pathname.startsWith("/api")) {
     const sessionCookie =
       request.cookies.get("__session")?.value ||
@@ -39,47 +32,33 @@ export async function middleware(request: NextRequest) {
       request.cookies.get("firebase_session")?.value ||
       "";
 
-    if (!sessionCookie) {
-      // No session available → forward unchanged
-      return NextResponse.next();
-    }
+    if (!sessionCookie) return NextResponse.next();
 
-    // Clone request headers
     const newHeaders = new Headers(request.headers);
-    const existingCookie = request.headers.get("cookie") || "";
+    const existing = request.headers.get("cookie") || "";
 
-    // Update cookie header
-    const updatedCookie = existingCookie.includes("__session=")
-      ? existingCookie.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
-      : `__session=${sessionCookie}; ${existingCookie}`;
+    const updatedCookie = existing.includes("__session=")
+      ? existing.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
+      : `__session=${sessionCookie}; ${existing}`;
 
     newHeaders.set("cookie", updatedCookie);
 
-    // Pass updated request to API route
     return NextResponse.next({
-      request: {
-        headers: newHeaders,
-      },
+      request: { headers: newHeaders },
     });
   }
 
-  /* ---------------------------------------------------
-     4️⃣ SKIP AUTH ROUTES (NO CHANGE)
-  ----------------------------------------------------*/
-  if (pathname.startsWith("/auth")) {
-    return NextResponse.next();
-  }
+  /* 4) Skip /auth */
+  if (pathname.startsWith("/auth")) return NextResponse.next();
 
-  /* ---------------------------------------------------
-     5️⃣ CAPTURE REFERRAL CODE (NO CHANGE)
-  ----------------------------------------------------*/
+  /* 5) Referral capture */
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
     const response = NextResponse.next();
     response.cookies.set("bc_referral_code", ref, {
       path: "/",
       maxAge: 30 * 24 * 60 * 60,
-      httpOnly: false, 
+      httpOnly: false,
       sameSite: "lax",
       secure: process.env.NODE_ENV === "production",
       domain: ".bharatcomfort.online",
@@ -87,9 +66,7 @@ export async function middleware(request: NextRequest) {
     return response;
   }
 
-  /* ---------------------------------------------------
-     6️⃣ PROTECTED ROUTES CHECK
-  ----------------------------------------------------*/
+  /* 6) Protected areas */
   const protectedPaths = [
     "/dashboard",
     "/partner/dashboard",
@@ -97,31 +74,24 @@ export async function middleware(request: NextRequest) {
     "/chat",
     "/book",
   ];
+  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
 
-  const isProtected = protectedPaths.some((p) =>
-    pathname.startsWith(p)
-  );
-
-  // Allow KYC onboarding without session blocking
+  // Allow partner KYC flow
   if (pathname.startsWith("/partner/dashboard/kyc")) {
     return NextResponse.next();
   }
 
-  /* ---------------------------------------------------
-     7️⃣ SESSION VALIDATION FOR PROTECTED ROUTES
-  ----------------------------------------------------*/
+  /* 7) Validate session for protected areas */
   const cookieSession =
     request.cookies.get("__session")?.value ||
     request.cookies.get("session")?.value ||
     request.cookies.get("firebase_session")?.value ||
     "";
 
-  const authHeader = request.headers.get("authorization") || "";
-  const bearerToken = authHeader.startsWith("Bearer ")
-    ? authHeader.substring(7)
-    : "";
+  const bearer = request.headers.get("authorization") || "";
+  const token = bearer.startsWith("Bearer ") ? bearer.slice(7) : "";
 
-  const isAuthenticated = cookieSession || bearerToken;
+  const isAuthenticated = cookieSession || token;
 
   if (isProtected && !isAuthenticated) {
     const loginUrl = new URL(`/auth/login`, request.url);
@@ -132,9 +102,6 @@ export async function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-/* ---------------------------------------------------
-   MATCHER — UNCHANGED
-----------------------------------------------------*/
 export const config = {
   matcher: [
     "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",

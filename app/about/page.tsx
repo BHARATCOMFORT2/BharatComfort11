@@ -13,10 +13,10 @@ export default function AboutPage() {
       {/* Header Section */}
       <div className="text-center">
         <h1 className="text-4xl font-bold text-yellow-900 mb-4">
-          About BHARATCOMFORT11
+          About BHARATCOMFORT
         </h1>
         <p className="text-gray-700 text-lg max-w-3xl mx-auto">
-          Welcome to <strong>BHARATCOMFORT11</strong> — your trusted travel
+          Welcome to <strong>BHARATCOMFORT</strong> — your trusted travel
           companion for discovering, planning, and booking unforgettable
           journeys across India through roadways, railways, and airways.
         </p>

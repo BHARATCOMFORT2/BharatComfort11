@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseadmin";
 import { hotels, restaurants } from "../../../../data/sampleListings";
 
-export async function POST() {
+export async function GET() {
   try {
     const batch = adminDb.batch();
 

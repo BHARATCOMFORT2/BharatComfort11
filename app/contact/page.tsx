@@ -61,11 +61,11 @@ export default function ContactPage() {
             </div>
             <div className="flex items-center space-x-3">
               <Phone className="text-yellow-600" />
-              <span>+91 98765 43210</span>
+              <span>+91 9277168528</span>
             </div>
             <div className="flex items-center space-x-3">
               <MapPin className="text-yellow-600" />
-              <span>Mumbai, India</span>
+              <span>Ghazipur Utaar Pradesh, India</span>
             </div>
           </div>
 

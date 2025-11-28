@@ -33,12 +33,14 @@ const STATUS_OPTIONS = [
 export default function TelecallerDashboardPage() {
   const router = useRouter();
   const [staffId, setStaffId] = useState<string | null>(null);
+  const [token, setToken] = useState<string>("");
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingLeads, setLoadingLeads] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
+  const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
-  // ✅ ✅ REAL STAFF AUTH + APPROVAL CHECK (FIXED)
+  // ✅ FULL STAFF AUTH + APPROVAL CHECK (staff collection + role telecaller)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -49,7 +51,7 @@ export default function TelecallerDashboardPage() {
       }
 
       try {
-        // ✅ REAL STAFF COLLECTION
+        // staff collection
         const snap = await getDoc(doc(db, "staff", user.uid));
 
         if (!snap.exists()) {
@@ -61,7 +63,6 @@ export default function TelecallerDashboardPage() {
 
         const profile = snap.data();
 
-        // ✅ Must be telecaller
         if (profile.role !== "telecaller") {
           await signOut(auth);
           toast.error("This dashboard is for telecallers only");
@@ -69,7 +70,6 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
-        // ⏳ Pending
         if (profile.status === "pending") {
           await signOut(auth);
           toast("Your account is pending admin approval", { icon: "⏳" });
@@ -77,7 +77,6 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
-        // ❌ Rejected
         if (profile.status === "rejected") {
           await signOut(auth);
           toast.error("Your account has been rejected by admin");
@@ -85,7 +84,6 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
-        // ❌ Inactive
         if (profile.isActive !== true) {
           await signOut(auth);
           toast.error("Your account is inactive");
@@ -93,8 +91,10 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
-        // ✅ Approved + Active Telecaller
+        // ✅ Approved + active telecaller
         setStaffId(user.uid);
+        const t = await user.getIdToken();
+        setToken(t);
       } catch (err) {
         console.error("Staff auth check error:", err);
         await signOut(auth);
@@ -107,7 +107,7 @@ export default function TelecallerDashboardPage() {
     return () => unsub();
   }, [router]);
 
-  // ✅ Fetch assigned leads
+  // ✅ Fetch assigned leads = telecaller ke tasks
   useEffect(() => {
     const fetchLeads = async () => {
       if (!staffId) return;
@@ -116,7 +116,11 @@ export default function TelecallerDashboardPage() {
       try {
         const res = await fetch("/api/staff/leads", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            // token yahan optional hai (API abhi body se staffId leta hai),
+            // future me secure version ke liye ready hai
+          },
           body: JSON.stringify({ staffId }),
         });
 
@@ -126,7 +130,15 @@ export default function TelecallerDashboardPage() {
           throw new Error(data?.message || "Failed to fetch leads");
         }
 
-        setLeads(data.data || []);
+        const list: Lead[] = data.data || [];
+        setLeads(list);
+
+        // notes draft preload
+        const draft: Record<string, string> = {};
+        list.forEach((lead) => {
+          draft[lead.id] = lead.partnerNotes || "";
+        });
+        setNotesDraft(draft);
       } catch (err: any) {
         console.error("Failed to load leads:", err);
         toast.error(err?.message || "Leads load nahi ho paaye");
@@ -138,15 +150,22 @@ export default function TelecallerDashboardPage() {
     fetchLeads();
   }, [staffId]);
 
+  // ✅ Status change (including "Done" via converted)
   const handleStatusChange = async (leadId: string, newStatus: string) => {
-    if (!staffId) return;
+    if (!token) {
+      toast.error("Auth token missing. Please re-login.");
+      return;
+    }
 
     setSavingLeadId(leadId);
     try {
       const res = await fetch("/api/staff/leads/update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ staffId, leadId, status: newStatus }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ leadId, status: newStatus }),
       });
 
       const data = await res.json();
@@ -170,15 +189,24 @@ export default function TelecallerDashboardPage() {
     }
   };
 
-  const handleNotesSave = async (leadId: string, notes: string) => {
-    if (!staffId) return;
+  // ✅ Notes save
+  const handleNotesSave = async (leadId: string) => {
+    if (!token) {
+      toast.error("Auth token missing. Please re-login.");
+      return;
+    }
+
+    const notes = notesDraft[leadId] ?? "";
 
     setSavingLeadId(leadId);
     try {
       const res = await fetch("/api/staff/leads/update-notes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ staffId, leadId, partnerNotes: notes }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ leadId, partnerNotes: notes }),
       });
 
       const data = await res.json();
@@ -222,12 +250,123 @@ export default function TelecallerDashboardPage() {
         <div>
           <h1 className="text-xl font-semibold">Telecaller Dashboard</h1>
           <p className="text-sm text-gray-500">
-            Assigned leads par call karein, status update karein, aur partner
-            details notes me add karein.
+            Ye saare leads hi tumhare <strong>tasks</strong> hain. In par call
+            karo, status update karo aur notes add karo. <br />
+            <span className="font-medium">
+              "converted" = Done / Successfully closed.
+            </span>
           </p>
         </div>
 
-        {/* ✅ Tumhara existing leads table UI yahin rahega — unchanged */}
+        {/* LEADS = TASKS TABLE */}
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          {loadingLeads ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              Loading your leads / tasks...
+            </div>
+          ) : leads.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              Abhi tak koi lead / task assign nahi hua hai.
+            </div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Lead / Business</th>
+                  <th className="p-3 text-left">Contact</th>
+                  <th className="p-3 text-left">Email</th>
+                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Notes</th>
+                  <th className="p-3 text-center">Mark as Done</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leads.map((lead) => {
+                  const isDone = lead.status === "converted";
+                  return (
+                    <tr key={lead.id} className="border-t">
+                      <td className="p-3">
+                        <div className="font-medium">{lead.name}</div>
+                        <div className="text-xs text-gray-500">
+                          {lead.businessName}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-sm">{lead.contact}</div>
+                        {lead.address && (
+                          <div className="text-xs text-gray-400">
+                            {lead.address}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3 text-xs">{lead.email || "-"}</td>
+
+                      {/* Status dropdown */}
+                      <td className="p-3">
+                        <select
+                          className="border rounded px-2 py-1 text-xs"
+                          value={lead.status}
+                          disabled={savingLeadId === lead.id}
+                          onChange={(e) =>
+                            handleStatusChange(lead.id, e.target.value)
+                          }
+                        >
+                          {STATUS_OPTIONS.map((st) => (
+                            <option key={st} value={st}>
+                              {st === "converted"
+                                ? "converted (Done)"
+                                : st.replace("_", " ")}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+
+                      {/* Notes */}
+                      <td className="p-3">
+                        <textarea
+                          className="border rounded w-full text-xs p-2"
+                          rows={2}
+                          placeholder="Call summary / follow-up note"
+                          value={notesDraft[lead.id] ?? ""}
+                          onChange={(e) =>
+                            setNotesDraft((prev) => ({
+                              ...prev,
+                              [lead.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          onClick={() => handleNotesSave(lead.id)}
+                          disabled={savingLeadId === lead.id}
+                          className="mt-1 inline-flex items-center px-2 py-1 text-xs rounded bg-gray-900 text-white disabled:opacity-50"
+                        >
+                          {savingLeadId === lead.id ? "Saving..." : "Save Notes"}
+                        </button>
+                      </td>
+
+                      {/* Mark as Done (Converted) */}
+                      <td className="p-3 text-center">
+                        <button
+                          onClick={() =>
+                            !isDone && handleStatusChange(lead.id, "converted")
+                          }
+                          disabled={savingLeadId === lead.id || isDone}
+                          className={`inline-flex items-center px-3 py-1 text-xs rounded ${
+                            isDone
+                              ? "bg-green-100 text-green-700 cursor-default"
+                              : "bg-green-600 text-white hover:bg-green-700"
+                          } disabled:opacity-60`}
+                        >
+                          {isDone ? "Done" : "Mark Converted (Done)"}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
       </div>
     </DashboardLayout>
   );

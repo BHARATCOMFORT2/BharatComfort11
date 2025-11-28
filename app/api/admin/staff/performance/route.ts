@@ -18,11 +18,17 @@ export async function GET(req: Request) {
     // ✅ Admin Auth
     const authHeader = getAuthHeader(req);
     if (!authHeader)
-      return NextResponse.json({ error: "Missing Authorization" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Missing Authorization" },
+        { status: 401 }
+      );
 
     const m = authHeader.match(/^Bearer (.+)$/);
     if (!m)
-      return NextResponse.json({ error: "Bad Authorization header" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Bad Authorization header" },
+        { status: 401 }
+      );
 
     let decoded: any;
     try {
@@ -35,7 +41,7 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Admin only" }, { status: 403 });
     }
 
-    // ✅ Query param: days
+    // ✅ Query param: days (7–365)
     const url = new URL(req.url);
     const days = Math.min(
       Math.max(Number(url.searchParams.get("days") || 30), 7),
@@ -44,11 +50,12 @@ export async function GET(req: Request) {
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
-    // ✅ Fetch all approved staff
+    // ✅ ✅ REAL STAFF SOURCE (ONLY APPROVED + ACTIVE TELECALLERS)
     const staffSnap = await adminDb
-      .collection("users")
-      .where("role", "==", "staff")
+      .collection("staff")
+      .where("role", "==", "telecaller")
       .where("status", "==", "approved")
+      .where("isActive", "==", true)
       .get();
 
     const results: any[] = [];
@@ -57,7 +64,7 @@ export async function GET(req: Request) {
       const staff = staffDoc.data();
       const staffId = staffDoc.id;
 
-      // ✅ Fetch leads assigned to this staff
+      // ✅ Fetch leads assigned to this staff in date window
       const leadsSnap = await adminDb
         .collection("leads")
         .where("assignedTo", "==", staffId)
@@ -78,7 +85,7 @@ export async function GET(req: Request) {
 
         if (status === "contacted") contacted += 1;
         if (status === "interested") interested += 1;
-        if (status === "followup") followups += 1;
+        if (status === "followup" || status === "callback") followups += 1;
         if (status === "converted") converted += 1;
       });
 

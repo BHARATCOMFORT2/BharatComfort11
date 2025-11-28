@@ -19,7 +19,8 @@ export async function POST(req: Request) {
 
     const { db: adminDb } = getFirebaseAdmin();
 
-    const ref = adminDb.collection("users").doc(staffId);
+    // ✅ REAL STAFF COLLECTION
+    const ref = adminDb.collection("staff").doc(staffId);
     const snap = await ref.get();
 
     if (!snap.exists) {
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: "Staff approved",
+        message: "Staff approved successfully",
       });
     }
 
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: "Staff rejected",
+        message: "Staff rejected successfully",
       });
     }
 
@@ -62,7 +63,10 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("Approve Staff Error:", err);
     return NextResponse.json(
-      { success: false, message: err.message },
+      {
+        success: false,
+        message: err?.message || "Failed to update staff status",
+      },
       { status: 500 }
     );
   }

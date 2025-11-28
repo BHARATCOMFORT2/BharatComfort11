@@ -1,36 +1,52 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/admin/listings/review/route.ts
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 function getAuthHeader(req: Request) {
-  return (req as any).headers?.get ? req.headers.get("authorization") : (req as any).headers?.authorization;
+  return (req as any).headers?.get
+    ? req.headers.get("authorization")
+    : (req as any).headers?.authorization;
 }
 
 export async function POST(req: Request) {
   try {
     const authHeader = getAuthHeader(req);
-    if (!authHeader) return NextResponse.json({ error: "Missing Authorization" }, { status: 401 });
+    if (!authHeader)
+      return NextResponse.json({ error: "Missing Authorization" }, { status: 401 });
+
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m) return NextResponse.json({ error: "Malformed header" }, { status: 401 });
+    if (!m)
+      return NextResponse.json({ error: "Malformed header" }, { status: 401 });
 
     const token = m[1];
-    let decoded;
-    try { decoded = await adminAuth.verifyIdToken(token, true); } catch { return NextResponse.json({ error: "Invalid token" }, { status: 401 }); }
-    if (!decoded.admin) return NextResponse.json({ error: "Admin only" }, { status: 403 });
+
+    let decoded: any;
+    try {
+      decoded = await adminAuth.verifyIdToken(token, true);
+    } catch {
+      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+    }
+
+    if (!decoded.admin)
+      return NextResponse.json({ error: "Admin only" }, { status: 403 });
 
     const body = await req.json();
     const { listingId, action, reason } = body;
-    if (!listingId || !action) return NextResponse.json({ error: "Missing params" }, { status: 400 });
+
+    if (!listingId || !action)
+      return NextResponse.json({ error: "Missing params" }, { status: 400 });
 
     const ref = adminDb.collection("listings").doc(listingId);
     const snap = await ref.get();
-    if (!snap.exists) return NextResponse.json({ error: "Listing not found" }, { status: 404 });
 
-    const update: any = { "updatedAt": new Date() };
+    if (!snap.exists)
+      return NextResponse.json({ error: "Listing not found" }, { status: 404 });
+
+    const update: any = { updatedAt: new Date() };
 
     if (action === "approve") {
       update["moderation.status"] = "approved";
@@ -54,6 +70,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, updated: update });
   } catch (err: any) {
     console.error("admin listing review:", err);
-    return NextResponse.json({ error: err.message || "Internal" }, { status: 500 });
+    return NextResponse.json(
+      { error: err.message || "Internal" },
+      { status: 500 }
+    );
   }
 }

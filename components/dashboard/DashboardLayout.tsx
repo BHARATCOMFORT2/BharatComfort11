@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function DashboardLayout({ title, children, profile }: Props) {
-  const [menuOpen, setMenuOpen] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false); // ✅ MOBILE DEFAULT CLOSED
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -25,7 +25,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     setMounted(true);
   }, []);
 
-  // ✅ ✅ ✅ AUTO REDIRECT FIX (STAFF → STAFF DASHBOARD)
+  // ✅ AUTO REDIRECT ROLE BASED (SAFE)
   useEffect(() => {
     if (!profile?.role) return;
 
@@ -64,7 +64,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
 
   if (!mounted) return null;
 
-  // ✅ USER MENU
+  // ✅ MENUS
   const userLinks = [
     { name: "Dashboard", path: "/user/dashboard" },
     { name: "My Trips", path: "/user/bookings" },
@@ -72,20 +72,14 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     { name: "Refer & Earn 💰", path: "/user/dashboard/referrals" },
   ];
 
-  // ✅ PARTNER MENU
   const partnerLinks = [
     { name: "Dashboard", path: "/partner/dashboard" },
     { name: "Listings", path: "/partner/listings" },
     { name: "Bookings", path: "/partner/bookings" },
   ];
 
-  // ✅ ✅ ✅ STAFF MENU (NEWLY ADDED)
-  const staffLinks = [
-    { name: "My Tasks", path: "/staff/dashboard" },
-    { name: "Logout", path: "/staff/login" },
-  ];
+  const staffLinks = [{ name: "My Tasks", path: "/staff/dashboard" }];
 
-  // ✅ ✅ ✅ ADMIN MENU
   const adminLinks = [
     { name: "Dashboard", path: "/admin/dashboard" },
     { name: "Users", path: "/admin/dashboard/users" },
@@ -110,12 +104,27 @@ export default function DashboardLayout({ title, children, profile }: Props) {
 
   return (
     <div className="flex min-h-screen bg-gray-100">
+      {/* ✅ MOBILE OVERLAY */}
+      {menuOpen && (
+        <div
+          onClick={() => setMenuOpen(false)}
+          className="fixed inset-0 bg-black/40 z-20 sm:hidden"
+        />
+      )}
+
       {/* ✅ SIDEBAR */}
       <aside
-        className={`fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-30 transition-transform duration-300 ${
-          menuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
-        }`}
+        className={`fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-30 transform transition-transform duration-300
+        ${menuOpen ? "translate-x-0" : "-translate-x-full"}
+        sm:translate-x-0`}
       >
+        {/* ✅ CLOSE ICON (ONLY MOBILE) */}
+        <div className="p-4 flex justify-end sm:hidden">
+          <button onClick={() => setMenuOpen(false)}>
+            <X />
+          </button>
+        </div>
+
         <div className="p-6 flex flex-col items-center border-b">
           {profile?.profilePic ? (
             <img
@@ -137,7 +146,10 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           {navLinks.map((link) => (
             <button
               key={link.name}
-              onClick={() => router.push(link.path)}
+              onClick={() => {
+                router.push(link.path);
+                setMenuOpen(false); // ✅ MOBILE AUTO CLOSE
+              }}
               className={`block w-full text-left px-4 py-2 rounded-lg transition ${
                 pathname === link.path
                   ? "bg-blue-100 text-blue-700 font-semibold"
@@ -161,17 +173,24 @@ export default function DashboardLayout({ title, children, profile }: Props) {
       </aside>
 
       {/* ✅ MAIN CONTENT */}
-      <div className="flex-1 sm:ml-64">
-        <header className="flex justify-between items-center bg-white shadow px-6 py-4 sticky top-0 z-20">
+      <div className="flex-1 sm:ml-64 w-full">
+        <header className="flex justify-between items-center bg-white shadow px-4 py-4 sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <button className="sm:hidden" onClick={() => setMenuOpen(!menuOpen)}>
-              {menuOpen ? <X /> : <Menu />}
+            {/* ✅ HAMBURGER ICON (ONLY MOBILE) */}
+            <button
+              className="sm:hidden"
+              onClick={() => setMenuOpen(true)}
+            >
+              <Menu />
             </button>
-            <h1 className="text-xl font-bold text-gray-800">{title}</h1>
+
+            <h1 className="text-lg sm:text-xl font-bold text-gray-800">
+              {title}
+            </h1>
           </div>
         </header>
 
-        <main className="p-6">{children}</main>
+        <main className="p-4 sm:p-6">{children}</main>
       </div>
     </div>
   );

@@ -12,7 +12,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/hooks/useAuth";
 
-// ⬇️ NEW LAYOUT (Hybrid Admin Layout)
+/* Layout */
 import AdminDashboardLayout from "@/components/admin/AdminDashboardLayout";
 
 import Modal from "@/components/home/Modal";
@@ -104,7 +104,6 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
 
   return (
     <div className="space-y-3">
-      {/* Upload Box */}
       <div
         className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition ${
           dragOver ? "border-blue-500 bg-blue-50" : "border-gray-300"
@@ -137,7 +136,6 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
         </p>
       </div>
 
-      {/* Upload Progress */}
       {uploading &&
         Object.entries(progressMap).map(([name, percent]) => (
           <div key={name} className="flex gap-2 items-center text-sm">
@@ -152,7 +150,6 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
           </div>
         ))}
 
-      {/* Uploaded Images */}
       <div className="flex flex-wrap gap-3">
         {images.map((url, index) => (
           <div
@@ -256,7 +253,7 @@ const SectionEditor = ({ sectionId, token }: any) => {
 };
 
 /* ============================================================
-   ADMIN DASHBOARD PAGE
+   ADMIN DASHBOARD PAGE (STAFF FULLY INTEGRATED)
 ============================================================ */
 export default function AdminDashboardPage() {
   const { firebaseUser, profile, loading } = useAuth();
@@ -284,7 +281,7 @@ export default function AdminDashboardPage() {
     firebaseUser.getIdToken().then((t) => setToken(t));
   }, [firebaseUser, profile, loading, router]);
 
-  /* Load Stats */
+  /* Load Stats (STAFF INCLUDED) */
   useEffect(() => {
     if (!token) return;
 
@@ -299,7 +296,7 @@ export default function AdminDashboardPage() {
             users: s.totalUsers ?? 0,
             partners: s.totalPartners ?? 0,
             listings: s.totalListings ?? 0,
-            staffs: s.totalStaffs ?? 0,
+            staffs: s.totalStaffs ?? s.totalTelecallers ?? 0, // ✅ STAFF FIX
           });
 
           setChartData(
@@ -338,6 +335,33 @@ export default function AdminDashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* STAFF MANAGEMENT (NEW) */}
+      <section className="mt-8 mb-12">
+        <h3 className="font-semibold mb-4">Staff Management</h3>
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+          <Link
+            href="/admin/dashboard/staff"
+            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+          >
+            👥 All Staff (Pending / Approved)
+          </Link>
+
+          <Link
+            href="/admin/dashboard/telecallers"
+            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+          >
+            📞 Active Telecallers
+          </Link>
+
+          <Link
+            href="/admin/dashboard/staff-performance"
+            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+          >
+            📊 Staff Performance
+          </Link>
+        </div>
+      </section>
 
       {/* HOMEPAGE SECTIONS */}
       <section className="mb-12">

@@ -1,8 +1,7 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/admin/partners/kyc/list/route.ts
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
@@ -33,7 +32,7 @@ export async function GET(req: Request) {
       );
 
     const idToken = match[1];
-    let decoded;
+    let decoded: any;
 
     try {
       decoded = await adminAuth.verifyIdToken(idToken, true);
@@ -58,11 +57,11 @@ export async function GET(req: Request) {
     // 3) Fetch all partners
     const partnersSnap = await adminDb.collection("partners").get();
 
-    const results = [];
+    const results: any[] = [];
 
     for (const partnerDoc of partnersSnap.docs) {
       const partnerUid = partnerDoc.id;
-      const partnerData = partnerDoc.data();
+      const partnerData = partnerDoc.data() || {};
 
       // Fetch subcollection kycDocs
       const kycDocsSnap = await adminDb
@@ -75,7 +74,7 @@ export async function GET(req: Request) {
       if (kycDocsSnap.empty) continue;
 
       for (const doc of kycDocsSnap.docs) {
-        const kyc = doc.data();
+        const kyc = doc.data() || {};
 
         // Apply filter (optional)
         if (statusFilter && kyc.status !== statusFilter) continue;
@@ -85,7 +84,7 @@ export async function GET(req: Request) {
           partner: {
             displayName: partnerData.displayName || null,
             businessName: partnerData.businessName || null,
-            status: partnerData.status,
+            status: partnerData.status || null,
           },
           kycId: doc.id,
           kycType: kyc.idType || null,

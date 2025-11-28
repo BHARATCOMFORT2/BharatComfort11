@@ -10,17 +10,14 @@ export async function GET() {
     const { db: adminDb } = getFirebaseAdmin();
 
     const snapshot = await adminDb
-      .collection("staff")
-      .where("role", "==", "telecaller")
+      .collection("users")
+      .where("role", "==", "staff")
       .where("status", "==", "approved")
-      .where("isActive", "==", true)
-      .orderBy("createdAt", "desc")
       .get();
 
     const staffList = snapshot.docs.map((doc) => ({
       id: doc.id,
-      name: doc.data().name,
-      email: doc.data().email,
+      ...doc.data(),
     }));
 
     return NextResponse.json({

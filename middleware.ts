@@ -59,7 +59,11 @@ export async function middleware(request: NextRequest) {
   /* ---------------------------------------------------
      4️⃣ SKIP AUTH ROUTES
   ----------------------------------------------------*/
-  if (pathname.startsWith("/auth")) {
+  if (
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/staff/login") ||
+    pathname.startsWith("/staff/register")
+  ) {
     return NextResponse.next();
   }
 
@@ -81,17 +85,21 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     6️⃣ PROTECTED ROUTES (General)
+     ✅ 6️⃣ PROTECTED ROUTES (STAFF INCLUDED)
   ----------------------------------------------------*/
   const protectedPaths = [
     "/dashboard",
-    "/partner/dashboard",
+    "/user",
+    "/partner",
     "/admin",
+    "/staff",        // ✅✅✅ THIS WAS MISSING (ROOT CAUSE)
     "/chat",
     "/book",
   ];
 
-  const isProtected = protectedPaths.some((p) => pathname.startsWith(p));
+  const isProtected = protectedPaths.some((p) =>
+    pathname.startsWith(p)
+  );
 
   const cookieSession =
     request.cookies.get("__session")?.value ||
@@ -104,7 +112,7 @@ export async function middleware(request: NextRequest) {
     ? authHeader.substring(7)
     : "";
 
-  const isAuthenticated = cookieSession || bearerToken;
+  const isAuthenticated = !!(cookieSession || bearerToken);
 
   if (isProtected && !isAuthenticated) {
     const loginUrl = new URL(`/auth/login`, request.url);
@@ -112,17 +120,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  /* ---------------------------------------------------
-     ❌ 7️⃣ REMOVED — NO KYC FORCED REDIRECTS ANYMORE
-     Partner dashboard will load normally.
-     KYC sections will show INSIDE dashboard.
-  ----------------------------------------------------*/
-
   return NextResponse.next();
 }
 
 /* ---------------------------------------------------
-   8️⃣ MATCHER
+   7️⃣ MATCHER
 ----------------------------------------------------*/
 export const config = {
   matcher: [

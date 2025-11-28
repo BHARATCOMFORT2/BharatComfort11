@@ -8,43 +8,20 @@ import {
   sendEmailVerification,
   getIdToken,
 } from "firebase/auth";
-import { auth, db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
 
-/* ============================================================
-   ✉️ Helper: Send Email Verification
-============================================================ */
-export async function sendVerificationEmail(): Promise<boolean> {
-  if (auth.currentUser && !auth.currentUser.emailVerified) {
-    await sendEmailVerification(auth.currentUser, {
-      url:
-        process.env.NEXT_PUBLIC_APP_URL ||
-        `${window.location.origin}/auth/verify-email`,
-    });
-    return true;
-  }
-  return false;
-}
-
-/* ============================================================
-   🧩 Interface
-============================================================ */
 export interface AppUser {
   uid: string;
   email: string | null;
   displayName?: string | null;
   role?: "user" | "partner" | "staff" | "admin" | "superadmin";
-  verified?: boolean;
+  status?: string;
   emailVerified?: boolean;
-  phoneVerified?: boolean;
-  status?: "active" | "pending" | "blocked" | "approved";
-  preferences?: Record<string, any>;
+  isActive?: boolean;
   [key: string]: any;
 }
 
-/* ============================================================
-   🔥 Hook: useAuth()
-============================================================ */
 export function useAuth() {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [profile, setProfile] = useState<AppUser | null>(null);
@@ -55,45 +32,74 @@ export function useAuth() {
       setFirebaseUser(user);
       setLoading(true);
 
-      if (user) {
-        try {
-          // Fetch Firestore user document
-          const userRef = doc(db, "users", user.uid);
-          const snap = await getDoc(userRef);
+      if (!user) {
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
 
-          let userData: AppUser = {
+      try {
+        // ✅ 1️⃣ CHECK STAFF FIRST
+        const staffSnap = await getDoc(doc(db, "staff", user.uid));
+        if (staffSnap.exists()) {
+          const staffData = staffSnap.data();
+          setProfile({
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            role: "staff",
+            ...staffData,
+          });
+
+          setLoading(false);
+          return;
+        }
+
+        // ✅ 2️⃣ CHECK PARTNERS
+        const partnerSnap = await getDoc(doc(db, "partners", user.uid));
+        if (partnerSnap.exists()) {
+          const partnerData = partnerSnap.data();
+          setProfile({
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            role: "partner",
+            ...partnerData,
+          });
+
+          setLoading(false);
+          return;
+        }
+
+        // ✅ 3️⃣ OTHERWISE NORMAL USER
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        if (userSnap.exists()) {
+          setProfile({
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            role: userSnap.data().role || "user",
+            ...userSnap.data(),
+          });
+        } else {
+          setProfile({
             uid: user.uid,
             email: user.email,
             displayName: user.displayName,
             role: "user",
-            emailVerified: user.emailVerified,
-          };
-
-          if (snap.exists()) {
-            userData = { ...userData, ...(snap.data() as AppUser) };
-          }
-
-          setProfile(userData);
-
-          // FIXED: Sync session cookie with CORRECT PATH
-          try {
-            const token = await getIdToken(user, true);
-            await fetch("/api/session", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ token }),
-            });
-          } catch (err) {
-            console.warn("⚠️ Session cookie sync failed:", err);
-          }
-        } catch (err) {
-          console.error("❌ Error fetching Firestore user:", err);
-          setProfile(null);
+          });
         }
-      } else {
-        // User logged out
+
+        // ✅ SESSION COOKIE SYNC
+        const token = await getIdToken(user, true);
+        await fetch("/api/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token }),
+        });
+      } catch (err) {
+        console.error("Auth profile fetch error:", err);
         setProfile(null);
-        document.cookie = "__session=; Max-Age=0; path=/;";
       }
 
       setLoading(false);
@@ -102,19 +108,11 @@ export function useAuth() {
     return () => unsubscribe();
   }, []);
 
-  /* ------------------------------------------------------------
-     🚪 Logout → Firebase + Session Cookie
-  ------------------------------------------------------------ */
   const signOut = async () => {
     try {
       await firebaseSignOut(auth);
-
-      // FIXED: corrected backend logout path
       await fetch("/api/logout", { method: "POST" });
-
       document.cookie = "__session=; Max-Age=0; path=/;";
-    } catch (err) {
-      console.error("⚠️ Sign out failed:", err);
     } finally {
       setFirebaseUser(null);
       setProfile(null);
@@ -126,8 +124,5 @@ export function useAuth() {
     profile,
     loading,
     signOut,
-    sendVerificationEmail,
-    isVerified:
-      profile?.emailVerified && profile?.phoneVerified && profile?.verified,
   };
 }

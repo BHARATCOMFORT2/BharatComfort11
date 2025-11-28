@@ -1,7 +1,7 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+// app/api/partners/bookings/route.ts
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
@@ -16,14 +16,21 @@ export async function GET(req: Request) {
   try {
     const authHeader = getHeader(req);
     if (!authHeader)
-      return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Missing Authorization header" },
+        { status: 401 }
+      );
 
     const match = authHeader.match(/^Bearer (.+)$/);
     if (!match)
-      return NextResponse.json({ error: "Invalid Authorization header" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid Authorization header" },
+        { status: 401 }
+      );
 
     const token = match[1];
-    let decoded;
+    let decoded: any;
+
     try {
       decoded = await adminAuth.verifyIdToken(token, true);
     } catch {
@@ -38,16 +45,17 @@ export async function GET(req: Request) {
 
     const offset = (page - 1) * limit;
 
-    const collectionRef = adminDb.collection("bookings")
+    const collectionRef = adminDb
+      .collection("bookings")
       .where("partnerUid", "==", uid)
       .orderBy("createdAt", "desc");
 
-    // Firestore does NOT support offset efficiently, but for <200 items it's fine.
+    // Firestore offset pagination (OK for small datasets)
     const snap = await collectionRef.offset(offset).limit(limit).get();
 
     const data = snap.docs.map((d) => ({
       id: d.id,
-      ...d.data()
+      ...d.data(),
     }));
 
     return NextResponse.json({
@@ -59,6 +67,9 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     console.error("bookings pagination error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Internal server error" },
+      { status: 500 }
+    );
   }
 }

@@ -2,147 +2,175 @@
 
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { auth, db } from "@/lib/firebase";
-import {
-  doc,
-  getDoc,
-  updateDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  orderBy,
-} from "firebase/firestore";
+import toast from "react-hot-toast";
 
-export default function StaffDetailsPage() {
-  const router = useRouter();
+type Lead = {
+  id: string;
+  name: string;
+  businessName?: string;
+  contact?: string;
+  status?: string;
+};
+
+type StaffProfile = {
+  id: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  status?: string;
+};
+
+export default function AdminStaffDetailPage() {
   const params = useParams();
-  const staffId = params?.id as string;
+  const router = useRouter();
+  const staffId = params.staffId as string;
 
-  const [staff, setStaff] = useState<any>(null);
-  const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [staff, setStaff] = useState<StaffProfile | null>(null);
+  const [leads, setLeads] = useState<Lead[]>([]);
 
-  const fetchStaff = async () => {
+  const fetchData = async () => {
     try {
-      const snap = await getDoc(doc(db, "staffs", staffId));
-      if (snap.exists()) {
-        setStaff({ id: snap.id, ...snap.data() });
+      setLoading(true);
+
+      // ✅ Staff Profile
+      const staffRes = await fetch(`/api/admin/staff/${staffId}`);
+      const staffJson = await staffRes.json();
+
+      if (!staffRes.ok || !staffJson.success) {
+        throw new Error(staffJson?.message || "Staff load failed");
       }
-    } catch (err) {
-      console.error("Error fetching staff details:", err);
-    }
-  };
 
-  const fetchLogs = async () => {
-    try {
-      const q = query(
-        collection(db, "staff_logs"),
-        where("staffId", "==", staffId),
-        orderBy("timestamp", "desc")
-      );
-      const snap = await getDocs(q);
-      const list: any[] = [];
-      snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-      setLogs(list);
-    } catch (err) {
-      console.error("Error fetching staff logs:", err);
+      setStaff(staffJson.data);
+
+      // ✅ Assigned Leads
+      const leadRes = await fetch(`/api/admin/staff/${staffId}/leads`);
+      const leadJson = await leadRes.json();
+
+      if (!leadRes.ok || !leadJson.success) {
+        throw new Error(leadJson?.message || "Leads load failed");
+      }
+
+      setLeads(leadJson.data || []);
+    } catch (err: any) {
+      console.error("Staff detail error:", err);
+      toast.error(err?.message || "Staff detail load fail");
+    } finally {
+      setLoading(false);
     }
   };
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      router.push("/auth/login");
-      return;
-    }
-    // TODO: enforce superadmin role check
-    Promise.all([fetchStaff(), fetchLogs()]).finally(() => setLoading(false));
-  }, [router, staffId]);
-
-  const updateRole = async (role: string) => {
-    try {
-      await updateDoc(doc(db, "staffs", staffId), { role });
-      setStaff((prev: any) => ({ ...prev, role }));
-    } catch (err) {
-      console.error("Error updating role:", err);
-    }
-  };
-
-  const updateStatus = async (status: string) => {
-    try {
-      await updateDoc(doc(db, "staffs", staffId), { status });
-      setStaff((prev: any) => ({ ...prev, status }));
-    } catch (err) {
-      console.error("Error updating status:", err);
-    }
-  };
-
-  if (loading) return <p className="text-center py-12">Loading staff details...</p>;
-  if (!staff) return <p className="text-center py-12">Staff not found.</p>;
+    if (staffId) fetchData();
+  }, [staffId]);
 
   return (
-    <div className="container mx-auto px-4 py-12">
-      <button
-        onClick={() => router.back()}
-        className="text-blue-600 mb-4 hover:underline"
-      >
-        ← Back to Staffs
-      </button>
-
-      <h1 className="text-2xl font-bold mb-6">Staff Details</h1>
-
-      <div className="bg-white shadow rounded-lg p-6 space-y-4 mb-8">
-        <p><span className="font-semibold">Name:</span> {staff.name}</p>
-        <p><span className="font-semibold">Email:</span> {staff.email}</p>
-
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
         <div>
-          <label className="font-semibold block mb-1">Role</label>
-          <select
-            value={staff.role || "support"}
-            onChange={(e) => updateRole(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="support">Support</option>
-            <option value="content_manager">Content Manager</option>
-            <option value="moderator">Moderator</option>
-            <option value="operations">Operations</option>
-          </select>
+          <h1 className="text-xl font-semibold">Staff Detail</h1>
+          <p className="text-sm text-gray-500">
+            Telecaller ka profile aur assigned leads
+          </p>
         </div>
-
-        <div>
-          <label className="font-semibold block mb-1">Status</label>
-          <select
-            value={staff.status || "active"}
-            onChange={(e) => updateStatus(e.target.value)}
-            className="border px-2 py-1 rounded"
-          >
-            <option value="active">Active</option>
-            <option value="suspended">Suspended</option>
-          </select>
-        </div>
+        <button
+          onClick={() => router.back()}
+          className="px-3 py-1.5 text-xs rounded-md border"
+        >
+          ← Back
+        </button>
       </div>
 
-      <h2 className="text-xl font-semibold mb-4">Activity Logs</h2>
-      {logs.length > 0 ? (
-        <ul className="space-y-2">
-          {logs.map((log) => (
-            <li
-              key={log.id}
-              className="border rounded-lg p-3 bg-gray-50 shadow-sm"
-            >
-              <p className="text-sm">
-                <span className="font-semibold">{log.action}</span> —{" "}
-                <span className="text-gray-700">{log.target}</span>
-              </p>
-              <p className="text-xs text-gray-500">
-                {new Date(log.timestamp?.toDate()).toLocaleString()}
-              </p>
-            </li>
-          ))}
-        </ul>
+      {loading ? (
+        <div className="text-sm text-gray-500">Loading staff details...</div>
+      ) : !staff ? (
+        <div className="text-sm text-red-500">Staff not found</div>
       ) : (
-        <p className="text-gray-500">No activity logs yet.</p>
+        <>
+          {/* ✅ Staff Profile Card */}
+          <div className="bg-white border rounded-xl p-5">
+            <h2 className="text-sm font-medium mb-3">Staff Profile</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+              <div>
+                <p className="text-gray-500">Name</p>
+                <p className="font-medium">{staff.name || "-"}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Email</p>
+                <p className="font-medium">{staff.email || "-"}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Phone</p>
+                <p className="font-medium">{staff.phone || "-"}</p>
+              </div>
+              <div>
+                <p className="text-gray-500">Status</p>
+                <span
+                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs ${
+                    staff.status === "approved"
+                      ? "bg-emerald-100 text-emerald-700"
+                      : staff.status === "pending"
+                      ? "bg-yellow-100 text-yellow-700"
+                      : "bg-red-100 text-red-700"
+                  }`}
+                >
+                  {staff.status}
+                </span>
+              </div>
+              <div>
+                <p className="text-gray-500">Total Assigned Leads</p>
+                <p className="font-medium">{leads.length}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* ✅ Assigned Leads Table */}
+          <div className="bg-white border rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b flex items-center justify-between">
+              <h2 className="text-sm font-medium">Assigned Leads</h2>
+              <span className="text-xs text-gray-500">
+                {leads.length} total
+              </span>
+            </div>
+
+            {leads.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                Is staff ko abhi koi lead assign nahi hui hai.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left">Name</th>
+                      <th className="px-4 py-2 text-left">Business</th>
+                      <th className="px-4 py-2 text-left">Contact</th>
+                      <th className="px-4 py-2 text-left">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {leads.map((lead) => (
+                      <tr key={lead.id}>
+                        <td className="px-4 py-2">{lead.name || "-"}</td>
+                        <td className="px-4 py-2">
+                          {lead.businessName || "-"}
+                        </td>
+                        <td className="px-4 py-2">{lead.contact || "-"}</td>
+                        <td className="px-4 py-2">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">
+                            {lead.status || "not-set"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );

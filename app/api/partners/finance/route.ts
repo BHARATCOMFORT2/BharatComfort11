@@ -1,8 +1,7 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/partners/finance/route.ts
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
@@ -15,6 +14,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseadmin";
      - days (int) -> window for revenue calculation (default 90)
      - limit (for payouts list)
 */
+
 function getAuthHeader(req: Request) {
   const auth = (req as any).headers?.get
     ? (req as any).headers.get("authorization")
@@ -25,24 +25,48 @@ function getAuthHeader(req: Request) {
 export async function GET(req: Request) {
   try {
     const authHeader = getAuthHeader(req);
-    if (!authHeader) return NextResponse.json({ error: "Missing Authorization header" }, { status: 401 });
+    if (!authHeader)
+      return NextResponse.json(
+        { error: "Missing Authorization header" },
+        { status: 401 }
+      );
+
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m) return NextResponse.json({ error: "Malformed Authorization header" }, { status: 401 });
+    if (!m)
+      return NextResponse.json(
+        { error: "Malformed Authorization header" },
+        { status: 401 }
+      );
+
     const idToken = m[1];
 
-    let decoded;
-    try { decoded = await adminAuth.verifyIdToken(idToken, true); }
-    catch { return NextResponse.json({ error: "Invalid or expired token" }, { status: 401 }); }
+    let decoded: any;
+    try {
+      decoded = await adminAuth.verifyIdToken(idToken, true);
+    } catch {
+      return NextResponse.json(
+        { error: "Invalid or expired token" },
+        { status: 401 }
+      );
+    }
+
     const uid = decoded.uid;
 
     const url = new URL(req.url);
-    const days = Math.min(Math.max(parseInt(url.searchParams.get("days") || "90", 10), 7), 365);
-    const limit = Math.min(parseInt(url.searchParams.get("limit") || "20", 10) || 20, 200);
+    const days = Math.min(
+      Math.max(parseInt(url.searchParams.get("days") || "90", 10), 7),
+      365
+    );
+    const limit = Math.min(
+      parseInt(url.searchParams.get("limit") || "20", 10) || 20,
+      200
+    );
 
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
     // 1) Sum completed bookings.amount for the partner since 'since'
-    const bookingsSnap = await adminDb.collection("bookings")
+    const bookingsSnap = await adminDb
+      .collection("bookings")
       .where("partnerUid", "==", uid)
       .where("status", "==", "completed")
       .where("createdAt", ">=", since)
@@ -55,17 +79,22 @@ export async function GET(req: Request) {
       totalEarnings += isFinite(amt) ? amt : 0;
     });
 
-    // 2) Recent settlements (from your settlements collection)
-    const settlementsSnap = await adminDb.collection("settlements")
+    // 2) Recent settlements
+    const settlementsSnap = await adminDb
+      .collection("settlements")
       .where("partnerUid", "==", uid)
       .orderBy("requestedAt", "desc")
       .limit(limit)
       .get();
 
-    const settlements = settlementsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const settlements = settlementsSnap.docs.map((d) => ({
+      id: d.id,
+      ...d.data(),
+    }));
 
-    // 3) pending payout sum
-    const pendingSnap = await adminDb.collection("settlements")
+    // 3) Pending payout sum
+    const pendingSnap = await adminDb
+      .collection("settlements")
       .where("partnerUid", "==", uid)
       .where("status", "==", "pending")
       .get();
@@ -76,7 +105,7 @@ export async function GET(req: Request) {
       pendingAmount += Number(data.amount || 0) || 0;
     });
 
-    // 4) summarise
+    // 4) Summary response
     return NextResponse.json({
       ok: true,
       windowDays: days,
@@ -86,6 +115,9 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     console.error("partners/finance error:", err);
-    return NextResponse.json({ error: err?.message || "Internal error" }, { status: 500 });
+    return NextResponse.json(
+      { error: err?.message || "Internal error" },
+      { status: 500 }
+    );
   }
 }

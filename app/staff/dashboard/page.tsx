@@ -12,12 +12,15 @@ type Lead = {
   id: string;
   name: string;
   businessName: string;
-  address: string;
+  address?: string;
   contact: string;
   email?: string;
   status: string;
   partnerNotes?: string;
-  createdAt?: any;
+
+  // ✅ TASK FIELDS FROM ADMIN
+  adminNote?: string;
+  dueDate?: any;
 };
 
 const STATUS_OPTIONS = [
@@ -26,7 +29,7 @@ const STATUS_OPTIONS = [
   "interested",
   "not_interested",
   "callback",
-  "converted",
+  "converted", // ✅ DONE
   "invalid",
 ];
 
@@ -40,7 +43,7 @@ export default function TelecallerDashboardPage() {
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
-  // ✅ FULL STAFF AUTH + APPROVAL CHECK (staff collection + role telecaller)
+  // ✅ FULL STAFF AUTH + APPROVAL CHECK (staff collection)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -51,7 +54,6 @@ export default function TelecallerDashboardPage() {
       }
 
       try {
-        // staff collection
         const snap = await getDoc(doc(db, "staff", user.uid));
 
         if (!snap.exists()) {
@@ -70,33 +72,18 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
-        if (profile.status === "pending") {
+        if (profile.status !== "approved" || profile.isActive !== true) {
           await signOut(auth);
-          toast("Your account is pending admin approval", { icon: "⏳" });
+          toast("Your account is not active", { icon: "⏳" });
           router.push("/staff/login");
           return;
         }
 
-        if (profile.status === "rejected") {
-          await signOut(auth);
-          toast.error("Your account has been rejected by admin");
-          router.push("/staff/login");
-          return;
-        }
-
-        if (profile.isActive !== true) {
-          await signOut(auth);
-          toast.error("Your account is inactive");
-          router.push("/staff/login");
-          return;
-        }
-
-        // ✅ Approved + active telecaller
         setStaffId(user.uid);
         const t = await user.getIdToken();
         setToken(t);
       } catch (err) {
-        console.error("Staff auth check error:", err);
+        console.error("Staff auth error:", err);
         await signOut(auth);
         router.push("/staff/login");
       } finally {
@@ -107,7 +94,7 @@ export default function TelecallerDashboardPage() {
     return () => unsub();
   }, [router]);
 
-  // ✅ Fetch assigned leads = telecaller ke tasks
+  // ✅ FETCH ASSIGNED LEADS = TASKS
   useEffect(() => {
     const fetchLeads = async () => {
       if (!staffId) return;
@@ -116,16 +103,11 @@ export default function TelecallerDashboardPage() {
       try {
         const res = await fetch("/api/staff/leads", {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            // token yahan optional hai (API abhi body se staffId leta hai),
-            // future me secure version ke liye ready hai
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ staffId }),
         });
 
         const data = await res.json();
-
         if (!res.ok || !data.success) {
           throw new Error(data?.message || "Failed to fetch leads");
         }
@@ -133,14 +115,12 @@ export default function TelecallerDashboardPage() {
         const list: Lead[] = data.data || [];
         setLeads(list);
 
-        // notes draft preload
         const draft: Record<string, string> = {};
         list.forEach((lead) => {
           draft[lead.id] = lead.partnerNotes || "";
         });
         setNotesDraft(draft);
       } catch (err: any) {
-        console.error("Failed to load leads:", err);
         toast.error(err?.message || "Leads load nahi ho paaye");
       } finally {
         setLoadingLeads(false);
@@ -150,12 +130,9 @@ export default function TelecallerDashboardPage() {
     fetchLeads();
   }, [staffId]);
 
-  // ✅ Status change (including "Done" via converted)
+  // ✅ STATUS UPDATE
   const handleStatusChange = async (leadId: string, newStatus: string) => {
-    if (!token) {
-      toast.error("Auth token missing. Please re-login.");
-      return;
-    }
+    if (!token) return toast.error("Please re-login");
 
     setSavingLeadId(leadId);
     try {
@@ -169,10 +146,8 @@ export default function TelecallerDashboardPage() {
       });
 
       const data = await res.json();
-
-      if (!res.ok || !data.success) {
+      if (!res.ok || !data.success)
         throw new Error(data?.message || "Status update failed");
-      }
 
       setLeads((prev) =>
         prev.map((lead) =>
@@ -180,23 +155,18 @@ export default function TelecallerDashboardPage() {
         )
       );
 
-      toast.success("Lead status updated");
+      toast.success("Status updated");
     } catch (err: any) {
-      console.error("Status update error:", err);
-      toast.error(err?.message || "Status update nahi ho paaya");
+      toast.error(err?.message || "Status update failed");
     } finally {
       setSavingLeadId(null);
     }
   };
 
-  // ✅ Notes save
+  // ✅ NOTES SAVE
   const handleNotesSave = async (leadId: string) => {
-    if (!token) {
-      toast.error("Auth token missing. Please re-login.");
-      return;
-    }
-
-    const notes = notesDraft[leadId] ?? "";
+    if (!token) return toast.error("Please re-login");
+    const notes = notesDraft[leadId] || "";
 
     setSavingLeadId(leadId);
     try {
@@ -210,21 +180,12 @@ export default function TelecallerDashboardPage() {
       });
 
       const data = await res.json();
-
-      if (!res.ok || !data.success) {
+      if (!res.ok || !data.success)
         throw new Error(data?.message || "Notes update failed");
-      }
-
-      setLeads((prev) =>
-        prev.map((lead) =>
-          lead.id === leadId ? { ...lead, partnerNotes: notes } : lead
-        )
-      );
 
       toast.success("Notes saved");
     } catch (err: any) {
-      console.error("Notes update error:", err);
-      toast.error(err?.message || "Notes save nahi ho paaye");
+      toast.error(err?.message || "Notes save failed");
     } finally {
       setSavingLeadId(null);
     }
@@ -233,75 +194,93 @@ export default function TelecallerDashboardPage() {
   if (loadingUser) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <p className="text-sm text-gray-500">Checking staff access...</p>
+        <div className="flex items-center justify-center h-64 text-sm text-gray-500">
+          Checking staff access...
         </div>
       </DashboardLayout>
     );
   }
 
-  if (!staffId) {
-    return null;
-  }
+  if (!staffId) return null;
+
+  const isOverdue = (dueDate: any, status: string) => {
+    if (!dueDate?.seconds) return false;
+    if (status === "converted") return false;
+    const due = new Date(dueDate.seconds * 1000);
+    return Date.now() > due.getTime();
+  };
 
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold">Telecaller Dashboard</h1>
+          <h1 className="text-xl font-semibold">Telecaller Task Dashboard</h1>
           <p className="text-sm text-gray-500">
-            Ye saare leads hi tumhare <strong>tasks</strong> hain. In par call
-            karo, status update karo aur notes add karo. <br />
-            <span className="font-medium">
-              "converted" = Done / Successfully closed.
-            </span>
+            Ye saare leads hi tumhare <b>tasks</b> hain. <br />
+            <b>Converted = DONE</b>
           </p>
         </div>
 
-        {/* LEADS = TASKS TABLE */}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {loadingLeads ? (
             <div className="p-6 text-center text-sm text-gray-500">
-              Loading your leads / tasks...
+              Loading your tasks...
             </div>
           ) : leads.length === 0 ? (
             <div className="p-6 text-center text-sm text-gray-500">
-              Abhi tak koi lead / task assign nahi hua hai.
+              Abhi koi task assign nahi hua.
             </div>
           ) : (
             <table className="min-w-full text-sm">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="p-3 text-left">Lead / Business</th>
+                  <th className="p-3 text-left">Lead</th>
                   <th className="p-3 text-left">Contact</th>
-                  <th className="p-3 text-left">Email</th>
+                  <th className="p-3 text-left">Admin Note</th>
+                  <th className="p-3 text-left">Due Date</th>
                   <th className="p-3 text-left">Status</th>
                   <th className="p-3 text-left">Notes</th>
-                  <th className="p-3 text-center">Mark as Done</th>
+                  <th className="p-3 text-center">Done</th>
                 </tr>
               </thead>
               <tbody>
                 {leads.map((lead) => {
-                  const isDone = lead.status === "converted";
+                  const done = lead.status === "converted";
+                  const overdue = isOverdue(lead.dueDate, lead.status);
+
                   return (
-                    <tr key={lead.id} className="border-t">
+                    <tr
+                      key={lead.id}
+                      className={`border-t ${
+                        overdue ? "bg-red-50" : ""
+                      }`}
+                    >
                       <td className="p-3">
                         <div className="font-medium">{lead.name}</div>
                         <div className="text-xs text-gray-500">
                           {lead.businessName}
                         </div>
                       </td>
-                      <td className="p-3">
-                        <div className="text-sm">{lead.contact}</div>
-                        {lead.address && (
-                          <div className="text-xs text-gray-400">
-                            {lead.address}
+
+                      <td className="p-3">{lead.contact}</td>
+
+                      <td className="p-3 text-xs">
+                        {lead.adminNote || "-"}
+                      </td>
+
+                      <td className="p-3 text-xs">
+                        {lead.dueDate?.seconds
+                          ? new Date(
+                              lead.dueDate.seconds * 1000
+                            ).toLocaleDateString()
+                          : "-"}
+                        {overdue && (
+                          <div className="text-red-600 font-semibold">
+                            Overdue
                           </div>
                         )}
                       </td>
-                      <td className="p-3 text-xs">{lead.email || "-"}</td>
 
-                      {/* Status dropdown */}
                       <td className="p-3">
                         <select
                           className="border rounded px-2 py-1 text-xs"
@@ -321,12 +300,10 @@ export default function TelecallerDashboardPage() {
                         </select>
                       </td>
 
-                      {/* Notes */}
                       <td className="p-3">
                         <textarea
                           className="border rounded w-full text-xs p-2"
                           rows={2}
-                          placeholder="Call summary / follow-up note"
                           value={notesDraft[lead.id] ?? ""}
                           onChange={(e) =>
                             setNotesDraft((prev) => ({
@@ -338,26 +315,26 @@ export default function TelecallerDashboardPage() {
                         <button
                           onClick={() => handleNotesSave(lead.id)}
                           disabled={savingLeadId === lead.id}
-                          className="mt-1 inline-flex items-center px-2 py-1 text-xs rounded bg-gray-900 text-white disabled:opacity-50"
+                          className="mt-1 px-2 py-1 text-xs bg-black text-white rounded"
                         >
-                          {savingLeadId === lead.id ? "Saving..." : "Save Notes"}
+                          Save
                         </button>
                       </td>
 
-                      {/* Mark as Done (Converted) */}
                       <td className="p-3 text-center">
                         <button
                           onClick={() =>
-                            !isDone && handleStatusChange(lead.id, "converted")
+                            !done &&
+                            handleStatusChange(lead.id, "converted")
                           }
-                          disabled={savingLeadId === lead.id || isDone}
-                          className={`inline-flex items-center px-3 py-1 text-xs rounded ${
-                            isDone
-                              ? "bg-green-100 text-green-700 cursor-default"
-                              : "bg-green-600 text-white hover:bg-green-700"
-                          } disabled:opacity-60`}
+                          disabled={done}
+                          className={`px-3 py-1 text-xs rounded ${
+                            done
+                              ? "bg-green-100 text-green-700"
+                              : "bg-green-600 text-white"
+                          }`}
                         >
-                          {isDone ? "Done" : "Mark Converted (Done)"}
+                          {done ? "Done" : "Mark Done"}
                         </button>
                       </td>
                     </tr>

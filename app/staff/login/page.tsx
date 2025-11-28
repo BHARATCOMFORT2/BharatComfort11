@@ -39,20 +39,20 @@ export default function StaffLoginPage() {
 
       const uid = cred.user.uid;
 
-      // ✅ Firestore Profile Check
-      const snap = await getDoc(doc(db, "users", uid));
+      // ✅ REAL STAFF COLLECTION CHECK
+      const snap = await getDoc(doc(db, "staff", uid));
 
       if (!snap.exists()) {
         await auth.signOut();
-        return toast.error("Profile not found");
+        return toast.error("Staff profile not found");
       }
 
       const profile = snap.data();
 
-      // ❌ Not staff
-      if (profile.role !== "staff") {
+      // ✅ Must be telecaller
+      if (profile.role !== "telecaller") {
         await auth.signOut();
-        return toast.error("This login is for staff only");
+        return toast.error("This login is for telecallers only");
       }
 
       // ⏳ Pending Approval
@@ -69,7 +69,13 @@ export default function StaffLoginPage() {
         return toast.error("Your account has been rejected by admin");
       }
 
-      // ✅ Approved Staff → Dashboard
+      // ❌ Inactive
+      if (profile.isActive !== true) {
+        await auth.signOut();
+        return toast.error("Your account is inactive");
+      }
+
+      // ✅ Approved + Active Staff → Dashboard
       toast.success("Login successful");
       router.push("/staff/dashboard");
     } catch (err: any) {

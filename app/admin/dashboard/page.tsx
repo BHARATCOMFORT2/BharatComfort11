@@ -104,6 +104,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
 
   return (
     <div className="space-y-3">
+      {/* Upload Box */}
       <div
         className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition ${
           dragOver ? "border-blue-500 bg-blue-50" : "border-gray-300"
@@ -136,6 +137,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
         </p>
       </div>
 
+      {/* Upload Progress */}
       {uploading &&
         Object.entries(progressMap).map(([name, percent]) => (
           <div key={name} className="flex gap-2 items-center text-sm">
@@ -150,6 +152,7 @@ const ImageUpload: React.FC<ImageUploadProps> = ({
           </div>
         ))}
 
+      {/* Uploaded Images */}
       <div className="flex flex-wrap gap-3">
         {images.map((url, index) => (
           <div
@@ -253,7 +256,7 @@ const SectionEditor = ({ sectionId, token }: any) => {
 };
 
 /* ============================================================
-   ADMIN DASHBOARD PAGE (STAFF FULLY INTEGRATED)
+   ADMIN DASHBOARD PAGE (STAFF + LEADS FULLY INTEGRATED)
 ============================================================ */
 export default function AdminDashboardPage() {
   const { firebaseUser, profile, loading } = useAuth();
@@ -296,7 +299,7 @@ export default function AdminDashboardPage() {
             users: s.totalUsers ?? 0,
             partners: s.totalPartners ?? 0,
             listings: s.totalListings ?? 0,
-            staffs: s.totalStaffs ?? s.totalTelecallers ?? 0, // ✅ STAFF FIX
+            staffs: s.totalStaffs ?? s.totalTelecallers ?? 0,
           });
 
           setChartData(
@@ -336,7 +339,34 @@ export default function AdminDashboardPage() {
         ))}
       </div>
 
-      {/* STAFF MANAGEMENT (NEW) */}
+      {/* ✅ LEADS / TASK MANAGEMENT */}
+      <section className="mt-8 mb-12">
+        <h3 className="font-semibold mb-4">Lead & Task Management</h3>
+        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+          <Link
+            href="/admin/leads"
+            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+          >
+            📋 All Leads / Tasks
+          </Link>
+
+          <Link
+            href="/admin/leads/import"
+            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+          >
+            ⬆️ Import Leads (Excel)
+          </Link>
+
+          <Link
+            href="/admin/dashboard/staff-performance"
+            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+          >
+            📊 Telecaller Performance
+          </Link>
+        </div>
+      </section>
+
+      {/* STAFF MANAGEMENT (EXISTING) */}
       <section className="mt-8 mb-12">
         <h3 className="font-semibold mb-4">Staff Management</h3>
         <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">

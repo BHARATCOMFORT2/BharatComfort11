@@ -8,6 +8,9 @@ import { doc, getDoc } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
 
+/* ---------------------------------------
+   TYPES
+---------------------------------------- */
 type Lead = {
   id: string;
   name: string;
@@ -33,8 +36,12 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
+/* ---------------------------------------
+   COMPONENT
+---------------------------------------- */
 export default function TelecallerDashboardPage() {
   const router = useRouter();
+
   const [staffId, setStaffId] = useState<string | null>(null);
   const [token, setToken] = useState<string>("");
   const [loadingUser, setLoadingUser] = useState(true);
@@ -43,7 +50,15 @@ export default function TelecallerDashboardPage() {
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
-  // ✅ FULL STAFF AUTH + APPROVAL CHECK (staff collection)
+  // ✅ ✅ ✅ THIS WAS MISSING — STAFF PROFILE FOR SIDEBAR
+  const [staffProfile, setStaffProfile] = useState<{
+    name?: string;
+    role?: "staff";
+  } | null>(null);
+
+  /* ---------------------------------------
+     ✅ STAFF AUTH + APPROVAL CHECK
+  ---------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
@@ -79,9 +94,21 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
+        // ✅ ✅ ✅ STAFF LOGIN SUCCESS
         setStaffId(user.uid);
+
         const t = await user.getIdToken();
         setToken(t);
+
+        // ✅ ✅ ✅ THIS FIXES USER → STAFF SIDEBAR PROBLEM
+        setStaffProfile({
+          name:
+            profile.name ||
+            user.displayName ||
+            user.email?.split("@")[0] ||
+            "Telecaller",
+          role: "staff",
+        });
       } catch (err) {
         console.error("Staff auth error:", err);
         await signOut(auth);
@@ -94,7 +121,9 @@ export default function TelecallerDashboardPage() {
     return () => unsub();
   }, [router]);
 
-  // ✅ FETCH ASSIGNED LEADS = TASKS
+  /* ---------------------------------------
+     ✅ FETCH ASSIGNED LEADS = TASKS
+  ---------------------------------------- */
   useEffect(() => {
     const fetchLeads = async () => {
       if (!staffId) return;
@@ -130,7 +159,9 @@ export default function TelecallerDashboardPage() {
     fetchLeads();
   }, [staffId]);
 
-  // ✅ STATUS UPDATE
+  /* ---------------------------------------
+     ✅ STATUS UPDATE
+  ---------------------------------------- */
   const handleStatusChange = async (leadId: string, newStatus: string) => {
     if (!token) return toast.error("Please re-login");
 
@@ -163,7 +194,9 @@ export default function TelecallerDashboardPage() {
     }
   };
 
-  // ✅ NOTES SAVE
+  /* ---------------------------------------
+     ✅ NOTES SAVE
+  ---------------------------------------- */
   const handleNotesSave = async (leadId: string) => {
     if (!token) return toast.error("Please re-login");
     const notes = notesDraft[leadId] || "";
@@ -191,9 +224,15 @@ export default function TelecallerDashboardPage() {
     }
   };
 
+  /* ---------------------------------------
+     ✅ LOADING + BLOCKS
+  ---------------------------------------- */
   if (loadingUser) {
     return (
-      <DashboardLayout>
+      <DashboardLayout
+        title="Telecaller Task Dashboard"
+        profile={staffProfile || undefined}
+      >
         <div className="flex items-center justify-center h-64 text-sm text-gray-500">
           Checking staff access...
         </div>
@@ -210,8 +249,14 @@ export default function TelecallerDashboardPage() {
     return Date.now() > due.getTime();
   };
 
+  /* ---------------------------------------
+     ✅ FINAL RENDER
+  ---------------------------------------- */
   return (
-    <DashboardLayout>
+    <DashboardLayout
+      title="Telecaller Task Dashboard"
+      profile={staffProfile || undefined}
+    >
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold">Telecaller Task Dashboard</h1>
@@ -243,6 +288,7 @@ export default function TelecallerDashboardPage() {
                   <th className="p-3 text-center">Done</th>
                 </tr>
               </thead>
+
               <tbody>
                 {leads.map((lead) => {
                   const done = lead.status === "converted";
@@ -251,9 +297,7 @@ export default function TelecallerDashboardPage() {
                   return (
                     <tr
                       key={lead.id}
-                      className={`border-t ${
-                        overdue ? "bg-red-50" : ""
-                      }`}
+                      className={`border-t ${overdue ? "bg-red-50" : ""}`}
                     >
                       <td className="p-3">
                         <div className="font-medium">{lead.name}</div>

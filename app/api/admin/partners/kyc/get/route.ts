@@ -1,8 +1,7 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/admin/partners/kyc/get/route.ts
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
@@ -33,7 +32,7 @@ export async function GET(req: Request) {
       );
 
     const idToken = match[1];
-    let decoded;
+    let decoded: any;
 
     try {
       decoded = await adminAuth.verifyIdToken(idToken, true);
@@ -71,10 +70,10 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: "Partner not found" }, { status: 404 });
     }
 
-    const partnerData = partnerSnap.data();
+    const partnerData = partnerSnap.data() || {};
 
     // 4) Fetch KYC document(s)
-    let kycDocSnap;
+    let kycDocSnap: FirebaseFirestore.DocumentSnapshot;
 
     // If a specific KYC ID is provided
     if (kycId) {
@@ -85,8 +84,7 @@ export async function GET(req: Request) {
           { status: 404 }
         );
       }
-    } 
-    else {
+    } else {
       // If no specific ID, fetch the latest KYC record
       const kycListSnap = await partnerRef
         .collection("kycDocs")
@@ -104,7 +102,7 @@ export async function GET(req: Request) {
       kycDocSnap = kycListSnap.docs[0];
     }
 
-    const kycData = kycDocSnap.data();
+    const kycData = kycDocSnap.data() || {};
 
     // 5) Return combined KYC + Partner data
     return NextResponse.json({

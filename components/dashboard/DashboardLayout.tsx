@@ -1,7 +1,7 @@
 "use client";
 
 import { ReactNode, useState, useEffect } from "react";
-import { auth } from "@/lib/firebase-client";  // <-- FIXED HERE
+import { auth } from "@/lib/firebase-client";
 import { useRouter, usePathname } from "next/navigation";
 import { Menu, X, LogOut } from "lucide-react";
 
@@ -10,13 +10,13 @@ interface Props {
   children: ReactNode;
   profile?: {
     name?: string;
-    role?: string;
+    role?: string; // "admin" | "partner" | "user"
     profilePic?: string;
   };
 }
 
 export default function DashboardLayout({ title, children, profile }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(true);
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -36,22 +36,48 @@ export default function DashboardLayout({ title, children, profile }: Props) {
 
   if (!mounted) return null;
 
+  // ✅ USER MENU
+  const userLinks = [
+    { name: "Dashboard", path: "/user/dashboard" },
+    { name: "My Trips", path: "/user/bookings" },
+    { name: "Settings", path: "/user/settings" },
+    { name: "Refer & Earn 💰", path: "/user/dashboard/referrals" },
+  ];
+
+  // ✅ PARTNER MENU
+  const partnerLinks = [
+    { name: "Dashboard", path: "/partner/dashboard" },
+    { name: "Listings", path: "/partner/listings" },
+    { name: "Bookings", path: "/partner/bookings" },
+  ];
+
+  // ✅ ✅ ✅ ADMIN MENU (STAFF INTEGRATED HERE)
+  const adminLinks = [
+    { name: "Dashboard", path: "/admin/dashboard" },
+    { name: "Users", path: "/admin/dashboard/users" },
+    { name: "Partners", path: "/admin/dashboard/partners" },
+    { name: "KYC", path: "/admin/dashboard/kyc" },
+    { name: "Listings", path: "/admin/dashboard/homepage" },
+
+    // ✅ STAFF SECTION
+    { name: "Staff Management", path: "/admin/staff" },
+    { name: "Staff Performance", path: "/admin/staff/performance" },
+
+    { name: "Settlements", path: "/admin/dashboard/settlements" },
+    { name: "Reports", path: "/admin/dashboard/reports" },
+    { name: "Settings", path: "/admin/dashboard/settings" },
+  ];
+
   const navLinks =
-    profile?.role === "partner"
-      ? [
-          { name: "Dashboard", path: "/partner/dashboard" },
-          { name: "Listings", path: "/partner/listings" },
-          { name: "Bookings", path: "/partner/bookings" },
-        ]
-      : [
-          { name: "Dashboard", path: "/user/dashboard" },
-          { name: "My Trips", path: "/user/bookings" },
-          { name: "Settings", path: "/user/settings" },
-          { name: "Refer & Earn 💰", path: "/user/dashboard/referrals" },
-        ];
+    profile?.role === "admin"
+      ? adminLinks
+      : profile?.role === "partner"
+      ? partnerLinks
+      : userLinks;
 
   return (
     <div className="flex min-h-screen bg-gray-100">
+      {/* ✅ SIDEBAR */}
       <aside
         className={`fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-30 transition-transform duration-300 ${
           menuOpen ? "translate-x-0" : "-translate-x-full sm:translate-x-0"
@@ -68,9 +94,12 @@ export default function DashboardLayout({ title, children, profile }: Props) {
             <div className="w-16 h-16 rounded-full bg-gray-200 mb-3" />
           )}
           <h2 className="text-lg font-semibold">{profile?.name || "User"}</h2>
-          <p className="text-sm text-gray-500 capitalize">{profile?.role || "user"}</p>
+          <p className="text-sm text-gray-500 capitalize">
+            {profile?.role || "user"}
+          </p>
         </div>
 
+        {/* ✅ NAVIGATION */}
         <nav className="mt-6 space-y-2 px-4">
           {navLinks.map((link) => (
             <button
@@ -87,6 +116,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           ))}
         </nav>
 
+        {/* ✅ LOGOUT */}
         <div className="absolute bottom-6 w-full flex justify-center">
           <button
             onClick={handleLogout}
@@ -97,6 +127,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
         </div>
       </aside>
 
+      {/* ✅ MAIN CONTENT */}
       <div className="flex-1 sm:ml-64">
         <header className="flex justify-between items-center bg-white shadow px-6 py-4 sticky top-0 z-20">
           <div className="flex items-center gap-3">

@@ -1,134 +1,218 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { auth, db } from "@/lib/firebase";
-import {
-  collection,
-  getDocs,
-  doc,
-  deleteDoc,
-  updateDoc,
-} from "firebase/firestore";
+import React, { useEffect, useState } from "react";
+import toast from "react-hot-toast";
 
-export default function AdminStaffsPage() {
-  const router = useRouter();
-  const [staffs, setStaffs] = useState<any[]>([]);
+type Staff = {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  status: "pending" | "approved" | "rejected" | string;
+};
+
+export default function AdminStaffPage() {
+  const [pendingStaff, setPendingStaff] = useState<Staff[]>([]);
+  const [approvedStaff, setApprovedStaff] = useState<Staff[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
-  const fetchStaffs = async () => {
+  const fetchData = async () => {
     try {
-      const snap = await getDocs(collection(db, "staffs"));
-      const list: any[] = [];
-      snap.forEach((doc) => list.push({ id: doc.id, ...doc.data() }));
-      setStaffs(list);
-    } catch (err) {
-      console.error("Error fetching staffs:", err);
+      setLoading(true);
+
+      // 1) Pending staff (using /api/admin/staff/approve GET – jo humne pehle banaya)
+      const pendingRes = await fetch("/api/admin/staff/approve");
+      const pendingJson = await pendingRes.json();
+
+      if (!pendingRes.ok || !pendingJson.success) {
+        throw new Error(pendingJson?.message || "Failed to load pending staff");
+      }
+
+      setPendingStaff(pendingJson.data || []);
+
+      // 2) Approved telecallers (using /api/admin/staff/telecallers GET)
+      const approvedRes = await fetch("/api/admin/staff/telecallers");
+      const approvedJson = await approvedRes.json();
+
+      if (!approvedRes.ok || !approvedJson.success) {
+        throw new Error(
+          approvedJson?.message || "Failed to load approved staff"
+        );
+      }
+
+      setApprovedStaff(approvedJson.data || []);
+    } catch (err: any) {
+      console.error("Staff fetch error:", err);
+      toast.error(err?.message || "Staff data load nahi ho paaya");
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    const user = auth.currentUser;
-    if (!user) {
-      router.push("/auth/login");
-      return;
-    }
-    // TODO: enforce superadmin role check
-    fetchStaffs();
-  }, [router]);
+    fetchData();
+  }, []);
 
-  const removeStaff = async (id: string) => {
+  const handleStaffAction = async (
+    staffId: string,
+    action: "approve" | "reject"
+  ) => {
     try {
-      await deleteDoc(doc(db, "staffs", id));
-      setStaffs((prev) => prev.filter((s) => s.id !== id));
-    } catch (err) {
-      console.error("Error removing staff:", err);
-    }
-  };
+      setActionLoadingId(staffId);
 
-  const changeRole = async (id: string, role: string) => {
-    try {
-      await updateDoc(doc(db, "staffs", id), { role });
-      setStaffs((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, role } : s))
+      const res = await fetch("/api/admin/staff/approve", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ staffId, action }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Action failed");
+      }
+
+      toast.success(
+        action === "approve"
+          ? "Staff approved successfully"
+          : "Staff rejected successfully"
       );
-    } catch (err) {
-      console.error("Error updating staff role:", err);
+
+      // Refresh lists
+      fetchData();
+    } catch (err: any) {
+      console.error("Staff action error:", err);
+      toast.error(err?.message || "Staff action fail ho gaya");
+    } finally {
+      setActionLoadingId(null);
     }
   };
-
-  const changeStatus = async (id: string, status: string) => {
-    try {
-      await updateDoc(doc(db, "staffs", id), { status });
-      setStaffs((prev) =>
-        prev.map((s) => (s.id === id ? { ...s, status } : s))
-      );
-    } catch (err) {
-      console.error("Error updating staff status:", err);
-    }
-  };
-
-  if (loading) return <p className="text-center py-12">Loading staff members...</p>;
 
   return (
-    <div className="container mx-auto px-4 py-12">
-      <h1 className="text-2xl font-bold mb-6">Manage Staff</h1>
+    <div className="p-6 space-y-6">
+      {/* Header */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Staff / Telecaller Management</h1>
+          <p className="text-sm text-gray-500">
+            Yahan se aap staff requests approve/reject kar sakte hain aur active telecallers dekh sakte hain.
+          </p>
+        </div>
+        {loading && (
+          <span className="text-xs text-gray-400">Loading staff data...</span>
+        )}
+      </div>
 
-      {staffs.length > 0 ? (
-        <table className="w-full border-collapse border rounded-lg overflow-hidden shadow">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border px-4 py-2 text-left">Name</th>
-              <th className="border px-4 py-2 text-left">Email</th>
-              <th className="border px-4 py-2 text-left">Role</th>
-              <th className="border px-4 py-2 text-left">Status</th>
-              <th className="border px-4 py-2 text-center">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {staffs.map((staff) => (
-              <tr key={staff.id} className="bg-white hover:bg-gray-50">
-                <td className="border px-4 py-2">{staff.name}</td>
-                <td className="border px-4 py-2">{staff.email}</td>
-                <td className="border px-4 py-2">
-                  <select
-                    value={staff.role || "support"}
-                    onChange={(e) => changeRole(staff.id, e.target.value)}
-                    className="border px-2 py-1 rounded"
-                  >
-                    <option value="support">Support</option>
-                    <option value="content_manager">Content Manager</option>
-                    <option value="moderator">Moderator</option>
-                    <option value="operations">Operations</option>
-                  </select>
-                </td>
-                <td className="border px-4 py-2">
-                  <select
-                    value={staff.status || "active"}
-                    onChange={(e) => changeStatus(staff.id, e.target.value)}
-                    className="border px-2 py-1 rounded"
-                  >
-                    <option value="active">Active</option>
-                    <option value="suspended">Suspended</option>
-                  </select>
-                </td>
-                <td className="border px-4 py-2 text-center">
-                  <button
-                    onClick={() => removeStaff(staff.id)}
-                    className="text-red-600 hover:underline text-sm"
-                  >
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : (
-        <p className="text-gray-500">No staff members found.</p>
-      )}
+      {/* Pending Staff */}
+      <div className="bg-white border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <h2 className="text-sm font-medium">Pending Staff Requests</h2>
+          <span className="text-xs text-gray-500">
+            {pendingStaff.length} pending
+          </span>
+        </div>
+
+        {pendingStaff.length === 0 && !loading ? (
+          <div className="p-6 text-center text-sm text-gray-500">
+            Abhi koi pending staff request nahi hai.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left">Name</th>
+                  <th className="px-4 py-2 text-left">Email</th>
+                  <th className="px-4 py-2 text-left">Phone</th>
+                  <th className="px-4 py-2 text-left">Status</th>
+                  <th className="px-4 py-2 text-left">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {pendingStaff.map((staff) => (
+                  <tr key={staff.id}>
+                    <td className="px-4 py-2">{staff.name || "-"}</td>
+                    <td className="px-4 py-2">{staff.email || "-"}</td>
+                    <td className="px-4 py-2">{staff.phone || "-"}</td>
+                    <td className="px-4 py-2">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-yellow-100 text-yellow-700">
+                        pending
+                      </span>
+                    </td>
+                    <td className="px-4 py-2 space-x-2">
+                      <button
+                        onClick={() =>
+                          handleStaffAction(staff.id, "approve")
+                        }
+                        disabled={actionLoadingId === staff.id}
+                        className="px-3 py-1 text-xs rounded-md bg-emerald-600 text-white disabled:opacity-50"
+                      >
+                        {actionLoadingId === staff.id &&
+                        loading
+                          ? "Processing..."
+                          : "Approve"}
+                      </button>
+                      <button
+                        onClick={() =>
+                          handleStaffAction(staff.id, "reject")
+                        }
+                        disabled={actionLoadingId === staff.id}
+                        className="px-3 py-1 text-xs rounded-md bg-red-600 text-white disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Approved Telecallers */}
+      <div className="bg-white border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <h2 className="text-sm font-medium">Approved Telecallers</h2>
+          <span className="text-xs text-gray-500">
+            {approvedStaff.length} active
+          </span>
+        </div>
+
+        {approvedStaff.length === 0 && !loading ? (
+          <div className="p-6 text-center text-sm text-gray-500">
+            Abhi koi approved telecaller nahi hai.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-2 text-left">Name</th>
+                  <th className="px-4 py-2 text-left">Email</th>
+                  <th className="px-4 py-2 text-left">Status</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {approvedStaff.map((staff) => (
+                  <tr key={staff.id}>
+                    <td className="px-4 py-2">{staff.name || "-"}</td>
+                    <td className="px-4 py-2">{staff.email || "-"}</td>
+                    <td className="px-4 py-2">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs bg-emerald-100 text-emerald-700">
+                        approved
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

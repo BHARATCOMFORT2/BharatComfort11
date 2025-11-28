@@ -5,7 +5,6 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Telecaller → Apni assigned leads fetch karega
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -13,17 +12,14 @@ export async function POST(req: Request) {
 
     if (!staffId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "staffId is required",
-        },
+        { success: false, message: "staffId is required" },
         { status: 400 }
       );
     }
 
     const { db: adminDb } = getFirebaseAdmin();
 
-    // ✅ Check staff exists & is approved
+    // ✅ STAFF VALIDATION
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -42,19 +38,15 @@ export async function POST(req: Request) {
       staffData?.isActive !== true
     ) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized staff access",
-        },
+        { success: false, message: "Unauthorized staff access" },
         { status: 403 }
       );
     }
 
-    // ✅ Fetch only assigned leads
+    // ✅ ✅ ✅ FINAL SAFE FETCH (NO orderBy)
     const snapshot = await adminDb
       .collection("leads")
       .where("assignedTo", "==", staffId)
-      .orderBy("createdAt", "desc")
       .get();
 
     const leads = snapshot.docs.map((doc) => ({
@@ -62,17 +54,20 @@ export async function POST(req: Request) {
       ...doc.data(),
     }));
 
+    console.log("✅ TELECALLER LEADS FOUND:", leads.length);
+
     return NextResponse.json({
       success: true,
       data: leads,
     });
   } catch (error: any) {
-    console.error("Telecaller leads fetch error:", error);
+    console.error("❌ Telecaller leads fetch error:", error);
 
     return NextResponse.json(
       {
         success: false,
         message: "Failed to fetch assigned leads",
+        error: error.message,
       },
       { status: 500 }
     );

@@ -9,10 +9,12 @@ export async function GET() {
   try {
     const { db: adminDb } = getFirebaseAdmin();
 
+    // ✅ REAL STAFF COLLECTION (ONLY APPROVED + ACTIVE TELECALLERS)
     const snapshot = await adminDb
-      .collection("users")
-      .where("role", "==", "staff")
+      .collection("staff")
+      .where("role", "==", "telecaller")
       .where("status", "==", "approved")
+      .where("isActive", "==", true)
       .get();
 
     const staffList = snapshot.docs.map((doc) => ({
@@ -30,7 +32,7 @@ export async function GET() {
     return NextResponse.json(
       {
         success: false,
-        message: "Failed to fetch telecallers list",
+        message: error?.message || "Failed to fetch telecallers list",
       },
       { status: 500 }
     );

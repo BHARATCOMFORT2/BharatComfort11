@@ -2,9 +2,6 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase-client";
 import toast from "react-hot-toast";
 
 export default function StaffRegisterPage() {
@@ -16,6 +13,9 @@ export default function StaffRegisterPage() {
     email: "",
     phone: "",
     password: "",
+    city: "",
+    experience: "",
+    languages: "",
   });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,33 +25,40 @@ export default function StaffRegisterPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!form.name || !form.email || !form.phone || !form.password) {
-      return toast.error("All fields are required");
+    const { name, email, phone, password } = form;
+
+    if (!name || !email || !phone || !password) {
+      return toast.error("All required fields must be filled");
     }
 
     try {
       setLoading(true);
 
-      // ✅ Firebase Auth user create
-      const cred = await createUserWithEmailAndPassword(
-        auth,
-        form.email,
-        form.password
-      );
-
-      const uid = cred.user.uid;
-
-      // ✅ Firestore profile create
-      await setDoc(doc(db, "users", uid), {
-        name: form.name,
-        email: form.email,
-        phone: form.phone,
-        role: "staff",
-        status: "pending", // ✅ admin approval required
-        createdAt: serverTimestamp(),
+      const res = await fetch("/api/staff/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          phone: form.phone,
+          city: form.city || null,
+          experience: form.experience || null,
+          languages: form.languages
+            ? form.languages.split(",").map((l) => l.trim())
+            : [],
+        }),
       });
 
-      toast.success("Registration successful! Approval pending.");
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Registration failed");
+      }
+
+      toast.success(
+        "Registration successful! Admin approval pending."
+      );
 
       router.push("/staff/login");
     } catch (err: any) {
@@ -75,7 +82,7 @@ export default function StaffRegisterPage() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <input
             name="name"
-            placeholder="Full Name"
+            placeholder="Full Name *"
             value={form.name}
             onChange={handleChange}
             className="w-full border rounded-md px-3 py-2 text-sm"
@@ -84,7 +91,7 @@ export default function StaffRegisterPage() {
           <input
             name="email"
             type="email"
-            placeholder="Email"
+            placeholder="Email *"
             value={form.email}
             onChange={handleChange}
             className="w-full border rounded-md px-3 py-2 text-sm"
@@ -92,7 +99,7 @@ export default function StaffRegisterPage() {
 
           <input
             name="phone"
-            placeholder="Phone Number"
+            placeholder="Phone Number *"
             value={form.phone}
             onChange={handleChange}
             className="w-full border rounded-md px-3 py-2 text-sm"
@@ -101,8 +108,32 @@ export default function StaffRegisterPage() {
           <input
             name="password"
             type="password"
-            placeholder="Password"
+            placeholder="Password *"
             value={form.password}
+            onChange={handleChange}
+            className="w-full border rounded-md px-3 py-2 text-sm"
+          />
+
+          <input
+            name="city"
+            placeholder="City (optional)"
+            value={form.city}
+            onChange={handleChange}
+            className="w-full border rounded-md px-3 py-2 text-sm"
+          />
+
+          <input
+            name="experience"
+            placeholder="Experience (optional)"
+            value={form.experience}
+            onChange={handleChange}
+            className="w-full border rounded-md px-3 py-2 text-sm"
+          />
+
+          <input
+            name="languages"
+            placeholder="Languages (comma separated, optional)"
+            value={form.languages}
             onChange={handleChange}
             className="w-full border rounded-md px-3 py-2 text-sm"
           />

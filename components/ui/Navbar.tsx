@@ -41,10 +41,7 @@ export default function Navbar() {
       }`}
     >
       <div className="max-w-7xl mx-auto flex items-center justify-between py-4 px-6">
-        <Link
-          href="/"
-          className="text-2xl font-bold text-yellow-400"
-        >
+        <Link href="/" className="text-2xl font-bold text-yellow-400">
           BharatComfort
         </Link>
 
@@ -76,16 +73,27 @@ export default function Navbar() {
           </Link>
         </div>
 
-        {/* Auth Buttons */}
+        {/* ✅ Auth Buttons + Staff Portal (DESKTOP) */}
         <div className="hidden md:flex gap-4">
           {!loggedIn ? (
             <>
+              {/* ✅ Staff Portal */}
+              <Link
+                href="/staff"
+                className="px-4 py-2 rounded-xl border border-yellow-400 text-yellow-400 hover:bg-yellow-400 hover:text-black transition"
+              >
+                Staff Portal
+              </Link>
+
+              {/* ✅ Login */}
               <Link
                 href="/auth/login"
                 className="px-4 py-2 rounded-xl border border-yellow-400 text-yellow-400 hover:bg-yellow-400 hover:text-black transition"
               >
                 Login
               </Link>
+
+              {/* ✅ Sign Up */}
               <Link
                 href="/auth/register"
                 className="px-4 py-2 rounded-xl bg-yellow-400 text-black font-semibold shadow-md hover:bg-yellow-500 transition"
@@ -121,7 +129,7 @@ export default function Navbar() {
         </button>
       </div>
 
-      {/* Mobile Menu */}
+      {/* ✅ Mobile Menu */}
       <AnimatePresence>
         {menuOpen && (
           <motion.div
@@ -162,10 +170,20 @@ export default function Navbar() {
               </Link>
             </div>
 
-            {/* Auth Buttons - Mobile */}
+            {/* ✅ Auth Buttons + Staff Portal (MOBILE) */}
             <div className="flex flex-col gap-4 pt-6 border-t border-yellow-400/30">
               {!loggedIn ? (
                 <>
+                  {/* ✅ Staff Portal */}
+                  <Link
+                    href="/staff"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-4 py-2 rounded-xl border border-yellow-400 text-yellow-400 text-center hover:bg-yellow-400 hover:text-black"
+                  >
+                    Staff Portal
+                  </Link>
+
+                  {/* ✅ Login */}
                   <Link
                     href="/auth/login"
                     onClick={() => setMenuOpen(false)}
@@ -173,6 +191,8 @@ export default function Navbar() {
                   >
                     Login
                   </Link>
+
+                  {/* ✅ Sign Up */}
                   <Link
                     href="/auth/register"
                     onClick={() => setMenuOpen(false)}

@@ -5,15 +5,13 @@ const ROOT = path.join(process.cwd(), "app", "api");
 
 function fixFile(filePath) {
   const content = fs.readFileSync(filePath, "utf8").split("\n");
-
   let seen = false;
+
   const fixed = content.filter((line) => {
     if (line.includes('export const runtime = "nodejs";')) {
-      if (seen) {
-        return false; // REMOVE duplicate
-      }
+      if (seen) return false; // remove duplicate
       seen = true;
-      return true; // KEEP first one
+      return true; // keep first
     }
     return true;
   });
@@ -25,19 +23,15 @@ function fixFile(filePath) {
 }
 
 function walk(dir) {
-  const items = fs.readdirSync(dir);
-  for (const item of items) {
-    const fullPath = path.join(dir, item);
-    const stat = fs.statSync(fullPath);
+  for (const item of fs.readdirSync(dir)) {
+    const full = path.join(dir, item);
+    const stat = fs.statSync(full);
 
-    if (stat.isDirectory()) {
-      walk(fullPath);
-    } else if (item === "route.ts") {
-      fixFile(fullPath);
-    }
+    if (stat.isDirectory()) walk(full);
+    else if (item === "route.ts") fixFile(full);
   }
 }
 
 console.log("🔧 Cleaning duplicate runtime from all route.ts...");
 walk(ROOT);
-console.log("✅ DONE. Now commit and push.");
+console.log("✅ DONE");

@@ -6,7 +6,6 @@ import { getAuth } from "firebase-admin/auth";
 import { db } from "@/lib/firebaseadmin";
 import { getStorage } from "firebase-admin/storage";
 
-export const runtime = "nodejs";
 
 // 5MB limit
 const MAX_FILE_SIZE = 5 * 1024 * 1024;

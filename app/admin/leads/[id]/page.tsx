@@ -14,6 +14,10 @@ type Lead = {
   status: string;
   partnerNotes?: string;
   assignedTo?: string | null;
+
+  // ✅ NEW TASK-LIKE FIELDS
+  adminNote?: string;
+  dueDate?: any;
 };
 
 type Staff = {
@@ -31,6 +35,11 @@ export default function AdminLeadDetailsPage() {
   const [loading, setLoading] = useState(true);
   const [assigning, setAssigning] = useState(false);
 
+  // ✅ NEW STATES
+  const [adminNote, setAdminNote] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [savingTaskFields, setSavingTaskFields] = useState(false);
+
   // ✅ Fetch Lead Details
   const fetchLead = async () => {
     try {
@@ -41,7 +50,18 @@ export default function AdminLeadDetailsPage() {
         throw new Error(data?.message || "Lead load failed");
       }
 
-      setLead(data.data);
+      const leadData = data.data;
+      setLead(leadData);
+
+      // ✅ preload task fields
+      setAdminNote(leadData.adminNote || "");
+
+      if (leadData?.dueDate?.seconds) {
+        const dt = new Date(leadData.dueDate.seconds * 1000);
+        setDueDate(dt.toISOString().split("T")[0]);
+      } else {
+        setDueDate("");
+      }
     } catch (err: any) {
       toast.error(err?.message || "Lead load nahi ho paayi");
       router.push("/admin/leads");
@@ -101,6 +121,39 @@ export default function AdminLeadDetailsPage() {
     }
   };
 
+  // ✅ SAVE TASK FIELDS (adminNote + dueDate)
+  const handleSaveTaskFields = async () => {
+    if (!lead) return;
+
+    setSavingTaskFields(true);
+    try {
+      const res = await fetch(`/api/admin/leads/update-task-fields`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          leadId: lead.id,
+          adminNote,
+          dueDate: dueDate || null,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Task update failed");
+      }
+
+      toast.success("Task fields updated");
+      fetchLead();
+    } catch (err: any) {
+      toast.error(err?.message || "Task update failed");
+    } finally {
+      setSavingTaskFields(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 text-sm text-gray-500">Loading lead details...</div>
@@ -114,9 +167,9 @@ export default function AdminLeadDetailsPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Lead Details</h1>
+          <h1 className="text-xl font-semibold">Lead Details (Task View)</h1>
           <p className="text-sm text-gray-500">
-            Complete information + telecaller updates
+            Lead + Telecaller Task Control Panel
           </p>
         </div>
 
@@ -156,6 +209,40 @@ export default function AdminLeadDetailsPage() {
         </div>
       </div>
 
+      {/* ✅ TASK CONTROLS (NEW) */}
+      <div className="bg-white border rounded-xl p-5 space-y-4">
+        <h3 className="text-sm font-semibold">Task Controls (For Telecaller)</h3>
+
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Admin Instruction</p>
+          <textarea
+            value={adminNote}
+            onChange={(e) => setAdminNote(e.target.value)}
+            rows={3}
+            placeholder="Eg: Aaj hi follow-up karna, urgent client"
+            className="w-full border rounded px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <p className="text-xs text-gray-500 mb-1">Due Date</p>
+          <input
+            type="date"
+            value={dueDate}
+            onChange={(e) => setDueDate(e.target.value)}
+            className="border rounded px-3 py-2 text-sm"
+          />
+        </div>
+
+        <button
+          onClick={handleSaveTaskFields}
+          disabled={savingTaskFields}
+          className="inline-flex items-center px-4 py-2 text-sm rounded bg-black text-white disabled:opacity-50"
+        >
+          {savingTaskFields ? "Saving..." : "Save Task Settings"}
+        </button>
+      </div>
+
       {/* Status + Assignment */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Status */}
@@ -183,9 +270,9 @@ export default function AdminLeadDetailsPage() {
         </div>
       </div>
 
-      {/* Partner / Telecaller Notes */}
+      {/* Telecaller Notes */}
       <div className="bg-white border rounded-xl p-5">
-        <h3 className="text-sm font-medium mb-2">Telecaller / Partner Notes</h3>
+        <h3 className="text-sm font-medium mb-2">Telecaller Notes</h3>
 
         {lead.partnerNotes ? (
           <p className="text-sm text-gray-700 whitespace-pre-wrap">

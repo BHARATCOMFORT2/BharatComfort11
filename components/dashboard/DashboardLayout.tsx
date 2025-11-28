@@ -10,7 +10,7 @@ interface Props {
   children: ReactNode;
   profile?: {
     name?: string;
-    role?: string; // "admin" | "partner" | "user"
+    role?: "admin" | "partner" | "user" | "staff" | "superadmin";
     profilePic?: string;
   };
 }
@@ -25,10 +25,38 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     setMounted(true);
   }, []);
 
+  // ✅ ✅ ✅ AUTO REDIRECT FIX (STAFF → STAFF DASHBOARD)
+  useEffect(() => {
+    if (!profile?.role) return;
+
+    if (profile.role === "staff" && !pathname.startsWith("/staff")) {
+      router.replace("/staff/dashboard");
+      return;
+    }
+
+    if (profile.role === "user" && !pathname.startsWith("/user")) {
+      router.replace("/user/dashboard");
+      return;
+    }
+
+    if (profile.role === "partner" && !pathname.startsWith("/partner")) {
+      router.replace("/partner/dashboard");
+      return;
+    }
+
+    if (
+      (profile.role === "admin" || profile.role === "superadmin") &&
+      !pathname.startsWith("/admin")
+    ) {
+      router.replace("/admin/dashboard");
+      return;
+    }
+  }, [profile, pathname, router]);
+
   const handleLogout = async () => {
     try {
       await auth.signOut();
-      router.push("/auth/login");
+      router.push("/staff/login");
     } catch (error) {
       console.error("Logout error:", error);
     }
@@ -51,28 +79,33 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     { name: "Bookings", path: "/partner/bookings" },
   ];
 
-  // ✅ ✅ ✅ ADMIN MENU (STAFF INTEGRATED HERE)
+  // ✅ ✅ ✅ STAFF MENU (NEWLY ADDED)
+  const staffLinks = [
+    { name: "My Tasks", path: "/staff/dashboard" },
+    { name: "Logout", path: "/staff/login" },
+  ];
+
+  // ✅ ✅ ✅ ADMIN MENU
   const adminLinks = [
     { name: "Dashboard", path: "/admin/dashboard" },
     { name: "Users", path: "/admin/dashboard/users" },
     { name: "Partners", path: "/admin/dashboard/partners" },
     { name: "KYC", path: "/admin/dashboard/kyc" },
     { name: "Listings", path: "/admin/dashboard/homepage" },
-
-    // ✅ STAFF SECTION
     { name: "Staff Management", path: "/admin/staff" },
     { name: "Staff Performance", path: "/admin/staff/performance" },
-
     { name: "Settlements", path: "/admin/dashboard/settlements" },
     { name: "Reports", path: "/admin/dashboard/reports" },
     { name: "Settings", path: "/admin/dashboard/settings" },
   ];
 
   const navLinks =
-    profile?.role === "admin"
+    profile?.role === "admin" || profile?.role === "superadmin"
       ? adminLinks
       : profile?.role === "partner"
       ? partnerLinks
+      : profile?.role === "staff"
+      ? staffLinks
       : userLinks;
 
   return (

@@ -6,13 +6,14 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
 
-// ✅ GET → Pending Staff List
+// ✅ GET → Pending Staff List (users collection se)
 export async function GET() {
   try {
     const { db: adminDb } = getFirebaseAdmin();
 
     const snapshot = await adminDb
-      .collection("staff")
+      .collection("users")
+      .where("role", "==", "staff")
       .where("status", "==", "pending")
       .orderBy("createdAt", "desc")
       .get();
@@ -39,7 +40,7 @@ export async function GET() {
   }
 }
 
-// ✅ POST → Approve / Reject Staff
+// ✅ POST → Approve / Reject Staff (users doc update)
 export async function POST(req: Request) {
   try {
     const body = await req.json();
@@ -57,7 +58,7 @@ export async function POST(req: Request) {
 
     const { db: adminDb } = getFirebaseAdmin();
 
-    const staffRef = adminDb.collection("staff").doc(staffId);
+    const staffRef = adminDb.collection("users").doc(staffId);
     const staffSnap = await staffRef.get();
 
     if (!staffSnap.exists) {
@@ -98,11 +99,11 @@ export async function POST(req: Request) {
       });
     }
 
-    // ❗ Invalid Action
+    // ⚠️ Invalid action
     return NextResponse.json(
       {
         success: false,
-        message: "Invalid action. Use 'approve' or 'reject'.",
+        message: "Unknown action",
       },
       { status: 400 }
     );

@@ -1,8 +1,7 @@
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 // app/api/ai/recommendations/route.ts
-export const runtime = "nodejs"; // ✅ ensure full Node runtime for OpenAI SDK
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
@@ -42,6 +41,7 @@ export async function POST(req: Request) {
 
   try {
     const { prompt } = await req.json();
+
     if (!prompt || prompt.trim().length === 0) {
       return NextResponse.json({
         ok: false,
@@ -72,6 +72,7 @@ export async function POST(req: Request) {
        🧠 4. Parse response or fallback gracefully
     ------------------------------------------------------------- */
     let aiData: any[] = [];
+
     try {
       aiData = JSON.parse(content);
     } catch {

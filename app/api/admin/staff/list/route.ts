@@ -8,9 +8,9 @@ export async function GET() {
   try {
     const { db: adminDb } = getFirebaseAdmin();
 
+    // ✅ REAL STAFF COLLECTION
     const snap = await adminDb
-      .collection("users")
-      .where("role", "==", "staff")
+      .collection("staff")
       .orderBy("createdAt", "desc")
       .get();
 
@@ -26,7 +26,10 @@ export async function GET() {
   } catch (err: any) {
     console.error("Admin Staff List Error:", err);
     return NextResponse.json(
-      { success: false, message: err.message },
+      {
+        success: false,
+        message: err?.message || "Failed to fetch staff list",
+      },
       { status: 500 }
     );
   }

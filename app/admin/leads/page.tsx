@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 type Lead = {
   id: string;
@@ -20,16 +22,34 @@ type Staff = {
 };
 
 export default function AdminLeadsPage() {
+  const router = useRouter();
+  const { firebaseUser, profile, loading } = useAuth();
+
+  const [token, setToken] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [leads, setLeads] = useState<Lead[]>([]);
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
 
-  // ✅ Fetch all leads
+  /* ✅ ADMIN PROTECTION */
+  useEffect(() => {
+    if (loading) return;
+
+    if (!firebaseUser || !["admin", "superadmin"].includes(profile?.role || "")) {
+      router.push("/");
+      return;
+    }
+
+    firebaseUser.getIdToken().then((t) => setToken(t));
+  }, [firebaseUser, profile, loading, router]);
+
+  /* ✅ Fetch all leads */
   const fetchLeads = async () => {
     try {
-      const res = await fetch("/api/admin/leads/all");
+      const res = await fetch("/api/admin/leads/all", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
 
       if (!res.ok || !data.success) {
@@ -42,10 +62,12 @@ export default function AdminLeadsPage() {
     }
   };
 
-  // ✅ Fetch all approved telecallers
+  /* ✅ Fetch all approved telecallers */
   const fetchStaff = async () => {
     try {
-      const res = await fetch("/api/admin/staff/telecallers");
+      const res = await fetch("/api/admin/staff/telecallers", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const data = await res.json();
 
       if (!res.ok || !data.success) {
@@ -59,11 +81,12 @@ export default function AdminLeadsPage() {
   };
 
   useEffect(() => {
+    if (!token) return;
     fetchLeads();
     fetchStaff();
-  }, []);
+  }, [token]);
 
-  // ✅ Excel Upload
+  /* ✅ Excel Upload */
   const handleUpload = async () => {
     if (!file) {
       toast.error("Please select an Excel file");
@@ -77,6 +100,9 @@ export default function AdminLeadsPage() {
     try {
       const res = await fetch("/api/admin/leads/import", {
         method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
         body: formData,
       });
 
@@ -86,9 +112,7 @@ export default function AdminLeadsPage() {
         throw new Error(data?.message || "Upload failed");
       }
 
-      toast.success(
-        `Leads imported: ${data.successCount}/${data.total}`
-      );
+      toast.success(`Leads imported: ${data.successCount}/${data.total}`);
       setFile(null);
       fetchLeads();
     } catch (err: any) {
@@ -98,7 +122,7 @@ export default function AdminLeadsPage() {
     }
   };
 
-  // ✅ Assign Lead to Telecaller
+  /* ✅ Assign Lead */
   const handleAssign = async (leadId: string, staffId: string) => {
     if (!staffId) return;
 
@@ -108,6 +132,7 @@ export default function AdminLeadsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ leadId, staffId }),
       });
@@ -127,18 +152,20 @@ export default function AdminLeadsPage() {
     }
   };
 
+  if (loading || !profile) return <p className="p-6">Loading...</p>;
+
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-xl font-semibold">Admin Lead Management</h1>
+        <h1 className="text-xl font-semibold">Admin Lead / Task Management</h1>
         <p className="text-sm text-gray-500">
           Excel upload karein, leads dekhein aur telecaller ko assign karein.
         </p>
       </div>
 
-      {/* Excel Upload */}
-      <div className="bg-white border rounded-xl p-4 space-y-3">
+      {/* ✅ Excel Upload */}
+      <div className="bg-white border rounded-xl p-4 space-y-3 max-w-xl">
         <h2 className="text-sm font-medium">Import Leads (Excel)</h2>
         <input
           type="file"
@@ -157,10 +184,10 @@ export default function AdminLeadsPage() {
         </p>
       </div>
 
-      {/* Leads Table */}
+      {/* ✅ Leads Table */}
       <div className="bg-white border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b text-sm font-medium">
-          All Leads
+          All Leads / Tasks
         </div>
 
         <div className="overflow-x-auto">
@@ -171,7 +198,8 @@ export default function AdminLeadsPage() {
                 <th className="px-4 py-2 text-left">Business</th>
                 <th className="px-4 py-2 text-left">Contact</th>
                 <th className="px-4 py-2 text-left">Status</th>
-                <th className="px-4 py-2 text-left">Assign Telecaller</th>
+                <th className="px-4 py-2 text-left">Assign</th>
+                <th className="px-4 py-2 text-center">View</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -180,7 +208,7 @@ export default function AdminLeadsPage() {
                   <td className="px-4 py-2">{lead.name}</td>
                   <td className="px-4 py-2">{lead.businessName}</td>
                   <td className="px-4 py-2">{lead.contact}</td>
-                  <td className="px-4 py-2">{lead.status}</td>
+                  <td className="px-4 py-2 capitalize">{lead.status}</td>
                   <td className="px-4 py-2">
                     <select
                       className="border rounded px-2 py-1 text-xs"
@@ -197,6 +225,16 @@ export default function AdminLeadsPage() {
                         </option>
                       ))}
                     </select>
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    <button
+                      onClick={() =>
+                        router.push(`/admin/leads/${lead.id}`)
+                      }
+                      className="px-3 py-1 text-xs rounded bg-black text-white"
+                    >
+                      View
+                    </button>
                   </td>
                 </tr>
               ))}

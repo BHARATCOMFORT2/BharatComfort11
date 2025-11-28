@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { onAuthStateChanged } from "firebase/auth";
+import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -38,38 +38,40 @@ export default function TelecallerDashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
 
-  // ✅ FULL STAFF AUTH + APPROVAL CHECK
+  // ✅ ✅ REAL STAFF AUTH + APPROVAL CHECK (FIXED)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         setStaffId(null);
         setLoadingUser(false);
-        router.push("/staff/login"); // ✅ staff login only
+        router.push("/staff/login");
         return;
       }
 
       try {
-        const snap = await getDoc(doc(db, "users", user.uid));
+        // ✅ REAL STAFF COLLECTION
+        const snap = await getDoc(doc(db, "staff", user.uid));
 
         if (!snap.exists()) {
-          await auth.signOut();
+          await signOut(auth);
+          toast.error("Staff profile not found");
           router.push("/staff/login");
           return;
         }
 
         const profile = snap.data();
 
-        // ❌ Not Staff
-        if (profile.role !== "staff") {
-          await auth.signOut();
-          toast.error("This dashboard is for staff only");
+        // ✅ Must be telecaller
+        if (profile.role !== "telecaller") {
+          await signOut(auth);
+          toast.error("This dashboard is for telecallers only");
           router.push("/staff/login");
           return;
         }
 
-        // ⏳ Pending Approval
+        // ⏳ Pending
         if (profile.status === "pending") {
-          await auth.signOut();
+          await signOut(auth);
           toast("Your account is pending admin approval", { icon: "⏳" });
           router.push("/staff/login");
           return;
@@ -77,17 +79,25 @@ export default function TelecallerDashboardPage() {
 
         // ❌ Rejected
         if (profile.status === "rejected") {
-          await auth.signOut();
+          await signOut(auth);
           toast.error("Your account has been rejected by admin");
           router.push("/staff/login");
           return;
         }
 
-        // ✅ Approved Staff
+        // ❌ Inactive
+        if (profile.isActive !== true) {
+          await signOut(auth);
+          toast.error("Your account is inactive");
+          router.push("/staff/login");
+          return;
+        }
+
+        // ✅ Approved + Active Telecaller
         setStaffId(user.uid);
       } catch (err) {
         console.error("Staff auth check error:", err);
-        await auth.signOut();
+        await signOut(auth);
         router.push("/staff/login");
       } finally {
         setLoadingUser(false);
@@ -97,11 +107,12 @@ export default function TelecallerDashboardPage() {
     return () => unsub();
   }, [router]);
 
-  // ✅ Fetch assigned leads for this telecaller
+  // ✅ Fetch assigned leads
   useEffect(() => {
     const fetchLeads = async () => {
       if (!staffId) return;
       setLoadingLeads(true);
+
       try {
         const res = await fetch("/api/staff/leads", {
           method: "POST",
@@ -216,8 +227,7 @@ export default function TelecallerDashboardPage() {
           </p>
         </div>
 
-        {/* Leads Table (UNCHANGED UI) */}
-        {/* ✅ Tumhara pura table yahin rahega exactly as it is */}
+        {/* ✅ Tumhara existing leads table UI yahin rahega — unchanged */}
       </div>
     </DashboardLayout>
   );

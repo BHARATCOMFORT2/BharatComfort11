@@ -1,4 +1,3 @@
-// app/api/staff/leads/update-notes/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -6,24 +5,85 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
 
+// ✅ Auth header helper
+function getAuthHeader(req: Request) {
+  return (req as any).headers?.get
+    ? req.headers.get("authorization")
+    : (req as any).headers?.authorization;
+}
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const { staffId, leadId, partnerNotes } = body || {};
+    // ✅ TOKEN VERIFY
+    const authHeader = getAuthHeader(req);
+    if (!authHeader)
+      return NextResponse.json(
+        { success: false, message: "Missing Authorization" },
+        { status: 401 }
+      );
 
-    if (!staffId || !leadId || !partnerNotes) {
+    const m = authHeader.match(/^Bearer (.+)$/);
+    if (!m)
+      return NextResponse.json(
+        { success: false, message: "Bad Authorization header" },
+        { status: 401 }
+      );
+
+    const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
+
+    let decoded: any;
+    try {
+      decoded = await adminAuth.verifyIdToken(m[1], true);
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "Invalid token" },
+        { status: 401 }
+      );
+    }
+
+    const staffId = decoded.uid; // ✅ REAL STAFF ID FROM TOKEN
+
+    const body = await req.json();
+    const { leadId, partnerNotes } = body || {};
+
+    if (!leadId || !partnerNotes) {
       return NextResponse.json(
         {
           success: false,
-          message: "staffId, leadId and partnerNotes are required",
+          message: "leadId and partnerNotes are required",
         },
         { status: 400 }
       );
     }
 
-    const { db: adminDb } = getFirebaseAdmin();
+    // ✅ VERIFY STAFF (ROLE + STATUS + ACTIVE)
+    const staffRef = adminDb.collection("staff").doc(staffId);
+    const staffSnap = await staffRef.get();
 
-    // ✅ Verify Lead Exists
+    if (!staffSnap.exists) {
+      return NextResponse.json(
+        { success: false, message: "Staff not found" },
+        { status: 404 }
+      );
+    }
+
+    const staffData = staffSnap.data();
+
+    if (
+      staffData?.role !== "telecaller" ||
+      staffData?.status !== "approved" ||
+      staffData?.isActive !== true
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: "Unauthorized staff access",
+        },
+        { status: 403 }
+      );
+    }
+
+    // ✅ VERIFY LEAD OWNERSHIP
     const leadRef = adminDb.collection("leads").doc(leadId);
     const leadSnap = await leadRef.get();
 
@@ -36,7 +96,6 @@ export async function POST(req: Request) {
 
     const leadData = leadSnap.data();
 
-    // ✅ Security: Lead must be assigned to this staff
     if (leadData?.assignedTo !== staffId) {
       return NextResponse.json(
         {
@@ -47,7 +106,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Update Partner Notes
+    // ✅ UPDATE PARTNER NOTES (FINAL SAFE UPDATE)
     await leadRef.update({
       partnerNotes: String(partnerNotes).trim(),
       updatedAt: FieldValue.serverTimestamp(),

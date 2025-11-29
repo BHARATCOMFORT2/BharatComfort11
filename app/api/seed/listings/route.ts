@@ -1,29 +1,50 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseadmin";
-import { hotels, restaurants } from "../../../../data/sampleListings";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { hotels, restaurants } from "@/data/sampleListings";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    const { adminDb } = getFirebaseAdmin();
+
     const batch = adminDb.batch();
 
     hotels.forEach((hotel) => {
       const ref = adminDb.collection("listings").doc(hotel.id);
-      batch.set(ref, { ...hotel, category: "hotel" });
+      batch.set(ref, {
+        ...hotel,
+        category: "hotel",
+        status: "ACTIVE",     // ✅ FIXED
+        createdAt: new Date() // ✅ FIXED
+      });
     });
 
     restaurants.forEach((res) => {
       const ref = adminDb.collection("listings").doc(res.id);
-      batch.set(ref, { ...res, category: "restaurant" });
+      batch.set(ref, {
+        ...res,
+        category: "restaurant",
+        status: "ACTIVE",     // ✅ FIXED
+        createdAt: new Date() // ✅ FIXED
+      });
     });
 
     await batch.commit();
 
     return NextResponse.json({
       success: true,
-      message: "✅ 40 Sample Listings Seeded Successfully"
+      message: "✅ Sample listings seeded successfully!",
+      hotels: hotels.length,
+      restaurants: restaurants.length,
+      total: hotels.length + restaurants.length,
     });
-  } catch (err) {
-    console.error(err);
-    return NextResponse.json({ error: "Seed Failed" }, { status: 500 });
+  } catch (err: any) {
+    console.error("Seed Error:", err);
+    return NextResponse.json(
+      { success: false, error: err.message || "Seed Failed" },
+      { status: 500 }
+    );
   }
 }

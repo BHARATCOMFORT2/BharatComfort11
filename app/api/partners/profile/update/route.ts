@@ -1,72 +1,106 @@
 // app/api/partners/profile/update/route.ts
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
-
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// Extract Authorization header safely under Node.js runtime
-function getHeader(req: Request) {
-  return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
-}
+export const dynamic = "force-dynamic";
+
+/**
+ * ✅ POST /api/partners/profile/update
+ *
+ * Body supports:
+ * {
+ *   businessName?: string;
+ *   phone?: string;
+ *   address?: object;
+ *   bank?: object;
+ * }
+ *
+ * Auth: Session cookie (__session)
+ */
 
 export async function POST(req: Request) {
   try {
-    const authHeader = getHeader(req);
-    if (!authHeader) {
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
+
+    // -----------------------------------
+    // 1) Verify Session Cookie
+    // -----------------------------------
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
+        ?.split("=")[1] || "";
+
+    if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Missing Authorization" },
+        { ok: false, success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match) {
-      return NextResponse.json(
-        { error: "Invalid Authorization header" },
-        { status: 401 }
-      );
-    }
+    const decoded = await adminAuth
+      .verifySessionCookie(sessionCookie, true)
+      .catch(() => null);
 
-    const idToken = match[1];
-
-    // Verify Firebase Auth token
-    let decoded;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken, true);
-    } catch {
+    if (!decoded) {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { ok: false, success: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
-    const body = await req.json();
 
-    // Only allow safe fields to be updated
-    const allowedFields = ["businessName", "phone", "address", "bank"];
-    const updateData: any = {};
+    // -----------------------------------
+    // 2) Parse Body
+    // -----------------------------------
+    const body = await req.json().catch(() => ({}));
 
-    for (const field of allowedFields) {
-      if (body[field] !== undefined) {
-        updateData[field] = body[field];
-      }
+    const { businessName, phone, address, bank } = body;
+
+    if (!businessName && !phone && !address && !bank) {
+      return NextResponse.json(
+        { ok: false, success: false, error: "Nothing to update" },
+        { status: 400 }
+      );
     }
 
-    updateData.updatedAt = new Date();
+    // -----------------------------------
+    // 3) Prepare Update Payload
+    // -----------------------------------
+    const updateData: any = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
 
-    // Update partner profile
-    await adminDb.collection("partners").doc(uid).update(updateData);
+    if (businessName) updateData.businessName = businessName;
+    if (phone) updateData.phone = phone;
+    if (address) updateData.address = address;
+    if (bank) updateData.bank = bank;
 
-    return NextResponse.json({ ok: true, updated: updateData });
+    // -----------------------------------
+    // 4) Update Partner Document
+    // -----------------------------------
+    const partnerRef = adminDb.collection("partners").doc(uid);
+
+    await partnerRef.set(updateData, { merge: true });
+
+    return NextResponse.json({
+      ok: true,
+      success: true,
+      message: "Profile updated successfully",
+    });
   } catch (err: any) {
-    console.error("Profile update error:", err);
+    console.error("Partner Profile Update Error:", err);
+
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      {
+        ok: false,
+        success: false,
+        error: err.message || "Internal server error",
+      },
       { status: 500 }
     );
   }

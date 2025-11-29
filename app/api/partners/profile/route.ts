@@ -1,125 +1,149 @@
 // app/api/partners/profile/route.ts
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { cookies } from "next/headers";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * ✅ GET /api/partners/profile
+ *
+ * - Uses Firebase session cookie (__session) for auth
+ * - Returns merged user + partner data
+ * - Normalizes kycStatus
+ *
+ * Response (on success):
+ * {
+ *   ok: true,
+ *   success: true,
+ *   uid: string,
+ *   user: { ...userDoc, uid },
+ *   partner: { ...partnerDoc, uid },
+ *   kycStatus: "NOT_STARTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED",
+ *   latestKyc: partner.kyc || null
+ * }
+ *
+ * If partner doc missing:
+ * {
+ *   ok: false,
+ *   success: false,
+ *   uid,
+ *   exists: false
+ * }
+ */
 
 export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -------------------------------
-    // 1) Try SESSION COOKIE first
-    // -------------------------------
-    let uid: string | null = null;
+    // -----------------------------------
+    // 1) Extract session cookie
+    // -----------------------------------
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
+        ?.split("=")[1] || "";
 
-    const sessionCookie = cookies().get("__session")?.value || "";
-    if (sessionCookie) {
-      try {
-        const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
-        uid = decoded.uid;
-      } catch (e) {
-        uid = null;
-      }
+    if (!sessionCookie) {
+      return NextResponse.json(
+        { ok: false, success: false, error: "Not authenticated" },
+        { status: 401 }
+      );
     }
 
-    // -------------------------------
-    // 2) If no session-cookie → try Bearer token
-    // -------------------------------
-    if (!uid) {
-      const authHeader = req.headers.get("authorization");
-      if (authHeader?.startsWith("Bearer ")) {
-        const token = authHeader.replace("Bearer ", "");
-        try {
-          const decoded = await adminAuth.verifyIdToken(token);
-          uid = decoded.uid;
-        } catch (e) {
-          // still null
-        }
-      }
+    const decoded = await adminAuth
+      .verifySessionCookie(sessionCookie, true)
+      .catch(() => null);
+
+    if (!decoded) {
+      return NextResponse.json(
+        { ok: false, success: false, error: "Invalid or expired session" },
+        { status: 401 }
+      );
     }
 
-    // Not authenticated at all
-    if (!uid) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-    }
+    const uid = decoded.uid;
 
-    // -------------------------------
-    // 3) Fetch USER Document
-    // -------------------------------
-    const userSnap = await adminDb.collection("users").doc(uid).get();
-    const userData = userSnap.exists ? userSnap.data() : {};
-    const role = userData.role || "user";
-
-    if (role !== "partner") {
-      return NextResponse.json({ error: "User is not a partner", role }, { status: 403 });
-    }
-
-    // -------------------------------
-    // 4) Fetch Partner Main Document
-    // -------------------------------
+    // -----------------------------------
+    // 2) Fetch user + partner docs
+    // -----------------------------------
+    const userRef = adminDb.collection("users").doc(uid);
     const partnerRef = adminDb.collection("partners").doc(uid);
-    const partnerSnap = await partnerRef.get();
 
+    const [userSnap, partnerSnap] = await Promise.all([
+      userRef.get(),
+      partnerRef.get(),
+    ]);
+
+    const userData = userSnap.exists ? { uid, ...(userSnap.data() || {}) } : null;
+    const partnerDataRaw = partnerSnap.exists
+      ? { uid, ...(partnerSnap.data() || {}) }
+      : null;
+
+    // -----------------------------------
+    // 3) If no partner doc, return exists:false
+    // -----------------------------------
     if (!partnerSnap.exists) {
-      return NextResponse.json({
+      return NextResponse.json(
+        {
+          ok: false,
+          success: false,
+          uid,
+          exists: false,
+          user: userData,
+          partner: null,
+        },
+        { status: 200 }
+      );
+    }
+
+    // -----------------------------------
+    // 4) Normalize kycStatus
+    // -----------------------------------
+    const partner = partnerDataRaw || {};
+    const rawKycStatus =
+      (partner.kycStatus as string | undefined) ||
+      (partner.kyc?.status as string | undefined) ||
+      undefined;
+
+    const normalizeKyc = (raw?: string | null) =>
+      (raw || "NOT_STARTED").toString().toUpperCase();
+
+    const kycStatus = normalizeKyc(rawKycStatus);
+
+    const latestKyc = partner.kyc || null;
+
+    // -----------------------------------
+    // 5) Build response
+    // -----------------------------------
+    return NextResponse.json(
+      {
         ok: true,
-        exists: false,
+        success: true,
         uid,
-        role: "partner",
-        onboardingStatus: "NOT_CREATED",
-        kycStatus: "NOT_STARTED",
-        latestKyc: null,
-        partner: null,
-      });
-    }
-
-    const partner = partnerSnap.data();
-    let onboardingStatus = partner.status || "PENDING_ONBOARDING";
-    let kycStatus = partner.kycStatus || "NOT_STARTED";
-
-    // -------------------------------
-    // 5) Get latest KYC entry
-    // -------------------------------
-    const kycDocsSnap = await partnerRef
-      .collection("kycDocs")
-      .orderBy("submittedAt", "desc")
-      .limit(1)
-      .get();
-
-    let latestKyc = null;
-    if (!kycDocsSnap.empty) {
-      const doc = kycDocsSnap.docs[0];
-      latestKyc = { kycId: doc.id, ...doc.data() };
-      kycStatus = (latestKyc.status || "SUBMITTED").toUpperCase();
-    }
-
-    if (kycStatus === "APPROVED") onboardingStatus = "APPROVED";
-    if (kycStatus === "REJECTED") onboardingStatus = "REJECTED";
-    if (kycStatus === "UNDER_REVIEW") onboardingStatus = "UNDER_REVIEW";
-
-    // -------------------------------
-    // 6) Respond
-    // -------------------------------
-    return NextResponse.json({
-      ok: true,
-      uid,
-      role: "partner",
-      onboardingStatus,
-      kycStatus,
-      partner: {
-        uid,
-        ...partner,
-        status: onboardingStatus,
+        user: userData,
+        partner: {
+          ...partner,
+          uid,
+          kycStatus,
+        },
         kycStatus,
+        latestKyc,
       },
-      latestKyc,
-      claims: { partner: true },
-    });
+      { status: 200 }
+    );
   } catch (err: any) {
-    console.error("Partner profile error:", err);
-    return NextResponse.json({ error: err.message }, { status: 500 });
+    console.error("Partner Profile Error:", err);
+    return NextResponse.json(
+      {
+        ok: false,
+        success: false,
+        error: err.message || "Internal server error",
+      },
+      { status: 500 }
+    );
   }
 }

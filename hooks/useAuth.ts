@@ -5,7 +5,6 @@ import {
   onAuthStateChanged,
   User as FirebaseUser,
   signOut as firebaseSignOut,
-  sendEmailVerification,
   getIdToken,
 } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
@@ -39,7 +38,34 @@ export function useAuth() {
       }
 
       try {
-        // ✅ 1️⃣ CHECK STAFF FIRST
+        // ✅ 1️⃣ USERS FIRST (ADMIN CHECK HIGHEST PRIORITY)
+        const userSnap = await getDoc(doc(db, "users", user.uid));
+        if (userSnap.exists()) {
+          const userData = userSnap.data();
+
+          // ✅ IF ADMIN FOUND → RETURN IMMEDIATELY
+          if (userData.role === "admin" || userData.role === "superadmin") {
+            setProfile({
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName,
+              role: userData.role,
+              ...userData,
+            });
+
+            const token = await getIdToken(user, true);
+            await fetch("/api/session", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ token }),
+            });
+
+            setLoading(false);
+            return;
+          }
+        }
+
+        // ✅ 2️⃣ STAFF
         const staffSnap = await getDoc(doc(db, "staff", user.uid));
         if (staffSnap.exists()) {
           const staffData = staffSnap.data();
@@ -55,7 +81,7 @@ export function useAuth() {
           return;
         }
 
-        // ✅ 2️⃣ CHECK PARTNERS
+        // ✅ 3️⃣ PARTNER
         const partnerSnap = await getDoc(doc(db, "partners", user.uid));
         if (partnerSnap.exists()) {
           const partnerData = partnerSnap.data();
@@ -71,8 +97,7 @@ export function useAuth() {
           return;
         }
 
-        // ✅ 3️⃣ OTHERWISE NORMAL USER
-        const userSnap = await getDoc(doc(db, "users", user.uid));
+        // ✅ 4️⃣ NORMAL USER FALLBACK
         if (userSnap.exists()) {
           setProfile({
             uid: user.uid,
@@ -90,7 +115,6 @@ export function useAuth() {
           });
         }
 
-        // ✅ SESSION COOKIE SYNC
         const token = await getIdToken(user, true);
         await fetch("/api/session", {
           method: "POST",

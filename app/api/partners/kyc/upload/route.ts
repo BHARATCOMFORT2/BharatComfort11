@@ -1,78 +1,147 @@
 // app/api/partners/kyc/upload/route.ts
-export const dynamic = "force-dynamic";
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
+/**
+ * ✅ Partner KYC Document Upload
+ * Multipart FormData:
+ * - file: File
+ * - docType: "aadhaar" | "gst" | "pan" | string
+ */
 export async function POST(req: Request) {
   try {
-    const form = await req.formData();
+    const { adminAuth, adminDb, admin, storage } = getFirebaseAdmin();
 
-    const partnerId = form.get("partnerId") as string;
-    const token = form.get("token") as string;
-    const file = form.get("file") as File;
-    const docType = form.get("docType") as string;
+    // -----------------------------------
+    // 1) Auth: Session Cookie OR Token Header
+    // -----------------------------------
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
+        ?.split("=")[1] || "";
 
-    if (!partnerId || !token || !file || !docType) {
+    const authHeader = req.headers.get("authorization");
+    const bearerToken = authHeader?.startsWith("Bearer ")
+      ? authHeader.split("Bearer ")[1]
+      : null;
+
+    let decoded: any = null;
+
+    if (sessionCookie) {
+      decoded = await adminAuth
+        .verifySessionCookie(sessionCookie, true)
+        .catch(() => null);
+    }
+
+    if (!decoded && bearerToken) {
+      decoded = await adminAuth
+        .verifyIdToken(bearerToken)
+        .catch(() => null);
+    }
+
+    if (!decoded) {
       return NextResponse.json(
-        { error: "Missing partnerId, token, file or docType" },
+        { success: false, error: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+
+    const uid = decoded.uid;
+
+    // -----------------------------------
+    // 2) Parse FormData
+    // -----------------------------------
+    const formData = await req.formData();
+
+    const file = formData.get("file") as File | null;
+    const docTypeRaw = formData.get("docType");
+
+    const docType =
+      typeof docTypeRaw === "string"
+        ? docTypeRaw.toLowerCase()
+        : "document";
+
+    if (!file) {
+      return NextResponse.json(
+        { success: false, error: "No file uploaded" },
         { status: 400 }
       );
     }
 
-    // ---------------------------------------------------
-    // 1️⃣ VERIFY Firebase ID TOKEN
-    // ---------------------------------------------------
-    const { adminAuth, adminStorage } = getFirebaseAdmin();
+    // -----------------------------------
+    // 3) Validate File
+    // -----------------------------------
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ];
 
-    const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
-    if (!decoded || decoded.uid !== partnerId) {
+    if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: "Unauthorized upload" },
-        { status: 403 }
+        { success: false, error: "Invalid file type" },
+        { status: 400 }
       );
     }
 
-    // ---------------------------------------------------
-    // 2️⃣ Convert file to buffer
-    // ---------------------------------------------------
+    // Max 5MB
+    const MAX_SIZE = 5 * 1024 * 1024;
+    if (file.size > MAX_SIZE) {
+      return NextResponse.json(
+        { success: false, error: "File too large (max 5MB)" },
+        { status: 400 }
+      );
+    }
+
+    // -----------------------------------
+    // 4) Upload to Firebase Storage
+    // -----------------------------------
+    const bucket = storage.bucket();
     const buffer = Buffer.from(await file.arrayBuffer());
-    const ext = file.name.split(".").pop() || "jpg";
-    const timestamp = Date.now();
 
-    const cleanDocType = docType.toLowerCase().replace(/[^a-z0-9_-]/g, "_");
-    const filePath = `partner_kyc/${partnerId}/${cleanDocType}-${timestamp}.${ext}`;
+    const ext = file.name.split(".").pop();
+    const filePath = `kyc/${uid}/${docType}-${Date.now()}.${ext}`;
 
-    // ---------------------------------------------------
-    // 3️⃣ ALWAYS USE Firebase Admin Default Bucket
-    // ---------------------------------------------------
-    // ❗ This is the actual fix — never manually detect buckets
-    const bucket = adminStorage.bucket(); // <-- Always valid
+    const fileRef = bucket.file(filePath);
 
-    const bucketFile = bucket.file(filePath);
-
-    // ---------------------------------------------------
-    // 4️⃣ Upload
-    // ---------------------------------------------------
-    await bucketFile.save(buffer, {
-      contentType: file.type || "application/octet-stream",
-      resumable: false,
+    await fileRef.save(buffer, {
       metadata: {
-        firebaseStorageDownloadTokens: timestamp.toString(),
+        contentType: file.type,
       },
+    });
+
+    // Make file private (recommended)
+    await fileRef.makePrivate();
+
+    // -----------------------------------
+    // 5) Save Document Reference (Optional)
+    // -----------------------------------
+    await adminDb.collection("kycUploads").add({
+      uid,
+      docType,
+      filePath,
+      contentType: file.type,
+      size: file.size,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({
       success: true,
-      filePath,
-      storagePath: `gs://${bucket.name}/${filePath}`,
-      message: "Upload successful",
+      storagePath: filePath,
+      message: "File uploaded successfully",
     });
   } catch (err: any) {
-    console.error("🔥 KYC Upload Error:", err);
+    console.error("KYC Upload Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

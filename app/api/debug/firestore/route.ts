@@ -3,22 +3,49 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { hotels, restaurants } from "../../../../data/sampleListings";
 
 export async function GET() {
   try {
     const { adminDb } = getFirebaseAdmin();
 
+    const batch = adminDb.batch();
+
+    hotels.forEach((hotel) => {
+      const ref = adminDb.collection("listings").doc(hotel.id);
+      batch.set(ref, {
+        ...hotel,
+        category: "hotel",
+        status: "ACTIVE",
+        createdAt: new Date(),
+      });
+    });
+
+    restaurants.forEach((res) => {
+      const ref = adminDb.collection("listings").doc(res.id);
+      batch.set(ref, {
+        ...res,
+        category: "restaurant",
+        status: "ACTIVE",
+        createdAt: new Date(),
+      });
+    });
+
+    await batch.commit();
+
+    // ✅ 🔥 DIRECT DEBUG FROM SAME WORKING ROUTE
     const snap = await adminDb.collection("listings").get();
 
     return NextResponse.json({
       success: true,
-      firestoreProject: adminDb.app.options.projectId,
-      totalDocsInListings: snap.size,
+      message: "✅ Sample listings seeded successfully!",
+      totalSeeded: hotels.length + restaurants.length,
+      totalDocsInListings: snap.size, // 🔥 REAL COUNT
+      firestoreProject: adminDb.app.options.projectId, // 🔥 REAL PROJECT
     });
   } catch (err: any) {
-    console.error("Debug Firestore Error:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Internal error" },
+      { success: false, error: err.message || "Seed Failed" },
       { status: 500 }
     );
   }

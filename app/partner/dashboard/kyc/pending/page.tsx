@@ -2,88 +2,118 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { auth } from "@/lib/firebase";
+import { auth } from "@/lib/firebase-client";
 import { onAuthStateChanged } from "firebase/auth";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 export default function KYCPendingPage() {
   const router = useRouter();
-
   const [loading, setLoading] = useState(true);
-  const [kycStatus, setKycStatus] = useState("PENDING");
-  const [latestKyc, setLatestKyc] = useState<any>(null);
+  const [status, setStatus] = useState<string>("UNDER_REVIEW");
+  const [partner, setPartner] = useState<any>(null);
 
   useEffect(() => {
+    let mounted = true;
+
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.push("/auth/login");
         return;
       }
 
-      // Get latest KYC status
-      const res = await fetch("/api/partners/kyc/status", {
-        credentials: "include",
-      });
+      try {
+        const res = await fetch("/api/partners/profile", {
+          credentials: "include",
+        });
+        const j = await res.json().catch(() => null);
 
-      const json = await res.json();
+        if (!mounted) return;
 
-      if (!json.ok) {
-        router.push("/partner/dashboard");
-        return;
+        if (j?.partner) {
+          const kyc =
+            j.kycStatus ||
+            j.partner?.kycStatus ||
+            j.partner?.kyc?.status;
+
+          setStatus((kyc || "UNDER_REVIEW").toUpperCase());
+          setPartner(j.partner);
+
+          // ✅ Auto redirect based on latest status
+          if (kyc === "APPROVED") {
+            router.push("/partner/dashboard");
+            return;
+          }
+
+          if (kyc === "REJECTED") {
+            router.push("/partner/dashboard/kyc/resubmit");
+            return;
+          }
+        }
+      } catch (e) {
+        console.error("KYC Pending load error:", e);
+      } finally {
+        setLoading(false);
       }
-
-      const status = (json.kycStatus || "PENDING").toUpperCase();
-      setKycStatus(status);
-      setLatestKyc(json.latestKyc || null);
-
-      // Redirect logic
-      if (status === "APPROVED") {
-        router.push("/partner/dashboard");
-      }
-
-      if (status === "REJECTED") {
-        router.push("/partner/dashboard/kyc/resubmit");
-      }
-
-      setLoading(false);
     });
 
-    return () => unsub();
+    return () => {
+      mounted = false;
+      unsub();
+    };
   }, [router]);
 
   if (loading) {
     return (
-      <DashboardLayout title="KYC Pending">
-        <p className="text-center py-10">Checking KYC status…</p>
+      <DashboardLayout title="KYC Status">
+        <div className="p-6 text-center">Loading KYC status…</div>
       </DashboardLayout>
     );
   }
 
   return (
     <DashboardLayout title="KYC Under Review">
-      <div className="max-w-xl mx-auto bg-white p-6 rounded-xl shadow">
-        <h1 className="text-2xl font-bold mb-3">KYC Under Review</h1>
-        <p className="text-gray-700 mb-4">
-          Your KYC documents have been submitted and are currently under review by our team.
+      <div className="max-w-2xl mx-auto mt-10 bg-yellow-50 border border-yellow-300 rounded-2xl p-6 text-center shadow">
+        <h2 className="text-2xl font-bold text-yellow-800 mb-2">
+          🕒 KYC Under Review
+        </h2>
+
+        <p className="text-yellow-700 mb-4">
+          Your KYC has been successfully submitted and is currently under
+          verification. Our team usually verifies within 24–48 hours.
         </p>
 
-        <div className="p-4 rounded bg-yellow-50 border border-yellow-200 text-sm mb-5">
-          ⏳ <b>Status:</b> {kycStatus}
-        </div>
-
-        {latestKyc?.remarks && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm">
-            <b>Admin Remarks:</b>
-            <div className="mt-1 text-gray-700">{latestKyc.remarks}</div>
+        {partner?.businessName && (
+          <div className="bg-white rounded-xl p-4 mb-4 text-left text-sm shadow">
+            <p>
+              <b>Business:</b> {partner.businessName}
+            </p>
+            <p>
+              <b>Phone:</b> {partner.phone}
+            </p>
+            <p>
+              <b>Status:</b>{" "}
+              <span className="text-yellow-700 font-semibold">
+                {status}
+              </span>
+            </p>
           </div>
         )}
 
-        <button
-          onClick={() => router.push("/partner/dashboard")}
-          className="px-4 py-2 bg-gray-900 text-white rounded-lg"
-        >
-          Back to Dashboard
-        </button>
+        <div className="flex justify-center gap-4 mt-4">
+          <button
+            onClick={() => router.push("/partner/dashboard")}
+            className="px-4 py-2 bg-gray-900 text-white rounded-lg"
+          >
+            Go to Dashboard
+          </button>
+
+          <button
+            onClick={() => router.refresh()}
+            className="px-4 py-2 bg-yellow-700 text-white rounded-lg"
+          >
+            Refresh Status
+          </button>
+        </div>
       </div>
     </DashboardLayout>
   );

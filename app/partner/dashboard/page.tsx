@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
+import { auth } from "@/lib/firebase-client";
+import { onAuthStateChanged } from "firebase/auth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import PartnerListingsManager from "@/components/dashboard/PartnerListingsManager";
 import {
@@ -67,7 +68,7 @@ export default function PartnerDashboard() {
 
   useEffect(() => {
     let mounted = true;
-    const unsub = auth.onAuthStateChanged(async (user) => {
+    const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
         router.push("/auth/login");
         return;
@@ -117,9 +118,15 @@ export default function PartnerDashboard() {
           const normalized: PartnerProfile = {
             uid: (pJson.uid as string) || partnerObj.uid || user.uid,
             displayName:
-              partnerObj.displayName || partnerObj.name || partnerObj.businessName || user.displayName,
+              partnerObj.displayName ||
+              partnerObj.name ||
+              partnerObj.businessName ||
+              user.displayName,
             businessName:
-              partnerObj.businessName || partnerObj.displayName || partnerObj.name || null,
+              partnerObj.businessName ||
+              partnerObj.displayName ||
+              partnerObj.name ||
+              null,
             email: partnerObj.email || user.email || null,
             phone: partnerObj.phone || user.phoneNumber || null,
             profilePic: partnerObj.profilePic || null,
@@ -146,7 +153,9 @@ export default function PartnerDashboard() {
           setHasMore((bookingsJson.bookings?.length || 0) >= 10);
           setStats((s) => ({
             ...s,
-            bookings: bookingsJson.total || (bookingsJson.bookings || []).length,
+            bookings:
+              bookingsJson.total ||
+              (bookingsJson.bookings || []).length,
             earnings:
               bookingsJson.bookings?.reduce(
                 (a: number, b: any) => a + Number(b.amount || 0),
@@ -240,7 +249,9 @@ export default function PartnerDashboard() {
 
   const refetchProfile = async () => {
     try {
-      const p = await fetch("/api/partners/profile", { credentials: "include" });
+      const p = await fetch("/api/partners/profile", {
+        credentials: "include",
+      });
       const pj = await p.json().catch(() => null);
       if (pj?.ok && pj.partner) {
         const rawKyc =
@@ -315,7 +326,9 @@ export default function PartnerDashboard() {
 
   const handleSettlementRequest = async () => {
     if (!profile) return;
-    const kycStatus = normalizeKyc(profile.kycStatus || profile.kyc?.status || "");
+    const kycStatus = normalizeKyc(
+      profile.kycStatus || profile.kyc?.status || ""
+    );
     if (kycStatus !== "APPROVED") {
       return alert("KYC must be approved before requesting a settlement.");
     }
@@ -385,18 +398,27 @@ export default function PartnerDashboard() {
       {/* ========== PREMIUM KYC CARD ========== */}
       {kycStatus !== "APPROVED" && (
         <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-xl p-5">
-          <h2 className="text-lg font-semibold text-yellow-800">🔐 KYC Verification Required</h2>
+          <h2 className="text-lg font-semibold text-yellow-800">
+            🔐 KYC Verification Required
+          </h2>
 
           {kycStatus === "NOT_STARTED" && (
-            <p className="text-yellow-700 mt-1">You have not submitted your KYC yet. Please complete your KYC to enable full access and settlements.</p>
+            <p className="text-yellow-700 mt-1">
+              You have not submitted your KYC yet. Please complete your KYC to
+              enable full access and settlements.
+            </p>
           )}
 
           {kycStatus === "UNDER_REVIEW" && (
-            <p className="text-yellow-700 mt-1">Your KYC is under review. Our team will verify it shortly.</p>
+            <p className="text-yellow-700 mt-1">
+              Your KYC is under review. Our team will verify it shortly.
+            </p>
           )}
 
           {kycStatus === "REJECTED" && (
-            <p className="text-red-700 mt-1">Your KYC was rejected. Please resubmit your information.</p>
+            <p className="text-red-700 mt-1">
+              Your KYC was rejected. Please resubmit your information.
+            </p>
           )}
 
           <button
@@ -413,7 +435,9 @@ export default function PartnerDashboard() {
         <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold">Hello, {welcome} 👋</h1>
-            <p className="text-gray-600">Manage your listings, bookings & payouts.</p>
+            <p className="text-gray-600">
+              Manage your listings, bookings & payouts.
+            </p>
 
             {showKycBadge(profile?.kycStatus) && (
               <div
@@ -470,9 +494,15 @@ export default function PartnerDashboard() {
         {[
           { label: "Listings", value: stats.listings },
           { label: "Bookings", value: stats.bookings },
-          { label: "Earnings", value: `₹${stats.earnings.toLocaleString("en-IN")}` },
+          {
+            label: "Earnings",
+            value: `₹${stats.earnings.toLocaleString("en-IN")}`,
+          },
         ].map((c) => (
-          <div key={c.label} className="bg-white rounded-xl p-6 text-center shadow">
+          <div
+            key={c.label}
+            className="bg-white rounded-xl p-6 text-center shadow"
+          >
             <h2 className="text-2xl font-bold">{c.value}</h2>
             <p className="text-gray-600">{c.label}</p>
           </div>
@@ -503,14 +533,20 @@ export default function PartnerDashboard() {
       <div className="bg-white p-6 rounded-2xl shadow mb-10">
         <h3 className="text-xl font-semibold mb-4">Recent Bookings</h3>
         {bookings.map((b) => (
-          <div key={b.id} className="border rounded-lg p-3 mb-2 flex justify-between">
+          <div
+            key={b.id}
+            className="border rounded-lg p-3 mb-2 flex justify-between"
+          >
             <span className="text-sm text-gray-800">{b.id}</span>
             <span className="text-gray-600">₹{b.amount}</span>
           </div>
         ))}
         {hasMore && (
           <div className="text-center mt-3">
-            <button onClick={loadMore} className="px-4 py-2 bg-gray-900 text-white rounded-lg">
+            <button
+              onClick={loadMore}
+              className="px-4 py-2 bg-gray-900 text-white rounded-lg"
+            >
               {busy ? "Loading..." : "Load more"}
             </button>
           </div>
@@ -520,21 +556,57 @@ export default function PartnerDashboard() {
       {/* Business Modal */}
       {openBusinessModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpenBusinessModal(false)} />
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setOpenBusinessModal(false)}
+          />
           <div className="relative z-10 w-[95%] max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Business Settings</h3>
-              <button onClick={() => setOpenBusinessModal(false)} className="rounded-full p-2 hover:bg-gray-100">✕</button>
+              <button
+                onClick={() => setOpenBusinessModal(false)}
+                className="rounded-full p-2 hover:bg-gray-100"
+              >
+                ✕
+              </button>
             </div>
 
             <div className="space-y-4">
               <label className="block text-sm">Business Name</label>
-              <input className="border rounded-lg w-full p-2" value={bizDraft.businessName || profile?.businessName || ""} onChange={(e) => setBizDraft({ ...bizDraft, businessName: e.target.value })} />
+              <input
+                className="border rounded-lg w-full p-2"
+                value={
+                  bizDraft.businessName || profile?.businessName || ""
+                }
+                onChange={(e) =>
+                  setBizDraft({
+                    ...bizDraft,
+                    businessName: e.target.value,
+                  })
+                }
+              />
               <label className="block text-sm">Phone</label>
-              <input className="border rounded-lg w-full p-2" value={bizDraft.phone || profile?.phone || ""} onChange={(e) => setBizDraft({ ...bizDraft, phone: e.target.value })} />
+              <input
+                className="border rounded-lg w-full p-2"
+                value={bizDraft.phone || profile?.phone || ""}
+                onChange={(e) =>
+                  setBizDraft({ ...bizDraft, phone: e.target.value })
+                }
+              />
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={() => setOpenBusinessModal(false)} className="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
-                <button onClick={saveBusiness} disabled={busy} className="px-4 py-2 bg-gray-900 text-white rounded-lg">{busy ? "Saving..." : "Save"}</button>
+                <button
+                  onClick={() => setOpenBusinessModal(false)}
+                  className="px-4 py-2 bg-gray-200 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveBusiness}
+                  disabled={busy}
+                  className="px-4 py-2 bg-gray-900 text-white rounded-lg"
+                >
+                  {busy ? "Saving..." : "Save"}
+                </button>
               </div>
             </div>
           </div>
@@ -544,23 +616,59 @@ export default function PartnerDashboard() {
       {/* Bank Modal */}
       {openBankModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpenBankModal(false)} />
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setOpenBankModal(false)}
+          />
           <div className="relative z-10 w-[95%] max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Bank Settings</h3>
-              <button onClick={() => setOpenBankModal(false)} className="rounded-full p-2 hover:bg-gray-100">✕</button>
+              <button
+                onClick={() => setOpenBankModal(false)}
+                className="rounded-full p-2 hover:bg-gray-100"
+              >
+                ✕
+              </button>
             </div>
 
             <div className="space-y-3">
-              {["accountHolder","accountNumber","ifsc","bankName","branch","upi"].map((f:any) => (
+              {[
+                "accountHolder",
+                "accountNumber",
+                "ifsc",
+                "bankName",
+                "branch",
+                "upi",
+              ].map((f: any) => (
                 <div key={f}>
                   <label className="block text-sm capitalize">{f}</label>
-                  <input className="border rounded-lg w-full p-2" value={(bankDraft as any)[f] || (profile?.bank || {})[f] || ""} onChange={(e) => setBankDraft({ ...bankDraft, [f]: e.target.value })} />
+                  <input
+                    className="border rounded-lg w-full p-2"
+                    value={
+                      (bankDraft as any)[f] ||
+                      (profile?.bank || {})[f] ||
+                      ""
+                    }
+                    onChange={(e) =>
+                      setBankDraft({ ...bankDraft, [f]: e.target.value })
+                    }
+                  />
                 </div>
               ))}
               <div className="flex justify-end gap-2 pt-3">
-                <button onClick={() => setOpenBankModal(false)} className="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
-                <button onClick={saveBank} disabled={busy} className="px-4 py-2 bg-blue-600 text-white rounded-lg">{busy ? "Saving..." : "Save Bank"}</button>
+                <button
+                  onClick={() => setOpenBankModal(false)}
+                  className="px-4 py-2 bg-gray-200 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveBank}
+                  disabled={busy}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg"
+                >
+                  {busy ? "Save..." : "Save Bank"}
+                </button>
               </div>
             </div>
           </div>
@@ -570,27 +678,63 @@ export default function PartnerDashboard() {
       {/* Settlement Modal */}
       {openSettlementModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setOpenSettlementModal(false)} />
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setOpenSettlementModal(false)}
+          />
           <div className="relative z-10 w-[95%] max-w-2xl rounded-2xl bg-white p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
               <h3 className="text-lg font-semibold">Request Settlement</h3>
-              <button onClick={() => setOpenSettlementModal(false)} className="rounded-full p-2 hover:bg-gray-100">✕</button>
+              <button
+                onClick={() => setOpenSettlementModal(false)}
+                className="rounded-full p-2 hover:bg-gray-100"
+              >
+                ✕
+              </button>
             </div>
 
             <div className="space-y-3">
-              <label className="block text-sm">Booking IDs (comma separated)</label>
-              <input className="border rounded-lg w-full p-2" placeholder="booking1, booking2" onChange={(e) => setEligibleBookings(e.target.value.split(",").map(x => x.trim()))} />
+              <label className="block text-sm">
+                Booking IDs (comma separated)
+              </label>
+              <input
+                className="border rounded-lg w-full p-2"
+                placeholder="booking1, booking2"
+                onChange={(e) =>
+                  setEligibleBookings(
+                    e.target.value
+                      .split(",")
+                      .map((x) => x.trim())
+                  )
+                }
+              />
               <label className="block text-sm">Total Amount</label>
-              <input type="number" className="border rounded-lg w-full p-2" onChange={(e) => setSettlementAmount(Number(e.target.value))} />
+              <input
+                type="number"
+                className="border rounded-lg w-full p-2"
+                onChange={(e) =>
+                  setSettlementAmount(Number(e.target.value))
+                }
+              />
               <div className="flex justify-end gap-2 pt-3">
-                <button onClick={() => setOpenSettlementModal(false)} className="px-4 py-2 bg-gray-200 rounded-lg">Cancel</button>
-                <button onClick={handleSettlementRequest} disabled={busy} className="px-4 py-2 bg-green-600 text-white rounded-lg">{busy ? "Submitting..." : "Submit Request"}</button>
+                <button
+                  onClick={() => setOpenSettlementModal(false)}
+                  className="px-4 py-2 bg-gray-200 rounded-lg"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSettlementRequest}
+                  disabled={busy}
+                  className="px-4 py-2 bg-green-600 text-white rounded-lg"
+                >
+                  {busy ? "Submitting..." : "Submit Request"}
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
-
     </DashboardLayout>
   );
 }

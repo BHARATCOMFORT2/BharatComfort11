@@ -1,5 +1,3 @@
-// app/api/listings/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -10,9 +8,6 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -----------------------------------
-    // ✅ AUTH (OPTIONAL FOR PUBLIC)
-    // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -22,36 +17,21 @@ export async function GET(req: Request) {
         ?.split("=")[1] || "";
 
     let decoded: any = null;
-
     if (sessionCookie) {
-      decoded = await adminAuth
-        .verifySessionCookie(sessionCookie, true)
-        .catch(() => null);
+      decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
     }
 
-    const uid = decoded?.uid || null;
-
-    // ✅ ✅ ✅ FIXED ROLE LOGIC
     let role: "admin" | "partner" | "user" = "user";
     if (decoded?.admin === true) role = "admin";
     else if (decoded?.partner === true) role = "partner";
 
-    // -----------------------------------
-    // ✅ ✅ ✅ SAFE QUERY (NO INDEX ERROR)
-    // -----------------------------------
     let queryRef = adminDb.collection("listings");
 
-    if (role === "partner" && uid) {
-      queryRef = queryRef.where("partnerUid", "==", uid);
-    } 
-    
-    else if (role === "user") {
-      // ✅ PUBLIC USERS → ONLY ACTIVE
-      queryRef = queryRef.where("status", "==", "ACTIVE");
+    if (role === "partner" && decoded?.uid) {
+      queryRef = queryRef.where("partnerUid", "==", decoded.uid);
     }
 
-    // ✅ ✅ ✅ ORDER AFTER FILTER (SAFE)
-    const snap = await queryRef.orderBy("createdAt", "desc").get();
+    const snap = await queryRef.get(); // ✅ NO FILTER, NO INDEX ISSUE
 
     const listings = snap.docs.map((d) => ({
       id: d.id,
@@ -65,7 +45,6 @@ export async function GET(req: Request) {
       listings,
     });
   } catch (err: any) {
-    console.error("✅ Listings API Fixed Error:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Internal server error" },
       { status: 500 }

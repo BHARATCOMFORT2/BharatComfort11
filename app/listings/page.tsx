@@ -21,6 +21,9 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
 
+// ✅ DEMO IMPORT
+import { demoListings } from "@/lib/demo-listings";
+
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
   ssr: false,
 });
@@ -76,6 +79,11 @@ export default function ListingsPage() {
       setLoading(true);
 
       try {
+        // ✅ RESET PAR DEMO LISTINGS PRELOAD
+        if (reset && demoListings.length) {
+          setListings(demoListings);
+        }
+
         const colRef = collection(db, "listings");
         const conditions: any[] = [];
 
@@ -88,7 +96,13 @@ export default function ListingsPage() {
         if (filters.onlyPayAtHotel)
           conditions.push(where("allowPayAtHotel", "==", true));
 
-        let q = query(colRef, ...conditions, orderBy("createdAt", "desc"), limit(9));
+        let q = query(
+          colRef,
+          ...conditions,
+          orderBy("createdAt", "desc"),
+          limit(9)
+        );
+
         if (!reset && lastDoc) {
           q = query(
             colRef,
@@ -100,24 +114,35 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
-        if (snap.empty) {
+
+        if (!snap.empty) {
+          const newListings = snap.docs.map((doc) => {
+            const data = doc.data() as any;
+            const images =
+              Array.isArray(data.images) && data.images.length > 0
+                ? data.images
+                : [
+                    data.image ||
+                      "https://via.placeholder.com/400x300?text=No+Image",
+                  ];
+
+            return {
+              id: doc.id,
+              ...data,
+              images,
+              isDemo: false, // ✅ REAL LISTINGS FLAG
+            };
+          });
+
+          setListings((prev) =>
+            reset ? [...demoListings, ...newListings] : [...prev, ...newListings]
+          );
+
+          setLastDoc(snap.docs[snap.docs.length - 1]);
+          setHasMore(snap.docs.length === 9);
+        } else {
           setHasMore(false);
-          setLoading(false);
-          return;
         }
-
-        const newListings = snap.docs.map((doc) => {
-          const data = doc.data() as any;
-          const images =
-            Array.isArray(data.images) && data.images.length > 0
-              ? data.images
-              : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
-          return { id: doc.id, ...data, images };
-        });
-
-        setListings((prev) => (reset ? newListings : [...prev, ...newListings]));
-        setLastDoc(snap.docs[snap.docs.length - 1]);
-        setHasMore(snap.docs.length === 9);
       } catch (err) {
         console.error("❌ Error loading listings:", err);
       } finally {
@@ -151,6 +176,12 @@ export default function ListingsPage() {
 
   /* 💳 Handle Booking */
   const handleBookNow = async (listing: any) => {
+    // ✅ DEMO BOOKING BLOCK
+    if (listing.isDemo) {
+      toast.error("Demo listing — booking disabled");
+      return;
+    }
+
     if (!user) {
       setPendingListing(listing);
       setShowLoginModal(true);
@@ -212,7 +243,7 @@ export default function ListingsPage() {
 
     useEffect(() => {
       const timer = setInterval(
-        () => setCurrent((prev) => (prev + 1) % listing.images!.length),
+        () => setCurrent((prev) => (prev + 1) % listing.images.length),
         2500
       );
       return () => clearInterval(timer);
@@ -223,8 +254,8 @@ export default function ListingsPage() {
         <div className="relative w-full h-52 overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.img
-              key={listing.images?.[current]}
-              src={listing.images?.[current]}
+              key={listing.images[current]}
+              src={listing.images[current]}
               alt={listing.name}
               loading="lazy"
               initial={{ opacity: 0 }}
@@ -237,15 +268,35 @@ export default function ListingsPage() {
         </div>
 
         <div className="p-4 space-y-2">
-          <h3 className="text-lg font-semibold text-gray-800 truncate">{listing.name}</h3>
-          <p className="text-gray-600 text-sm truncate">{listing.location}</p>
+          <h3 className="text-lg font-semibold text-gray-800 truncate">
+            {listing.name}
+          </h3>
+          <p className="text-gray-600 text-sm truncate">
+            {listing.location}
+          </p>
+
           {listing.allowPayAtHotel && (
-            <p className="text-green-600 text-xs font-medium">🏨 Pay at Hotel Available</p>
+            <p className="text-green-600 text-xs font-medium">
+              🏨 Pay at Hotel Available
+            </p>
           )}
+
           <div className="flex justify-between items-center">
-            <span className="text-blue-600 font-bold">₹{listing.price}</span>
-            <span className="text-yellow-600 text-sm">⭐ {listing.rating || 4.2}</span>
+            <span className="text-blue-600 font-bold">
+              ₹{listing.price}
+            </span>
+            <span className="text-yellow-600 text-sm">
+              ⭐ {listing.rating || 4.2}
+            </span>
           </div>
+
+          {/* ✅ DEMO BADGE */}
+          {listing.isDemo && (
+            <p className="text-xs text-red-500 font-semibold">
+              DEMO LISTING — BOOKING DISABLED
+            </p>
+          )}
+
           <div className="flex gap-2 mt-4">
             <Button
               onClick={() => router.push(`/listing/${listing.id}`)}
@@ -253,6 +304,7 @@ export default function ListingsPage() {
             >
               Visit
             </Button>
+
             <Button
               onClick={() => handleBookNow(listing)}
               className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
@@ -269,16 +321,21 @@ export default function ListingsPage() {
   return (
     <div className="p-6 space-y-8">
       <header className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-semibold text-gray-800">Available Listings</h1>
+        <h1 className="text-2xl font-semibold text-gray-800">
+          Available Listings
+        </h1>
         <span className="text-sm text-gray-500">
-          Showing {listings.length} place{listings.length !== 1 ? "s" : ""}
+          Showing {listings.length} place
+          {listings.length !== 1 ? "s" : ""}
         </span>
       </header>
 
       <ListingFilters
         filters={filters}
         setFilters={setFilters}
-        onSearch={(value) => setFilters((prev) => ({ ...prev, search: value }))}
+        onSearch={(value) =>
+          setFilters((prev) => ({ ...prev, search: value }))
+        }
       />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -299,7 +356,9 @@ export default function ListingsPage() {
 
       {listings.length > 0 && (
         <section className="pt-8">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">Explore on Map</h2>
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">
+            Explore on Map
+          </h2>
           <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
             <ListingMap listings={listings} />
           </div>

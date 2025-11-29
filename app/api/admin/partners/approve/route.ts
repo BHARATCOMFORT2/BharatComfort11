@@ -1,19 +1,19 @@
 // app/api/admin/partners/approve/route.ts
+
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Admin: Approve Partner
- * Requires: Admin session cookie (__session)
+ * ✅ Admin: Approve Partner (Production Safe)
  */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
     // -----------------------------------
-    // 1) Verify Admin Session Cookie
+    // 1) Verify Session Cookie
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
@@ -41,7 +41,13 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!decoded.admin) {
+    // ✅ STRICT ADMIN ROLE CHECK (Firestore)
+    const adminSnap = await adminDb
+      .collection("users")
+      .doc(decoded.uid)
+      .get();
+
+    if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
         { error: "Admin access required" },
         { status: 403 }
@@ -78,17 +84,16 @@ export async function POST(req: Request) {
     }
 
     const partner = partnerSnap.data() || {};
-    const partnerUid = partner.uid;
+    const partnerUid = partner.uid || partnerId;
 
-    if (!partnerUid) {
-      return NextResponse.json(
-        { error: "Partner doc missing UID" },
-        { status: 400 }
-      );
-    }
-
-    // Block repeat approvals
-    if (partner.status === "approved" || partner.approved === true) {
+    // ✅ BLOCK DOUBLE APPROVAL
+    if (
+      partner.status === "approved" ||
+      partner.status === "ACTIVE" ||
+      partner.approved === true ||
+      partner.kycStatus === "APPROVED" ||
+      partner.kyc?.status === "APPROVED"
+    ) {
       return NextResponse.json(
         { error: "Partner already approved" },
         { status: 409 }
@@ -102,12 +107,13 @@ export async function POST(req: Request) {
     // 4) Update Partner Document
     // -----------------------------------
     await partnerRef.update({
-      status: "approved",
+      status: "ACTIVE",
       approved: true,
       approvedAt: now,
       approvedBy: adminUid,
       remarks,
       kycStatus: "APPROVED",
+      "kyc.status": "APPROVED",
       kycApprovedAt: now,
       updatedAt: now,
     });
@@ -141,11 +147,12 @@ export async function POST(req: Request) {
       adminId: adminUid,
       action: "approve",
       remarks,
+      rewardAmount,
       createdAt: now,
     });
 
     // -----------------------------------
-    // 7) Referral Reward Processing
+    // 7) Referral Reward Processing (SAFE)
     // -----------------------------------
     const referralsQ = await adminDb
       .collection("referrals")
@@ -177,12 +184,10 @@ export async function POST(req: Request) {
             );
           } else {
             tx.update(referrerRef, {
-              walletBalance: admin.firestore.FieldValue.increment(
-                rewardAmount
-              ),
-              totalEarnings: admin.firestore.FieldValue.increment(
-                rewardAmount
-              ),
+              walletBalance:
+                admin.firestore.FieldValue.increment(rewardAmount),
+              totalEarnings:
+                admin.firestore.FieldValue.increment(rewardAmount),
               updatedAt: now,
             });
           }
@@ -206,7 +211,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "Partner approved successfully",
+      message: "✅ Partner approved successfully",
     });
   } catch (err: any) {
     console.error("Admin Partner Approve Error:", err);

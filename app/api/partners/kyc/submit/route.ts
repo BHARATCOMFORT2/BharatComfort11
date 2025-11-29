@@ -1,171 +1,245 @@
 // app/api/partners/kyc/submit/route.ts
-export const dynamic = "force-dynamic";
+
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { cookies } from "next/headers";
-import { FieldValue } from "firebase-admin/firestore";
+
+/**
+ * ✅ Partner KYC Submit / Resubmit
+ *
+ * Accepts body (two shapes supported):
+ *
+ * 1) From main KYC page:
+ * {
+ *   token?: string;
+ *   idType: "AADHAAR";
+ *   idNumberMasked: string;
+ *   documents: { docType: string; storagePath: string }[];
+ *   meta: {
+ *     gstNumber?: string | null;
+ *     businessName: string;
+ *     phone: string;
+ *     address: {
+ *       line1: string;
+ *       line2?: string;
+ *       city: string;
+ *       state: string;
+ *       pincode: string;
+ *     };
+ *   };
+ * }
+ *
+ * 2) From resubmit page:
+ * {
+ *   isResubmission: true;
+ *   businessName: string;
+ *   phone: string;
+ *   aadhaar: string;
+ *   gstNumber?: string | null;
+ *   documents: { docType: string; storagePath: string }[];
+ * }
+ */
 
 export async function POST(req: Request) {
   try {
-    const { adminAuth, adminDb } = getFirebaseAdmin();
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    // -----------------------------------------------------
-    // 1. PARSE JSON BODY
-    // -----------------------------------------------------
-    const body = await req.json().catch(() => null);
-    if (!body) {
+    // -----------------------------------
+    // 1) Auth: Try session cookie, fallback to ID token
+    // -----------------------------------
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
+        ?.split("=")[1] || "";
+
+    const body = await req.json().catch(() => ({} as any));
+    const idToken: string | undefined = body?.token;
+
+    let decoded: any = null;
+
+    if (sessionCookie) {
+      decoded = await adminAuth
+        .verifySessionCookie(sessionCookie, true)
+        .catch(() => null);
+    }
+
+    if (!decoded && idToken) {
+      decoded = await adminAuth
+        .verifyIdToken(idToken)
+        .catch(() => null);
+    }
+
+    if (!decoded) {
       return NextResponse.json(
-        { error: "Invalid JSON body" },
-        { status: 400 }
+        { success: false, error: "Not authenticated" },
+        { status: 401 }
       );
     }
 
-    // Extract fields
-    const {
-      token,
-      idType,
-      idNumberMasked,
-      documents,
-      meta = {}, // ← KYC frontend sends "meta"
-    } = body;
+    const uid = decoded.uid;
+    const now = admin.firestore.FieldValue.serverTimestamp();
 
-    const {
-      businessName = null,
-      phone = null,
-      address = null,
-      gstNumber = null,
-    } = meta;
+    // -----------------------------------
+    // 2) Parse & normalize input
+    // -----------------------------------
+    const isResubmission: boolean = !!body?.isResubmission;
 
-    if (!token || !idType || !idNumberMasked || !documents) {
-      return NextResponse.json(
-        {
-          error:
-            "Missing required fields: token, idType, idNumberMasked, documents[]",
-        },
-        { status: 400 }
-      );
-    }
+    // Documents array
+    const documents: { docType: string; storagePath: string }[] = Array.isArray(
+      body?.documents
+    )
+      ? body.documents.filter(
+          (d: any) => d && d.docType && d.storagePath
+        )
+      : [];
 
-    if (!Array.isArray(documents) || documents.length === 0) {
-      return NextResponse.json(
-        { error: "Documents[] must contain at least one file reference" },
-        { status: 400 }
-      );
-    }
+    // Base fields (from both shapes)
+    let businessName: string | null = null;
+    let phone: string | null = null;
+    let gstNumber: string | null = null;
+    let address: any = null;
+    let idType: string = "AADHAAR";
+    let idNumberMasked: string | null = null;
+    let aadhaarLast4: string | null = null;
 
-    // -----------------------------------------------------
-    // 2. VERIFY AUTHENTICATION
-    //    Support BOTH:
-    //    - Firebase ID Token
-    //    - Session Cookie
-    // -----------------------------------------------------
-    let uid: string | null = null;
+    if (body?.meta) {
+      // Shape 1 (main KYC)
+      const meta = body.meta;
+      businessName = meta.businessName?.toString().trim() || null;
+      phone = meta.phone?.toString().trim() || null;
+      gstNumber =
+        meta.gstNumber && meta.gstNumber.toString().trim()
+          ? meta.gstNumber.toString().trim()
+          : null;
+      address = meta.address || null;
+      idType = body.idType || "AADHAAR";
+      idNumberMasked = body.idNumberMasked || null;
 
-    // Try ID token first
-    const decodedByToken = await adminAuth.verifyIdToken(token).catch(() => null);
-    if (decodedByToken) uid = decodedByToken.uid;
+      // Try to extract last4 from masked (e.g. 1234XXXX5678)
+      if (idNumberMasked && idNumberMasked.length >= 4) {
+        aadhaarLast4 = idNumberMasked.slice(-4);
+      }
+    } else {
+      // Shape 2 (resubmit)
+      businessName = body.businessName?.toString().trim() || null;
+      phone = body.phone?.toString().trim() || null;
+      gstNumber =
+        body.gstNumber && body.gstNumber.toString().trim()
+          ? body.gstNumber.toString().trim()
+          : null;
 
-    // Try session cookie if token failed
-    if (!uid) {
-      const sessionCookie = cookies().get("__session")?.value || "";
-      if (sessionCookie) {
-        const decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
-        uid = decoded?.uid || null;
+      const aadhaarRaw = body.aadhaar?.toString().trim() || "";
+      if (aadhaarRaw) {
+        const cleaned = aadhaarRaw.replace(/\D+/g, "");
+        if (cleaned.length >= 4) {
+          aadhaarLast4 = cleaned.slice(-4);
+          idNumberMasked = `XXXXXXXX${aadhaarLast4}`;
+        }
       }
     }
 
-    if (!uid) {
-      return NextResponse.json({ error: "Unauthorized: invalid token" }, { status: 401 });
+    if (!businessName || !phone) {
+      return NextResponse.json(
+        { success: false, error: "Business name and phone are required" },
+        { status: 400 }
+      );
     }
 
-    // -----------------------------------------------------
-    // 3. VALIDATE PARTNER ACCOUNT
-    // -----------------------------------------------------
+    if (!aadhaarLast4) {
+      // Aadhaar is mandatory for this flow
+      return NextResponse.json(
+        { success: false, error: "Aadhaar details are required" },
+        { status: 400 }
+      );
+    }
+
+    // -----------------------------------
+    // 3) Partner doc reference
+    // -----------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
-      return NextResponse.json(
-        { error: "Partner profile not found. Complete onboarding first." },
-        { status: 404 }
+      // Minimal partner doc create
+      await partnerRef.set(
+        {
+          uid,
+          businessName,
+          phone,
+          gstNumber,
+          address: address || null,
+          createdAt: now,
+          updatedAt: now,
+          status: "PENDING_KYC",
+          kycStatus: "UNDER_REVIEW",
+        },
+        { merge: true }
       );
     }
 
-    const partnerData = partnerSnap.data();
-    if ((partnerData.role || "").toLowerCase() !== "partner") {
-      return NextResponse.json(
-        { error: "User is not a partner" },
-        { status: 403 }
-      );
-    }
-
-    // -----------------------------------------------------
-    // 4. CLEAN DOCUMENT OBJECTS
-    // -----------------------------------------------------
-    const cleanedDocs = documents.map((doc: any) => {
-      if (!doc.docType || !doc.storagePath) {
-        throw new Error("Each document must include docType & storagePath");
-      }
-      return {
-        docType: doc.docType,
-        storagePath: doc.storagePath,
-        uploadedAt: FieldValue.serverTimestamp(),
-      };
-    });
-
-    // -----------------------------------------------------
-    // 5. CREATE NEW KYC ENTRY
-    // -----------------------------------------------------
-    const kycRef = partnerRef.collection("kycDocs").doc();
-    const kycId = kycRef.id;
-
-    await kycRef.set({
-      idType,
-      idNumberMasked,
-      documents: cleanedDocs,
-      businessName,
-      address,
-      phone,
-      gstNumber,
+    // -----------------------------------
+    // 4) Build KYC payload
+    // -----------------------------------
+    const kycPayload = {
       status: "UNDER_REVIEW",
-      submittedAt: FieldValue.serverTimestamp(),
-    });
+      idType,
+      idNumberMasked: idNumberMasked || null,
+      aadhaarLast4,
+      gstNumber,
+      documents: documents || [],
+      isResubmission,
+      submittedAt: now,
+    };
 
-    // -----------------------------------------------------
-    // 6. UPDATE MAIN PARTNER PROFILE
-    // -----------------------------------------------------
+    // -----------------------------------
+    // 5) Update Partner Document
+    // -----------------------------------
     await partnerRef.set(
       {
+        uid,
         businessName,
         phone,
-        address,
         gstNumber,
+        address: address || admin.firestore.FieldValue.delete(),
         kycStatus: "UNDER_REVIEW",
-        updatedAt: FieldValue.serverTimestamp(),
+        kyc: kycPayload,
+        status: "PENDING_KYC",
+        kycSubmittedAt: now,
+        updatedAt: now,
       },
       { merge: true }
     );
 
-    // -----------------------------------------------------
-    // 7. AUDIT LOG
-    // -----------------------------------------------------
-    await partnerRef.collection("kycAudit").add({
-      action: "submitted",
-      kycId,
-      createdAt: FieldValue.serverTimestamp(),
+    // -----------------------------------
+    // 6) Optional: audit trail
+    // -----------------------------------
+    await adminDb.collection("kycAudit").add({
+      uid,
+      type: isResubmission ? "RESUBMIT" : "SUBMIT",
+      kycStatus: "UNDER_REVIEW",
+      businessName,
+      phone,
+      gstNumber,
+      aadhaarLast4,
+      documents,
+      createdAt: now,
     });
 
     return NextResponse.json({
       success: true,
-      kycId,
-      message: "KYC submitted successfully. Status updated to UNDER_REVIEW.",
+      message: isResubmission
+        ? "KYC resubmitted successfully"
+        : "KYC submitted successfully",
     });
   } catch (err: any) {
-    console.error("🔥 KYC Submit API Error:", err);
+    console.error("Partner KYC Submit Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

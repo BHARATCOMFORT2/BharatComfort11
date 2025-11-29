@@ -5,30 +5,84 @@ import { motion, useScroll, useTransform } from "framer-motion";
 import { db } from "@/lib/firebase";
 import { doc, onSnapshot } from "firebase/firestore";
 
+/* ------------------------------------------
+   ✅ SAMPLE FALLBACK HERO DATA
+------------------------------------------- */
+const SAMPLE_HERO = {
+  title: "Welcome to BharatComfort",
+  subtitle: "Discover Royal Journeys Across India",
+  imageUrl:
+    "https://images.unsplash.com/photo-1507525428034-b723cf961d3e", // Goa beach style
+};
+
 export default function Hero() {
   const { scrollY } = useScroll();
   const yHero = useTransform(scrollY, [0, 500], [0, -50]);
 
-  const [hero, setHero] = useState({
-    title: "",
-    subtitle: "",
-    imageUrl: "",
-  });
+  const [hero, setHero] = useState<{
+    title: string;
+    subtitle: string;
+    imageUrl: string;
+  }>(SAMPLE_HERO);
 
+  const [loading, setLoading] = useState(true);
+
+  /* ------------------------------------------
+     🔥 Firestore Real-Time Fetch (WITH FALLBACK)
+  ------------------------------------------- */
   useEffect(() => {
-    const unsub = onSnapshot(doc(db, "homepage", "hero"), (snap) => {
-      if (snap.exists()) {
-        const data = snap.data() as {
-          title: string;
-          subtitle: string;
-          imageUrl: string;
-        };
-        setHero(data);
-      }
-    });
-    return () => unsub();
+    try {
+      const unsub = onSnapshot(
+        doc(db, "homepage", "hero"),
+        (snap) => {
+          if (snap.exists()) {
+            const data = snap.data() as {
+              title?: string;
+              subtitle?: string;
+              imageUrl?: string;
+            };
+
+            setHero({
+              title: data.title || SAMPLE_HERO.title,
+              subtitle: data.subtitle || SAMPLE_HERO.subtitle,
+              imageUrl: data.imageUrl || SAMPLE_HERO.imageUrl,
+            });
+          } else {
+            // ✅ Firestore doc missing → SAMPLE fallback
+            setHero(SAMPLE_HERO);
+          }
+          setLoading(false);
+        },
+        (err) => {
+          console.error("❌ Hero Firestore error:", err);
+          // ✅ Error → SAMPLE fallback
+          setHero(SAMPLE_HERO);
+          setLoading(false);
+        }
+      );
+
+      return () => unsub();
+    } catch (err) {
+      console.error("❌ Hero Init failed:", err);
+      setHero(SAMPLE_HERO);
+      setLoading(false);
+    }
   }, []);
 
+  /* ------------------------------------------
+     🧠 Optional Loading Overlay
+  ------------------------------------------- */
+  if (loading) {
+    return (
+      <section className="relative h-screen flex items-center justify-center bg-black text-white">
+        <p className="animate-pulse text-lg">Loading hero...</p>
+      </section>
+    );
+  }
+
+  /* ------------------------------------------
+     🎨 Render (REAL or SAMPLE)
+  ------------------------------------------- */
   return (
     <section className="relative h-screen overflow-hidden">
       {/* Hero Image with Parallax */}
@@ -51,7 +105,7 @@ export default function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1 }}
         >
-          {hero.title || "Welcome to BharatComfort"}
+          {hero.title}
         </motion.h1>
 
         <motion.p
@@ -60,7 +114,7 @@ export default function Hero() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 1, delay: 0.3 }}
         >
-          {hero.subtitle || "Discover Royal Journeys Across India"}
+          {hero.subtitle}
         </motion.p>
 
         <motion.a

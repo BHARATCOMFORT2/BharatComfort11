@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ ✅ ✅ CORRECT RELATIVE PATH (IMPORTANT FIX)
+// ✅ Correct relative path
 import { hotels, restaurants } from "../../../../data/sampleListings";
 
 export async function GET() {
@@ -18,8 +18,8 @@ export async function GET() {
       batch.set(ref, {
         ...hotel,
         category: "hotel",
-        status: "ACTIVE",      // ✅ normalize
-        createdAt: new Date()  // ✅ required for ordering
+        status: "ACTIVE",
+        createdAt: new Date(),
       });
     });
 
@@ -29,7 +29,7 @@ export async function GET() {
         ...res,
         category: "restaurant",
         status: "ACTIVE",
-        createdAt: new Date()
+        createdAt: new Date(),
       });
     });
 
@@ -38,12 +38,10 @@ export async function GET() {
     return NextResponse.json({
       success: true,
       message: "✅ Sample listings seeded successfully!",
-      hotels: hotels.length,
-      restaurants: restaurants.length,
       total: hotels.length + restaurants.length,
+      firestoreProjectFromSeed: adminDb.app.options.projectId, // 🔥 IMPORTANT
     });
   } catch (err: any) {
-    console.error("Seed Error:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Seed Failed" },
       { status: 500 }

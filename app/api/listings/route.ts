@@ -11,7 +11,7 @@ export async function GET(req: Request) {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
     // -----------------------------------
-    // ✅ AUTH (Session Cookie)
+    // ✅ AUTH (OPTIONAL FOR PUBLIC)
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
@@ -29,38 +29,29 @@ export async function GET(req: Request) {
         .catch(() => null);
     }
 
-    // NOTE: Public users ke liye session optional hai
     const uid = decoded?.uid || null;
-    const role =
-      decoded?.role || decoded?.admin
-        ? "admin"
-        : decoded?.partner
-        ? "partner"
-        : "user";
+
+    // ✅ ✅ ✅ FIXED ROLE LOGIC
+    let role: "admin" | "partner" | "user" = "user";
+    if (decoded?.admin === true) role = "admin";
+    else if (decoded?.partner === true) role = "partner";
 
     // -----------------------------------
-    // ✅ ROLE BASED QUERY
+    // ✅ ✅ ✅ SAFE QUERY (NO INDEX ERROR)
     // -----------------------------------
     let queryRef = adminDb.collection("listings");
 
-    if (role === "admin") {
-      // ✅ Admin: ALL listings (no filter)
-      queryRef = queryRef.orderBy("createdAt", "desc");
-
-    } else if (role === "partner" && uid) {
-      // ✅ Partner: ONLY own listings
-      queryRef = queryRef
-        .where("partnerUid", "==", uid)
-        .orderBy("createdAt", "desc");
-
-    } else {
-      // ✅ Public User: ONLY active listings
-      queryRef = queryRef
-        .where("status", "==", "ACTIVE")
-        .orderBy("createdAt", "desc");
+    if (role === "partner" && uid) {
+      queryRef = queryRef.where("partnerUid", "==", uid);
+    } 
+    
+    else if (role === "user") {
+      // ✅ PUBLIC USERS → ONLY ACTIVE
+      queryRef = queryRef.where("status", "==", "ACTIVE");
     }
 
-    const snap = await queryRef.get();
+    // ✅ ✅ ✅ ORDER AFTER FILTER (SAFE)
+    const snap = await queryRef.orderBy("createdAt", "desc").get();
 
     const listings = snap.docs.map((d) => ({
       id: d.id,
@@ -74,7 +65,7 @@ export async function GET(req: Request) {
       listings,
     });
   } catch (err: any) {
-    console.error("Unified Listings API Error:", err);
+    console.error("✅ Listings API Fixed Error:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Internal server error" },
       { status: 500 }

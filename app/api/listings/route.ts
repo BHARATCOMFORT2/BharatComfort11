@@ -8,9 +8,6 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -----------------------------
-    // Optional Session
-    // -----------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -21,9 +18,7 @@ export async function GET(req: Request) {
 
     let decoded: any = null;
     if (sessionCookie) {
-      decoded = await adminAuth
-        .verifySessionCookie(sessionCookie, true)
-        .catch(() => null);
+      decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
     }
 
     let role: "admin" | "partner" | "user" = "user";
@@ -47,15 +42,12 @@ export async function GET(req: Request) {
       success: true,
       role,
       count: listings.length,
-      firestoreProjectFromListings: adminDb.app.options.projectId, // 🔥 IMPORTANT
+      firestoreProject: adminDb.app.options.projectId,
       listings,
     });
   } catch (err: any) {
     return NextResponse.json(
-      {
-        success: false,
-        error: err.message || "Internal server error",
-      },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

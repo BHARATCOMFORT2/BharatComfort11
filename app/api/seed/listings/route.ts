@@ -3,8 +3,6 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-
-// ✅ Correct relative path
 import { hotels, restaurants } from "../../../../data/sampleListings";
 
 export async function GET() {
@@ -35,11 +33,15 @@ export async function GET() {
 
     await batch.commit();
 
+    // ✅ REAL DEBUG FROM SAME PROJECT
+    const snap = await adminDb.collection("listings").get();
+
     return NextResponse.json({
       success: true,
       message: "✅ Sample listings seeded successfully!",
-      total: hotels.length + restaurants.length,
-      firestoreProjectFromSeed: adminDb.app.options.projectId, // 🔥 IMPORTANT
+      totalSeeded: hotels.length + restaurants.length,
+      totalDocsInListings: snap.size,
+      firestoreProject: adminDb.app.options.projectId,
     });
   } catch (err: any) {
     return NextResponse.json(

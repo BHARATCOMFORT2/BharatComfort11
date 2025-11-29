@@ -1,111 +1,109 @@
 // app/api/partners/kyc/status/route.ts
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * ✅ GET /api/partners/kyc/status
+ *
+ * Auth: Session cookie (__session)
+ *
+ * Response:
+ * {
+ *   ok: true,
+ *   success: true,
+ *   uid: string,
+ *   kycStatus: "NOT_STARTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED",
+ *   kyc: object | null
+ * }
+ */
 
 export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // ----------------------------------------------------------
-    // 1️⃣ READ ANY VALID SESSION COOKIE (fixes all cookie issues)
-    // ----------------------------------------------------------
+    // -----------------------------------
+    // 1) Verify Session Cookie
+    // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
-
     const sessionCookie =
       cookieHeader
         .split(";")
         .map((c) => c.trim())
-        .find(
-          (c) =>
-            c.startsWith("__session=") ||
-            c.startsWith("session=") ||
-            c.startsWith("firebase_session=")
-        )
+        .find((c) => c.startsWith("__session="))
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Not authenticated (no session cookie)" },
+        { ok: false, success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    // ----------------------------------------------------------
-    // 2️⃣ VERIFY SESSION COOKIE
-    // ----------------------------------------------------------
     const decoded = await adminAuth
       .verifySessionCookie(sessionCookie, true)
       .catch(() => null);
 
     if (!decoded) {
       return NextResponse.json(
-        { error: "Invalid or expired session cookie" },
+        { ok: false, success: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
 
-    // ----------------------------------------------------------
-    // 3️⃣ LOAD PARTNER DOCUMENT (may not exist yet)
-    // ----------------------------------------------------------
+    // -----------------------------------
+    // 2) Fetch Partner Doc
+    // -----------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
       return NextResponse.json({
         ok: true,
-        exists: false,
+        success: true,
+        uid,
         kycStatus: "NOT_STARTED",
-        latestKyc: null,
+        kyc: null,
+        exists: false,
       });
     }
 
     const partner = partnerSnap.data() || {};
 
-    // Base status from main profile
-    let kycStatus = (partner.kycStatus || "NOT_STARTED").toString().toUpperCase();
+    // -----------------------------------
+    // 3) Normalize KYC Status
+    // -----------------------------------
+    const rawStatus =
+      (partner.kycStatus as string | undefined) ||
+      (partner.kyc?.status as string | undefined) ||
+      "NOT_STARTED";
 
-    // ----------------------------------------------------------
-    // 4️⃣ LOAD LATEST KYC DOCUMENT
-    // ----------------------------------------------------------
-    const kycSnap = await partnerRef
-      .collection("kycDocs")
-      .orderBy("submittedAt", "desc")
-      .limit(1)
-      .get();
+    const normalize = (s?: string) =>
+      (s || "NOT_STARTED").toUpperCase();
 
-    let latestKyc = null;
+    const kycStatus = normalize(rawStatus);
 
-    if (!kycSnap.empty) {
-      const doc = kycSnap.docs[0];
-      latestKyc = { id: doc.id, ...doc.data() };
-
-      // normalize full status
-      const raw =
-        latestKyc.status ||
-        partner.kycStatus ||
-        "NOT_STARTED";
-
-      kycStatus = raw.toString().toUpperCase();
-    }
-
-    // ----------------------------------------------------------
-    // 5️⃣ RETURN FINAL RESPONSE
-    // ----------------------------------------------------------
     return NextResponse.json({
       ok: true,
+      success: true,
       uid,
       kycStatus,
-      latestKyc,
+      kyc: partner.kyc || null,
+      exists: true,
     });
   } catch (err: any) {
-    console.error("🔥 KYC STATUS ERROR:", err);
+    console.error("Partner KYC Status Error:", err);
+
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      {
+        ok: false,
+        success: false,
+        error: err.message || "Internal server error",
+      },
       { status: 500 }
     );
   }

@@ -1,9 +1,11 @@
-import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { hotels, restaurants } from "@/data/sampleListings";
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+import { NextResponse } from "next/server";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+
+// ✅ ✅ ✅ CORRECT RELATIVE PATH (IMPORTANT FIX)
+import { hotels, restaurants } from "../../../../data/sampleListings";
 
 export async function GET() {
   try {
@@ -16,8 +18,8 @@ export async function GET() {
       batch.set(ref, {
         ...hotel,
         category: "hotel",
-        status: "ACTIVE",     // ✅ FIXED
-        createdAt: new Date() // ✅ FIXED
+        status: "ACTIVE",      // ✅ normalize
+        createdAt: new Date()  // ✅ required for ordering
       });
     });
 
@@ -26,8 +28,8 @@ export async function GET() {
       batch.set(ref, {
         ...res,
         category: "restaurant",
-        status: "ACTIVE",     // ✅ FIXED
-        createdAt: new Date() // ✅ FIXED
+        status: "ACTIVE",
+        createdAt: new Date()
       });
     });
 

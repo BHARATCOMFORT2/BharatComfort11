@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/firebase-client";
 import {
   collection,
   query,
@@ -87,7 +87,7 @@ export default function AdminKYCPage() {
     const unsub = onSnapshot(q, (snap) => {
       const docs = snap.docs.map((d) => {
         const data = d.data() as PartnerData;
-        return { ...data, id: data.id || d.id } as PartnerData; // ✅ safe id assignment
+        return { ...data, id: data.id || d.id } as PartnerData;
       });
       setKycList(docs);
     });
@@ -191,7 +191,9 @@ export default function AdminKYCPage() {
       {/* 🔍 KYC Modal */}
       <Modal
         isOpen={!!selected}
-        title={`KYC Details - ${selected?.businessName || selected?.name}`}
+        title={`KYC Details - ${
+          selected?.businessName || selected?.name
+        }`}
         onClose={() => setSelected(null)}
       >
         {selected && (

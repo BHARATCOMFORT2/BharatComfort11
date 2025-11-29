@@ -14,7 +14,9 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
  */
 export async function POST(req: Request) {
   try {
+    // ✅ storage ALREADY A BUCKET
     const { adminAuth, adminDb, admin, storage } = getFirebaseAdmin();
+    const bucket = storage; // ✅✅✅ FINAL FIX
 
     // -----------------------------------
     // 1) Auth: Session Cookie OR Token Header
@@ -102,9 +104,8 @@ export async function POST(req: Request) {
     }
 
     // -----------------------------------
-    // 4) Upload to Firebase Storage
+    // 4) Upload to Firebase Storage ✅ FIXED
     // -----------------------------------
-    const bucket = storage.bucket();
     const buffer = Buffer.from(await file.arrayBuffer());
 
     const ext = file.name.split(".").pop();
@@ -118,11 +119,10 @@ export async function POST(req: Request) {
       },
     });
 
-    // Make file private (recommended)
     await fileRef.makePrivate();
 
     // -----------------------------------
-    // 5) Save Document Reference (Optional)
+    // 5) Save Document Reference
     // -----------------------------------
     await adminDb.collection("kycUploads").add({
       uid,
@@ -139,7 +139,7 @@ export async function POST(req: Request) {
       message: "File uploaded successfully",
     });
   } catch (err: any) {
-    console.error("KYC Upload Error:", err);
+    console.error("✅ KYC Upload Final Error:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Internal server error" },
       { status: 500 }

@@ -6,7 +6,6 @@ import {
   collection,
   query,
   where,
-  orderBy,
   onSnapshot,
   updateDoc,
   doc,
@@ -16,7 +15,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { useAuth } from "@/hooks/useAuth";
 
 /* =========================================================
-   🔹 Modal Component (Typed)
+   🔹 Modal Component
 ========================================================= */
 type ModalProps = {
   isOpen: boolean;
@@ -55,7 +54,7 @@ interface PartnerData {
   kyc?: {
     panNumber?: string;
     gstNumber?: string;
-    status?: "submitted" | "pending" | "approved" | "rejected";
+    status?: "UNDER_REVIEW" | "APPROVED" | "REJECTED";
     submittedAt?: any;
     approvedAt?: any;
     rejectedAt?: any;
@@ -73,24 +72,29 @@ export default function AdminKYCPage() {
   const [selected, setSelected] = useState<PartnerData | null>(null);
 
   /* ---------------------------------------------------------
-     📡 Fetch Pending KYC
+     📡 Fetch Pending KYC (NO INDEX REQUIRED)
   --------------------------------------------------------- */
   useEffect(() => {
     if (!firebaseUser) return;
 
     const q = query(
       collection(db, "partners"),
-      where("kyc.status", "in", ["submitted", "pending"]),
-      orderBy("kyc.submittedAt", "desc")
+      where("kyc.status", "==", "UNDER_REVIEW")
     );
 
-    const unsub = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => {
-        const data = d.data() as PartnerData;
-        return { ...data, id: data.id || d.id } as PartnerData;
-      });
-      setKycList(docs);
-    });
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        const docs = snap.docs.map((d) => {
+          const data = d.data() as PartnerData;
+          return { ...data, id: d.id };
+        });
+        setKycList(docs);
+      },
+      (err) => {
+        console.error("Admin KYC Snapshot Error:", err);
+      }
+    );
 
     return () => unsub();
   }, [firebaseUser]);
@@ -100,10 +104,14 @@ export default function AdminKYCPage() {
   --------------------------------------------------------- */
   const handleApprove = async (partnerId: string) => {
     if (!confirm("Approve this KYC?")) return;
+
     await updateDoc(doc(db, "partners", partnerId), {
-      "kyc.status": "approved",
+      "kyc.status": "APPROVED",
       "kyc.approvedAt": serverTimestamp(),
+      kycStatus: "APPROVED",
+      status: "ACTIVE",
     });
+
     alert("✅ KYC approved successfully!");
     setSelected(null);
   };
@@ -111,11 +119,15 @@ export default function AdminKYCPage() {
   const handleReject = async (partnerId: string) => {
     const reason = prompt("Enter reason for rejection:");
     if (!reason) return;
+
     await updateDoc(doc(db, "partners", partnerId), {
-      "kyc.status": "rejected",
+      "kyc.status": "REJECTED",
       "kyc.rejectionReason": reason,
       "kyc.rejectedAt": serverTimestamp(),
+      kycStatus: "REJECTED",
+      status: "REJECTED",
     });
+
     alert("❌ KYC rejected.");
     setSelected(null);
   };
@@ -125,8 +137,16 @@ export default function AdminKYCPage() {
   --------------------------------------------------------- */
   if (loading) return <p className="text-center py-12">Loading...</p>;
 
-  if (profile?.role !== "admin") {
-    return <p className="text-center py-12 text-red-500">Access denied.</p>;
+  // ✅ FIXED ADMIN CHECK
+  const isAdmin =
+    profile?.role === "admin" || profile?.isAdmin === true;
+
+  if (!isAdmin) {
+    return (
+      <p className="text-center py-12 text-red-500">
+        Access denied. (Admin only)
+      </p>
+    );
   }
 
   return (
@@ -161,14 +181,8 @@ export default function AdminKYCPage() {
                   <td className="p-3">{p.email}</td>
                   <td className="p-3">{p.kyc?.panNumber || "-"}</td>
                   <td className="p-3">{p.kyc?.gstNumber || "-"}</td>
-                  <td
-                    className={`p-3 ${
-                      p.kyc?.status === "submitted"
-                        ? "text-yellow-600"
-                        : "text-gray-600"
-                    }`}
-                  >
-                    {p.kyc?.status}
+                  <td className="p-3 text-yellow-600">
+                    {p.kyc?.status || "UNDER_REVIEW"}
                   </td>
                   <td className="p-3 text-center">
                     <button
@@ -198,18 +212,10 @@ export default function AdminKYCPage() {
       >
         {selected && (
           <div className="space-y-3">
-            <p>
-              <strong>Email:</strong> {selected.email}
-            </p>
-            <p>
-              <strong>Phone:</strong> {selected.phone || "-"}
-            </p>
-            <p>
-              <strong>PAN:</strong> {selected.kyc?.panNumber || "-"}
-            </p>
-            <p>
-              <strong>GST:</strong> {selected.kyc?.gstNumber || "-"}
-            </p>
+            <p><strong>Email:</strong> {selected.email}</p>
+            <p><strong>Phone:</strong> {selected.phone || "-"}</p>
+            <p><strong>PAN:</strong> {selected.kyc?.panNumber || "-"}</p>
+            <p><strong>GST:</strong> {selected.kyc?.gstNumber || "-"}</p>
 
             <div className="grid sm:grid-cols-2 gap-3">
               {Object.entries(selected.kyc?.documents || {}).map(

@@ -17,6 +17,48 @@ import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 import LoginModal from "@/components/auth/LoginModal";
 
 /* ------------------------------------------
+   ✅ SAMPLE FALLBACK DATA (ALWAYS AVAILABLE)
+------------------------------------------- */
+const SAMPLE_FEATURED = [
+  {
+    id: "SF1",
+    name: "Sea View Resort",
+    location: "Goa",
+    price: 3499,
+    rating: 4.6,
+    images: [
+      "https://images.unsplash.com/photo-1566073771259-6a8506099945",
+    ],
+    category: "resort",
+    featured: true,
+  },
+  {
+    id: "SF2",
+    name: "Snow Valley Hotel",
+    location: "Manali",
+    price: 2799,
+    rating: 4.4,
+    images: [
+      "https://images.unsplash.com/photo-1505692952047-1a78307da8f2",
+    ],
+    category: "hotel",
+    featured: true,
+  },
+  {
+    id: "SF3",
+    name: "Royal Palace Stay",
+    location: "Jaipur",
+    price: 3999,
+    rating: 4.7,
+    images: [
+      "https://images.unsplash.com/photo-1582719478250-c89cae4dc85b",
+    ],
+    category: "hotel",
+    featured: true,
+  },
+];
+
+/* ------------------------------------------
    🕐 Debounce Hook
 ------------------------------------------- */
 function useDebounce<T>(value: T, delay: number): [T] {
@@ -58,14 +100,11 @@ export default function FeaturedListings() {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
 
-  /* ------------------------------------------
-     👤 Auth Listener
-  ------------------------------------------- */
+  /* 👤 Auth Listener */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       setUser(u);
       if (u && pendingListing) {
-        // auto continue after login
         handleBookNow(pendingListing);
         setPendingListing(null);
       }
@@ -73,13 +112,10 @@ export default function FeaturedListings() {
     return () => unsub();
   }, [pendingListing]);
 
-  /* ------------------------------------------
-     🔥 Fetch Featured Listings
-------------------------------------------- */
+  /* 🔥 Fetch REAL Featured Listings */
   useEffect(() => {
     const q = query(
       collection(db, "listings"),
-      where("status", "==", "approved"),
       where("featured", "==", true),
       orderBy("createdAt", "desc"),
       limit(12)
@@ -94,6 +130,7 @@ export default function FeaturedListings() {
             Array.isArray(data.images) && data.images.length > 0
               ? data.images
               : [data.image || "https://via.placeholder.com/400x300?text=No+Image"];
+
           return {
             id: doc.id,
             name: data.name || "Unnamed Listing",
@@ -105,11 +142,20 @@ export default function FeaturedListings() {
             featured: data.featured || false,
           };
         });
-        setListings(list);
+
+        // ✅ REAL > SAMPLE (Fallback Logic)
+        if (list.length > 0) {
+          setListings(list);
+        } else {
+          setListings(SAMPLE_FEATURED);
+        }
+
         setLoading(false);
       },
       (err) => {
         console.error("❌ Featured listings error:", err);
+        // ✅ On Error → Use Sample
+        setListings(SAMPLE_FEATURED);
         setLoading(false);
       }
     );
@@ -117,9 +163,7 @@ export default function FeaturedListings() {
     return () => unsub();
   }, []);
 
-  /* ------------------------------------------
-     🔍 Filter by Search
-------------------------------------------- */
+  /* 🔍 Search Filter */
   const filtered = debouncedSearch
     ? listings.filter(
         (l) =>
@@ -128,9 +172,7 @@ export default function FeaturedListings() {
       )
     : listings;
 
-  /* ------------------------------------------
-     💳 Handle Book Now
-------------------------------------------- */
+  /* 💳 Handle Book Now */
   const handleBookNow = useCallback(
     async (listing: Listing) => {
       if (!user) {
@@ -151,7 +193,8 @@ export default function FeaturedListings() {
         });
 
         const data = await res.json();
-        if (!data.success) throw new Error(data.error || "Failed to create order");
+        if (!data.success)
+          throw new Error(data.error || "Failed to create order");
 
         openRazorpayCheckout({
           amount: listing.price!,
@@ -170,15 +213,13 @@ export default function FeaturedListings() {
     [user]
   );
 
-  /* ------------------------------------------
-     🎡 Manual Scroll Buttons
-------------------------------------------- */
-  const scrollLeft = () => scrollRef.current?.scrollBy({ left: -350, behavior: "smooth" });
-  const scrollRight = () => scrollRef.current?.scrollBy({ left: 350, behavior: "smooth" });
+  /* 🎡 Manual Scroll */
+  const scrollLeft = () =>
+    scrollRef.current?.scrollBy({ left: -350, behavior: "smooth" });
+  const scrollRight = () =>
+    scrollRef.current?.scrollBy({ left: 350, behavior: "smooth" });
 
-  /* ------------------------------------------
-     🚗 Auto Scroll (pause on hover)
-------------------------------------------- */
+  /* 🚗 Auto Scroll */
   useEffect(() => {
     if (!scrollRef.current) return;
     const el = scrollRef.current;
@@ -200,9 +241,7 @@ export default function FeaturedListings() {
     return () => cancelAnimationFrame(frame);
   }, [isHovered]);
 
-  /* ------------------------------------------
-     🧠 Loading + Empty
-------------------------------------------- */
+  /* 🧠 Loading + Empty */
   if (loading) {
     return (
       <section className="py-10 px-4 text-center text-gray-500 animate-pulse">
@@ -211,17 +250,16 @@ export default function FeaturedListings() {
     );
   }
 
-  if (filtered.length === 0) return null; // 🧹 Hide if no featured listings
+  if (filtered.length === 0) return null;
 
-  /* ------------------------------------------
-     🎨 Render
-------------------------------------------- */
+  /* 🎨 Render */
   return (
     <section className="py-12 px-6 bg-gray-50 relative">
       <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-          <h2 className="text-2xl font-bold text-gray-800">🌟 Featured Listings</h2>
+          <h2 className="text-2xl font-bold text-gray-800">
+            🌟 Featured Listings
+          </h2>
 
           <div className="flex items-center gap-2">
             <input
@@ -240,7 +278,6 @@ export default function FeaturedListings() {
           </div>
         </div>
 
-        {/* Carousel */}
         <div
           className="relative"
           onMouseEnter={() => setIsHovered(true)}
@@ -248,13 +285,13 @@ export default function FeaturedListings() {
           onTouchStart={() => setIsHovered(true)}
           onTouchEnd={() => setIsHovered(false)}
         >
-          {/* Scroll buttons */}
           <button
             onClick={scrollLeft}
             className="absolute left-0 top-1/2 transform -translate-y-1/2 bg-white shadow-md rounded-full w-10 h-10 flex items-center justify-center hover:bg-yellow-100 z-10"
           >
             ◀
           </button>
+
           <button
             onClick={scrollRight}
             className="absolute right-0 top-1/2 transform -translate-y-1/2 bg-white shadow-md rounded-full w-10 h-10 flex items-center justify-center hover:bg-yellow-100 z-10"
@@ -262,7 +299,6 @@ export default function FeaturedListings() {
             ▶
           </button>
 
-          {/* Scrollable Row */}
           <div
             ref={scrollRef}
             className="flex gap-6 overflow-x-auto scrollbar-hide py-4 px-2 scroll-smooth"
@@ -272,7 +308,6 @@ export default function FeaturedListings() {
                 key={listing.id}
                 className="flex-shrink-0 w-80 bg-white shadow-md rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300"
               >
-                {/* Image */}
                 <div
                   className="relative w-full h-48 cursor-pointer"
                   onClick={() => router.push(`/listing/${listing.id}`)}
@@ -285,7 +320,6 @@ export default function FeaturedListings() {
                   />
                 </div>
 
-                {/* Info */}
                 <div className="p-4 space-y-2">
                   <h3 className="text-lg font-semibold text-gray-800 truncate">
                     {listing.name}
@@ -323,7 +357,6 @@ export default function FeaturedListings() {
         </div>
       </div>
 
-      {/* 🧩 Login Modal */}
       <LoginModal
         isOpen={showLoginModal}
         onClose={() => setShowLoginModal(false)}

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 type StaffPerformance = {
   staffId: string;
@@ -12,9 +13,11 @@ type StaffPerformance = {
   interested: number;
   followups: number;
   converted: number;
+  lastNote?: string; // ✅ NEW: Latest note from telecaller
 };
 
 export default function AdminStaffPerformancePage() {
+  const { firebaseUser } = useAuth(); // ✅ AUTH FIX
   const [data, setData] = useState<StaffPerformance[]>([]);
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
@@ -22,7 +25,18 @@ export default function AdminStaffPerformancePage() {
   const fetchPerformance = async () => {
     try {
       setLoading(true);
-      const res = await fetch(`/api/admin/staff/performance?days=${days}`);
+
+      const token = await firebaseUser?.getIdToken();
+
+      const res = await fetch(
+        `/api/admin/staff/performance?days=${days}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`, // ✅ AUTH HEADER FIX
+          },
+        }
+      );
+
       const json = await res.json();
 
       if (!res.ok || !json.success) {
@@ -39,8 +53,9 @@ export default function AdminStaffPerformancePage() {
   };
 
   useEffect(() => {
+    if (!firebaseUser) return;
     fetchPerformance();
-  }, [days]);
+  }, [days, firebaseUser]);
 
   return (
     <div className="p-6 space-y-6">
@@ -49,7 +64,7 @@ export default function AdminStaffPerformancePage() {
         <div>
           <h1 className="text-xl font-semibold">Telecaller Performance</h1>
           <p className="text-sm text-gray-500">
-            Sab staff ka leads & conversion performance
+            Sab staff ka leads, conversion aur latest notes
           </p>
         </div>
 
@@ -89,6 +104,7 @@ export default function AdminStaffPerformancePage() {
                   <th className="px-4 py-2 text-center">Follow-ups</th>
                   <th className="px-4 py-2 text-center">Converted</th>
                   <th className="px-4 py-2 text-center">Conversion %</th>
+                  <th className="px-4 py-2 text-left">Latest Note ✅</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -109,6 +125,9 @@ export default function AdminStaffPerformancePage() {
                       <td className="px-4 py-2 text-center">{s.converted}</td>
                       <td className="px-4 py-2 text-center font-medium">
                         {conversion}%
+                      </td>
+                      <td className="px-4 py-2 text-xs text-gray-700">
+                        {s.lastNote || "—"}
                       </td>
                     </tr>
                   );

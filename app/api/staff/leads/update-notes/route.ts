@@ -41,22 +41,19 @@ export async function POST(req: Request) {
       );
     }
 
-    const staffId = decoded.uid; // ✅ REAL STAFF ID FROM TOKEN
+    const staffId = decoded.uid;
 
     const body = await req.json();
     const { leadId, partnerNotes } = body || {};
 
-    if (!leadId || partnerNotes === undefined) {
+    if (!leadId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "leadId and partnerNotes are required",
-        },
+        { success: false, message: "leadId is required" },
         { status: 400 }
       );
     }
 
-    // ✅ VERIFY STAFF (ROLE + STATUS + ACTIVE)
+    // ✅ VERIFY STAFF
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -75,10 +72,7 @@ export async function POST(req: Request) {
       staffData?.isActive !== true
     ) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized staff access",
-        },
+        { success: false, message: "Unauthorized staff access" },
         { status: 403 }
       );
     }
@@ -98,34 +92,28 @@ export async function POST(req: Request) {
 
     if (leadData?.assignedTo !== staffId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "You are not assigned to this lead",
-        },
+        { success: false, message: "You are not assigned to this lead" },
         { status: 403 }
       );
     }
 
-    // ✅ ✅ ✅ FINAL SAFE UPDATE (PERFORMANCE + NOTES SYNC)
+    // ✅ ✅ ✅ FINAL SAFE UPDATE (THIS WAS MISSING)
     await leadRef.update({
-      partnerNotes: String(partnerNotes).trim(), // ✅ telecaller UI
-      lastRemark: String(partnerNotes).trim(),   // ✅ admin latest note
-      lastUpdatedBy: staffId,                    // ✅ performance tracking
-      updatedAt: FieldValue.serverTimestamp(),   // ✅ date-wise performance
+      partnerNotes: String(partnerNotes || "").trim(),
+      lastRemark: String(partnerNotes || "").trim(), // ✅ ADMIN KE LIYE
+      lastUpdatedBy: staffId,                        // ✅ TRACK KISNE UPDATE KIYA
+      updatedAt: FieldValue.serverTimestamp(),       // ✅ DATE FILTER KE LIYE
     });
 
     return NextResponse.json({
       success: true,
-      message: "Partner notes updated & synced with performance",
+      message: "Notes saved successfully",
     });
   } catch (error: any) {
     console.error("Partner notes update error:", error);
 
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update partner notes",
-      },
+      { success: false, message: "Failed to update partner notes" },
       { status: 500 }
     );
   }

@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     const staffId = decoded.uid; // ✅ REAL STAFF ID FROM TOKEN
 
     const body = await req.json();
-    const { leadId, status } = body || {};
+    const { leadId, status, note } = body || {}; // ✅ note ADDED
 
     if (!leadId || !status) {
       return NextResponse.json(
@@ -127,15 +127,18 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ UPDATE STATUS (FINAL SAFE UPDATE)
+    // ✅ ✅ ✅ FINAL SAFE UPDATE (PERFORMANCE + NOTES + STATUS)
     await leadRef.update({
       status,
-      updatedAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(), // ✅ performance driver
+      lastUpdatedBy: staffId,                  // ✅ admin tracking
+      lastRemark: note || "",                  // ✅ admin latest note
+      partnerNotes: note || "",                // ✅ telecaller UI note
     });
 
     return NextResponse.json({
       success: true,
-      message: "Lead status updated successfully",
+      message: "Lead status & notes updated successfully",
     });
   } catch (error: any) {
     console.error("Lead status update error:", error);

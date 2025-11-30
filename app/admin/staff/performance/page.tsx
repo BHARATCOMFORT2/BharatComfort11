@@ -13,29 +13,52 @@ type StaffPerformance = {
   interested: number;
   followups: number;
   converted: number;
-  lastNote?: string; // ✅ NEW: Latest note from telecaller
+  lastNote?: string;
+};
+
+type Telecaller = {
+  id: string;
+  name: string;
 };
 
 export default function AdminStaffPerformancePage() {
-  const { firebaseUser } = useAuth(); // ✅ AUTH FIX
+  const { firebaseUser } = useAuth();
+
   const [data, setData] = useState<StaffPerformance[]>([]);
+  const [staffList, setStaffList] = useState<Telecaller[]>([]);
+  const [selectedStaff, setSelectedStaff] = useState<string>("");
+
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
 
+  /* ✅ TELECALLER LIST */
+  const fetchTelecallers = async (token: string) => {
+    try {
+      const res = await fetch("/api/admin/staff/telecallers", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (json.success) setStaffList(json.data || []);
+    } catch {
+      toast.error("Telecaller list load nahi hui");
+    }
+  };
+
+  /* ✅ PERFORMANCE */
   const fetchPerformance = async () => {
     try {
       setLoading(true);
-
       const token = await firebaseUser?.getIdToken();
 
-      const res = await fetch(
-        `/api/admin/staff/performance?days=${days}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`, // ✅ AUTH HEADER FIX
-          },
-        }
-      );
+      const url = selectedStaff
+        ? `/api/admin/staff/performance?staffId=${selectedStaff}&days=${days}`
+        : `/api/admin/staff/performance?days=${days}`;
+
+      const res = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
 
       const json = await res.json();
 
@@ -52,34 +75,56 @@ export default function AdminStaffPerformancePage() {
     }
   };
 
+  /* ✅ INIT */
   useEffect(() => {
     if (!firebaseUser) return;
-    fetchPerformance();
-  }, [days, firebaseUser]);
+
+    firebaseUser.getIdToken().then((token) => {
+      fetchTelecallers(token);
+      fetchPerformance();
+    });
+  }, [firebaseUser, days, selectedStaff]);
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      {/* ✅ HEADER */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold">Telecaller Performance</h1>
           <p className="text-sm text-gray-500">
-            Sab staff ka leads, conversion aur latest notes
+            Telecaller wise leads, conversion aur latest notes
           </p>
         </div>
 
-        <select
-          value={days}
-          onChange={(e) => setDays(Number(e.target.value))}
-          className="border rounded-md px-2 py-1 text-sm"
-        >
-          <option value={7}>Last 7 Days</option>
-          <option value={30}>Last 30 Days</option>
-          <option value={90}>Last 90 Days</option>
-        </select>
+        <div className="flex gap-2 items-center">
+          {/* ✅ TELECALLER SELECT */}
+          <select
+            value={selectedStaff}
+            onChange={(e) => setSelectedStaff(e.target.value)}
+            className="border rounded-md px-2 py-1 text-sm"
+          >
+            <option value="">All Telecallers</option>
+            {staffList.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+
+          {/* ✅ DAYS FILTER */}
+          <select
+            value={days}
+            onChange={(e) => setDays(Number(e.target.value))}
+            className="border rounded-md px-2 py-1 text-sm"
+          >
+            <option value={7}>Last 7 Days</option>
+            <option value={30}>Last 30 Days</option>
+            <option value={90}>Last 90 Days</option>
+          </select>
+        </div>
       </div>
 
-      {/* Table */}
+      {/* ✅ TABLE */}
       <div className="bg-white border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b">
           <h2 className="text-sm font-medium">Staff Performance Summary</h2>
@@ -118,11 +163,21 @@ export default function AdminStaffPerformancePage() {
                     <tr key={s.staffId}>
                       <td className="px-4 py-2">{s.name || "-"}</td>
                       <td className="px-4 py-2">{s.email || "-"}</td>
-                      <td className="px-4 py-2 text-center">{s.totalLeads}</td>
-                      <td className="px-4 py-2 text-center">{s.contacted}</td>
-                      <td className="px-4 py-2 text-center">{s.interested}</td>
-                      <td className="px-4 py-2 text-center">{s.followups}</td>
-                      <td className="px-4 py-2 text-center">{s.converted}</td>
+                      <td className="px-4 py-2 text-center">
+                        {s.totalLeads}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {s.contacted}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {s.interested}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {s.followups}
+                      </td>
+                      <td className="px-4 py-2 text-center">
+                        {s.converted}
+                      </td>
                       <td className="px-4 py-2 text-center font-medium">
                         {conversion}%
                       </td>

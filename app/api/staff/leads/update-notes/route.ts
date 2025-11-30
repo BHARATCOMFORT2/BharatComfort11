@@ -46,7 +46,7 @@ export async function POST(req: Request) {
     const body = await req.json();
     const { leadId, partnerNotes } = body || {};
 
-    if (!leadId || !partnerNotes) {
+    if (!leadId || partnerNotes === undefined) {
       return NextResponse.json(
         {
           success: false,
@@ -106,15 +106,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ UPDATE PARTNER NOTES (FINAL SAFE UPDATE)
+    // ✅ ✅ ✅ FINAL SAFE UPDATE (PERFORMANCE + NOTES SYNC)
     await leadRef.update({
-      partnerNotes: String(partnerNotes).trim(),
-      updatedAt: FieldValue.serverTimestamp(),
+      partnerNotes: String(partnerNotes).trim(), // ✅ telecaller UI
+      lastRemark: String(partnerNotes).trim(),   // ✅ admin latest note
+      lastUpdatedBy: staffId,                    // ✅ performance tracking
+      updatedAt: FieldValue.serverTimestamp(),   // ✅ date-wise performance
     });
 
     return NextResponse.json({
       success: true,
-      message: "Partner notes updated successfully",
+      message: "Partner notes updated & synced with performance",
     });
   } catch (error: any) {
     console.error("Partner notes update error:", error);

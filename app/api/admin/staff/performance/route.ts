@@ -7,9 +7,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 // ✅ ADMIN VERIFY
 async function verifyAdmin(req: Request) {
   const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    throw new Error("Unauthorized");
-  }
+  if (!authHeader?.startsWith("Bearer ")) throw new Error("Unauthorized");
 
   const token = authHeader.split("Bearer ")[1];
   const decoded = await adminAuth.verifyIdToken(token);
@@ -21,7 +19,7 @@ async function verifyAdmin(req: Request) {
   return decoded;
 }
 
-// ✅ PERFORMANCE + NOTES API
+// ✅ TELECALLER + DATE WISE PERFORMANCE + NOTES
 export async function GET(req: Request) {
   try {
     await verifyAdmin(req);
@@ -32,7 +30,6 @@ export async function GET(req: Request) {
     const fromDate = new Date();
     fromDate.setDate(fromDate.getDate() - days);
 
-    // ✅ All approved telecallers
     const staffSnap = await adminDb
       .collection("staff")
       .where("role", "==", "telecaller")
@@ -45,7 +42,6 @@ export async function GET(req: Request) {
       const staffId = staffDoc.id;
       const staffData = staffDoc.data();
 
-      // ✅ Leads handled by this telecaller in date range
       const leadsSnap = await adminDb
         .collection("leads")
         .where("assignedTo", "==", staffId)
@@ -57,7 +53,13 @@ export async function GET(req: Request) {
       let interested = 0;
       let followups = 0;
       let converted = 0;
-      let lastNote = ""; // ✅ NEW
+
+      const notes: {
+        leadId: string;
+        note: string;
+        status: string;
+        date: any;
+      }[] = [];
 
       leadsSnap.forEach((doc) => {
         const lead = doc.data();
@@ -67,9 +69,13 @@ export async function GET(req: Request) {
         if (lead.status === "follow-up") followups++;
         if (lead.status === "converted") converted++;
 
-        // ✅ Latest note capture
         if (lead.lastRemark) {
-          lastNote = lead.lastRemark;
+          notes.push({
+            leadId: doc.id,
+            note: lead.lastRemark,
+            status: lead.status || "",
+            date: lead.updatedAt || null,
+          });
         }
       });
 
@@ -82,7 +88,7 @@ export async function GET(req: Request) {
         interested,
         followups,
         converted,
-        lastNote, // ✅ SENT TO ADMIN UI
+        notes, // ✅ DATE WISE TELECALLER NOTES
       });
     }
 
@@ -94,10 +100,7 @@ export async function GET(req: Request) {
     console.error("Performance API Error:", err);
 
     return NextResponse.json(
-      {
-        success: false,
-        message: err?.message || "Performance fetch failed",
-      },
+      { success: false, message: err?.message || "Performance fetch failed" },
       { status: 500 }
     );
   }

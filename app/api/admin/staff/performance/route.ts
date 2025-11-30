@@ -7,9 +7,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 // ✅ ADMIN VERIFY
 async function verifyAdmin(req: Request) {
   const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) {
-    throw new Error("Unauthorized");
-  }
+  if (!authHeader?.startsWith("Bearer ")) throw new Error("Unauthorized");
 
   const token = authHeader.split("Bearer ")[1];
   const decoded = await adminAuth.verifyIdToken(token);
@@ -21,19 +19,15 @@ async function verifyAdmin(req: Request) {
   return decoded;
 }
 
-// ✅ TELECALLER + DATE-WISE PERFORMANCE + NOTES API
+// ✅ TELECALLER-WISE PERFORMANCE (READ ONLY)
 export async function GET(req: Request) {
   try {
     await verifyAdmin(req);
 
     const { searchParams } = new URL(req.url);
-    const days = Number(searchParams.get("days") || "30");
+    const staffId = searchParams.get("staffId"); // ✅ telecaller filter (optional)
 
-    const fromDate = new Date();
-    fromDate.setHours(0, 0, 0, 0);
-    fromDate.setDate(fromDate.getDate() - days);
-
-    // ✅ ALL APPROVED TELECALLERS
+    // ✅ TELECALLERS
     const staffSnap = await adminDb
       .collection("staff")
       .where("role", "==", "telecaller")
@@ -43,55 +37,44 @@ export async function GET(req: Request) {
     const performance: any[] = [];
 
     for (const staffDoc of staffSnap.docs) {
-      const staffId = staffDoc.id;
+      const sid = staffDoc.id;
+
+      // ✅ FILTER: agar admin ne specific telecaller select kiya ho
+      if (staffId && staffId !== sid) continue;
+
       const staffData = staffDoc.data();
 
-      // ✅ LEADS ASSIGNED TO THIS TELECALLER (DATE-WISE)
+      // ✅ ONLY READ FROM LEADS (NO WRITE)
       const leadsSnap = await adminDb
         .collection("leads")
-        .where("assignedTo", "==", staffId)
-        .where("updatedAt", ">=", fromDate)
+        .where("assignedTo", "==", sid)
         .get();
 
-      let totalLeads = leadsSnap.size;
+      let totalLeads = 0;
       let contacted = 0;
       let interested = 0;
       let followups = 0;
       let converted = 0;
       let lastNote = "";
 
-      const notes: {
-        leadId: string;
-        note: string;
-        status: string;
-        date: any;
-      }[] = [];
-
       leadsSnap.forEach((doc) => {
         const lead = doc.data();
+        totalLeads++;
+
         const status = lead.status || "";
 
-        // ✅ ✅ ✅ FIXED STATUS COUNTS
         if (status === "contacted") contacted++;
         if (status === "interested") interested++;
-        if (status === "callback") followups++; // ✅ FIXED (was "follow-up")
+        if (status === "callback") followups++;   // ✅ telecaller flow match
         if (status === "converted") converted++;
 
-        // ✅ NOTES COLLECTION + LATEST NOTE
-        if (lead.lastRemark) {
-          notes.push({
-            leadId: doc.id,
-            note: lead.lastRemark,
-            status,
-            date: lead.updatedAt || null,
-          });
-
-          lastNote = lead.lastRemark; // ✅ Latest note for table
+        if (lead.lastRemark || lead.partnerNotes) {
+          lastNote = lead.lastRemark || lead.partnerNotes;
         }
       });
 
       performance.push({
-        staffId,
+        staffId: sid,
         name: staffData.name || "",
         email: staffData.email || "",
         totalLeads,
@@ -99,8 +82,7 @@ export async function GET(req: Request) {
         interested,
         followups,
         converted,
-        lastNote, // ✅ For Table Column
-        notes,    // ✅ For Expandable View (future use)
+        lastNote,
       });
     }
 
@@ -112,10 +94,7 @@ export async function GET(req: Request) {
     console.error("Performance API Error:", err);
 
     return NextResponse.json(
-      {
-        success: false,
-        message: err?.message || "Performance fetch failed",
-      },
+      { success: false, message: err?.message || "Performance fetch failed" },
       { status: 500 }
     );
   }

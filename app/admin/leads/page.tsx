@@ -14,6 +14,7 @@ type Lead = {
   email?: string;
   status: string;
   assignedTo?: string | null;
+  createdAt?: any;
 };
 
 type Staff = {
@@ -32,6 +33,12 @@ export default function AdminLeadsPage() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
 
+  // ✅ NEW STATES
+  const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
+  const [bulkStaff, setBulkStaff] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
   /* ✅ ADMIN PROTECTION */
   useEffect(() => {
     if (loading) return;
@@ -44,12 +51,17 @@ export default function AdminLeadsPage() {
     firebaseUser.getIdToken().then((t) => setToken(t));
   }, [firebaseUser, profile, loading, router]);
 
-  /* ✅ Fetch all leads */
+  /* ✅ Fetch all leads with DATE FILTER */
   const fetchLeads = async () => {
     try {
-      const res = await fetch("/api/admin/leads/all", {
+      const query = new URLSearchParams();
+      if (fromDate) query.append("from", fromDate);
+      if (toDate) query.append("to", toDate);
+
+      const res = await fetch(`/api/admin/leads/all?${query.toString()}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
       const data = await res.json();
 
       if (!res.ok || !data.success) {
@@ -57,6 +69,7 @@ export default function AdminLeadsPage() {
       }
 
       setLeads(data.data || []);
+      setSelectedLeads([]);
     } catch (err: any) {
       toast.error(err?.message || "Leads load nahi ho paaye");
     }
@@ -88,10 +101,7 @@ export default function AdminLeadsPage() {
 
   /* ✅ Excel Upload */
   const handleUpload = async () => {
-    if (!file) {
-      toast.error("Please select an Excel file");
-      return;
-    }
+    if (!file) return toast.error("Please select an Excel file");
 
     const formData = new FormData();
     formData.append("file", file);
@@ -100,17 +110,14 @@ export default function AdminLeadsPage() {
     try {
       const res = await fetch("/api/admin/leads/import", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
 
       const data = await res.json();
 
-      if (!res.ok || !data.success) {
+      if (!res.ok || !data.success)
         throw new Error(data?.message || "Upload failed");
-      }
 
       toast.success(`Leads imported: ${data.successCount}/${data.total}`);
       setFile(null);
@@ -122,7 +129,7 @@ export default function AdminLeadsPage() {
     }
   };
 
-  /* ✅ Assign Lead */
+  /* ✅ Single Assign */
   const handleAssign = async (leadId: string, staffId: string) => {
     if (!staffId) return;
 
@@ -139,9 +146,8 @@ export default function AdminLeadsPage() {
 
       const data = await res.json();
 
-      if (!res.ok || !data.success) {
+      if (!res.ok || !data.success)
         throw new Error(data?.message || "Assignment failed");
-      }
 
       toast.success("Lead assigned successfully");
       fetchLeads();
@@ -152,101 +158,177 @@ export default function AdminLeadsPage() {
     }
   };
 
+  /* ✅ BULK ASSIGN */
+  const handleBulkAssign = async () => {
+    if (!bulkStaff || selectedLeads.length === 0)
+      return toast.error("Select leads & staff first");
+
+    try {
+      const res = await fetch("/api/admin/leads/assign-bulk", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          leadIds: selectedLeads,
+          staffId: bulkStaff,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success)
+        throw new Error(data?.message || "Bulk assign failed");
+
+      toast.success("Multiple leads assigned successfully");
+      setSelectedLeads([]);
+      setBulkStaff("");
+      fetchLeads();
+    } catch (err: any) {
+      toast.error(err?.message || "Bulk assign failed");
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedLeads((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+  };
+
+  const toggleAll = () => {
+    if (selectedLeads.length === leads.length) {
+      setSelectedLeads([]);
+    } else {
+      setSelectedLeads(leads.map((l) => l.id));
+    }
+  };
+
   if (loading || !profile) return <p className="p-6">Loading...</p>;
 
   return (
     <div className="p-6 space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl font-semibold">Admin Lead / Task Management</h1>
-        <p className="text-sm text-gray-500">
-          Excel upload karein, leads dekhein aur telecaller ko assign karein.
-        </p>
-      </div>
+      <h1 className="text-xl font-semibold">Admin Lead / Task Management</h1>
 
-      {/* ✅ Excel Upload */}
-      <div className="bg-white border rounded-xl p-4 space-y-3 max-w-xl">
-        <h2 className="text-sm font-medium">Import Leads (Excel)</h2>
-        <input
-          type="file"
-          accept=".xlsx,.xls"
-          onChange={(e) => setFile(e.target.files?.[0] || null)}
-        />
+      {/* ✅ DATE FILTER */}
+      <div className="flex gap-3 items-end">
+        <div>
+          <label className="text-xs">From</label>
+          <input
+            type="date"
+            className="border px-2 py-1 rounded text-sm"
+            value={fromDate}
+            onChange={(e) => setFromDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <label className="text-xs">To</label>
+          <input
+            type="date"
+            className="border px-2 py-1 rounded text-sm"
+            value={toDate}
+            onChange={(e) => setToDate(e.target.value)}
+          />
+        </div>
         <button
-          onClick={handleUpload}
-          disabled={uploading}
-          className="px-4 py-2 text-sm rounded-md bg-black text-white disabled:opacity-50"
+          onClick={fetchLeads}
+          className="px-4 py-2 text-sm bg-black text-white rounded"
         >
-          {uploading ? "Uploading..." : "Upload Excel"}
+          Filter
         </button>
-        <p className="text-xs text-gray-500">
-          Required columns: name | businessName | address | contact | email
-        </p>
       </div>
 
-      {/* ✅ Leads Table */}
+      {/* ✅ BULK ASSIGN BAR */}
+      <div className="flex gap-3 items-center bg-gray-50 p-3 rounded border">
+        <select
+          className="border px-2 py-1 rounded text-sm"
+          value={bulkStaff}
+          onChange={(e) => setBulkStaff(e.target.value)}
+        >
+          <option value="">Select Telecaller</option>
+          {staffList.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+
+        <button
+          onClick={handleBulkAssign}
+          className="px-4 py-2 text-sm bg-green-600 text-white rounded"
+        >
+          Assign Selected ({selectedLeads.length})
+        </button>
+      </div>
+
+      {/* ✅ LEADS TABLE */}
       <div className="bg-white border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b text-sm font-medium">
-          All Leads / Tasks
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-2 text-left">Name</th>
-                <th className="px-4 py-2 text-left">Business</th>
-                <th className="px-4 py-2 text-left">Contact</th>
-                <th className="px-4 py-2 text-left">Status</th>
-                <th className="px-4 py-2 text-left">Assign</th>
-                <th className="px-4 py-2 text-center">View</th>
+        <table className="min-w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr>
+              <th className="px-2">
+                <input
+                  type="checkbox"
+                  checked={selectedLeads.length === leads.length && leads.length}
+                  onChange={toggleAll}
+                />
+              </th>
+              <th className="px-4 py-2 text-left">Name</th>
+              <th className="px-4 py-2 text-left">Business</th>
+              <th className="px-4 py-2 text-left">Contact</th>
+              <th className="px-4 py-2 text-left">Status</th>
+              <th className="px-4 py-2 text-left">Assign</th>
+              <th className="px-4 py-2">View</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {leads.map((lead) => (
+              <tr key={lead.id}>
+                <td className="px-2 text-center">
+                  <input
+                    type="checkbox"
+                    checked={selectedLeads.includes(lead.id)}
+                    onChange={() => toggleSelect(lead.id)}
+                  />
+                </td>
+                <td className="px-4 py-2">{lead.name}</td>
+                <td className="px-4 py-2">{lead.businessName}</td>
+                <td className="px-4 py-2">{lead.contact}</td>
+                <td className="px-4 py-2">{lead.status}</td>
+                <td className="px-4 py-2">
+                  <select
+                    className="border rounded px-2 py-1 text-xs"
+                    value={lead.assignedTo || ""}
+                    onChange={(e) =>
+                      handleAssign(lead.id, e.target.value)
+                    }
+                  >
+                    <option value="">Unassigned</option>
+                    {staffList.map((staff) => (
+                      <option key={staff.id} value={staff.id}>
+                        {staff.name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-4 py-2">
+                  <button
+                    onClick={() => router.push(`/admin/leads/${lead.id}`)}
+                    className="px-3 py-1 text-xs bg-black text-white rounded"
+                  >
+                    View
+                  </button>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y">
-              {leads.map((lead) => (
-                <tr key={lead.id}>
-                  <td className="px-4 py-2">{lead.name}</td>
-                  <td className="px-4 py-2">{lead.businessName}</td>
-                  <td className="px-4 py-2">{lead.contact}</td>
-                  <td className="px-4 py-2 capitalize">{lead.status}</td>
-                  <td className="px-4 py-2">
-                    <select
-                      className="border rounded px-2 py-1 text-xs"
-                      value={lead.assignedTo || ""}
-                      onChange={(e) =>
-                        handleAssign(lead.id, e.target.value)
-                      }
-                      disabled={assigning === lead.id}
-                    >
-                      <option value="">Unassigned</option>
-                      {staffList.map((staff) => (
-                        <option key={staff.id} value={staff.id}>
-                          {staff.name}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    <button
-                      onClick={() =>
-                        router.push(`/admin/leads/${lead.id}`)
-                      }
-                      className="px-3 py-1 text-xs rounded bg-black text-white"
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            ))}
+          </tbody>
+        </table>
 
-          {leads.length === 0 && (
-            <div className="p-6 text-center text-sm text-gray-500">
-              Abhi koi lead nahi hai.
-            </div>
-          )}
-        </div>
+        {leads.length === 0 && (
+          <div className="p-6 text-center text-sm text-gray-500">
+            Abhi koi lead nahi hai.
+          </div>
+        )}
       </div>
     </div>
   );

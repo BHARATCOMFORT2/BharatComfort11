@@ -32,7 +32,7 @@ const STATUS_OPTIONS = [
   "interested",
   "not_interested",
   "callback",
-  "converted", // ✅ DONE
+  "converted",
   "invalid",
 ];
 
@@ -50,7 +50,6 @@ export default function TelecallerDashboardPage() {
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
-  // ✅ ✅ ✅ THIS WAS MISSING — STAFF PROFILE FOR SIDEBAR
   const [staffProfile, setStaffProfile] = useState<{
     name?: string;
     role?: "staff";
@@ -94,13 +93,11 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
-        // ✅ ✅ ✅ STAFF LOGIN SUCCESS
         setStaffId(user.uid);
 
         const t = await user.getIdToken();
         setToken(t);
 
-        // ✅ ✅ ✅ THIS FIXES USER → STAFF SIDEBAR PROBLEM
         setStaffProfile({
           name:
             profile.name ||
@@ -160,65 +157,55 @@ export default function TelecallerDashboardPage() {
   }, [staffId]);
 
   /* ---------------------------------------
-     ✅ STATUS UPDATE
+     ✅ ✅ ✅ UNIFIED UPDATE (STATUS + NOTES + PERFORMANCE SYNC)
+     This replaces:
+     - /update-status
+     - /update-notes
   ---------------------------------------- */
-  const handleStatusChange = async (leadId: string, newStatus: string) => {
+  const updateLead = async (
+    leadId: string,
+    payload: { status?: string; notes?: string }
+  ) => {
     if (!token) return toast.error("Please re-login");
 
     setSavingLeadId(leadId);
     try {
-      const res = await fetch("/api/staff/leads/update-status", {
+      const res = await fetch("/api/staff/leads/update", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ leadId, status: newStatus }),
+        body: JSON.stringify({
+          leadId,
+          status: payload.status,
+          note: payload.notes,
+        }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success)
-        throw new Error(data?.message || "Status update failed");
+        throw new Error(data?.message || "Lead update failed");
 
+      // ✅ LOCAL STATE SAFE UPDATE (NO DATA LOSS)
       setLeads((prev) =>
         prev.map((lead) =>
-          lead.id === leadId ? { ...lead, status: newStatus } : lead
+          lead.id === leadId
+            ? {
+                ...lead,
+                status: payload.status ?? lead.status,
+                partnerNotes:
+                  payload.notes !== undefined
+                    ? payload.notes
+                    : lead.partnerNotes,
+              }
+            : lead
         )
       );
 
-      toast.success("Status updated");
+      toast.success("Lead updated");
     } catch (err: any) {
-      toast.error(err?.message || "Status update failed");
-    } finally {
-      setSavingLeadId(null);
-    }
-  };
-
-  /* ---------------------------------------
-     ✅ NOTES SAVE
-  ---------------------------------------- */
-  const handleNotesSave = async (leadId: string) => {
-    if (!token) return toast.error("Please re-login");
-    const notes = notesDraft[leadId] || "";
-
-    setSavingLeadId(leadId);
-    try {
-      const res = await fetch("/api/staff/leads/update-notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leadId, partnerNotes: notes }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data?.message || "Notes update failed");
-
-      toast.success("Notes saved");
-    } catch (err: any) {
-      toast.error(err?.message || "Notes save failed");
+      toast.error(err?.message || "Update failed");
     } finally {
       setSavingLeadId(null);
     }
@@ -250,7 +237,7 @@ export default function TelecallerDashboardPage() {
   };
 
   /* ---------------------------------------
-     ✅ FINAL RENDER
+     ✅ FINAL RENDER (UI SAME AS BEFORE)
   ---------------------------------------- */
   return (
     <DashboardLayout
@@ -331,7 +318,7 @@ export default function TelecallerDashboardPage() {
                           value={lead.status}
                           disabled={savingLeadId === lead.id}
                           onChange={(e) =>
-                            handleStatusChange(lead.id, e.target.value)
+                            updateLead(lead.id, { status: e.target.value })
                           }
                         >
                           {STATUS_OPTIONS.map((st) => (
@@ -357,7 +344,11 @@ export default function TelecallerDashboardPage() {
                           }
                         />
                         <button
-                          onClick={() => handleNotesSave(lead.id)}
+                          onClick={() =>
+                            updateLead(lead.id, {
+                              notes: notesDraft[lead.id],
+                            })
+                          }
                           disabled={savingLeadId === lead.id}
                           className="mt-1 px-2 py-1 text-xs bg-black text-white rounded"
                         >
@@ -369,7 +360,7 @@ export default function TelecallerDashboardPage() {
                         <button
                           onClick={() =>
                             !done &&
-                            handleStatusChange(lead.id, "converted")
+                            updateLead(lead.id, { status: "converted" })
                           }
                           disabled={done}
                           className={`px-3 py-1 text-xs rounded ${

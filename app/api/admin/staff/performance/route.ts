@@ -69,22 +69,24 @@ export async function GET(req: Request) {
 
       leadsSnap.forEach((doc) => {
         const lead = doc.data();
+        const status = lead.status || "";
 
-        if (lead.status === "contacted") contacted++;
-        if (lead.status === "interested") interested++;
-        if (lead.status === "follow-up") followups++;
-        if (lead.status === "converted") converted++;
+        // ✅ ✅ ✅ FIXED STATUS COUNTS
+        if (status === "contacted") contacted++;
+        if (status === "interested") interested++;
+        if (status === "callback") followups++; // ✅ FIXED (was "follow-up")
+        if (status === "converted") converted++;
 
-        // ✅ NOTES COLLECTION
+        // ✅ NOTES COLLECTION + LATEST NOTE
         if (lead.lastRemark) {
           notes.push({
             leadId: doc.id,
             note: lead.lastRemark,
-            status: lead.status || "",
+            status,
             date: lead.updatedAt || null,
           });
 
-          lastNote = lead.lastRemark; // ✅ Latest note
+          lastNote = lead.lastRemark; // ✅ Latest note for table
         }
       });
 
@@ -98,7 +100,7 @@ export async function GET(req: Request) {
         followups,
         converted,
         lastNote, // ✅ For Table Column
-        notes,    // ✅ For Expandable View
+        notes,    // ✅ For Expandable View (future use)
       });
     }
 

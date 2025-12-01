@@ -2,36 +2,63 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ ADMIN VERIFY
-async function verifyAdmin(req: Request) {
-  const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) throw new Error("Unauthorized");
-
-  const token = authHeader.split("Bearer ")[1];
-  const decoded = await adminAuth.verifyIdToken(token);
-
-  if (!["admin", "superadmin"].includes(decoded.role)) {
-    throw new Error("Permission denied");
-  }
-
-  return decoded;
+// ✅ AUTH HEADER HELPER
+function getAuthHeader(req: Request) {
+  return (req as any).headers?.get
+    ? req.headers.get("authorization")
+    : (req as any).headers?.authorization;
 }
 
-// ✅ TELECALLER-WISE PERFORMANCE (READ ONLY)
-export async function GET(req: Request) {
+export async function POST(req: Request) {
   try {
-    await verifyAdmin(req);
+    /* ✅ ADMIN TOKEN VERIFY */
+    const authHeader = getAuthHeader(req);
+    if (!authHeader)
+      return NextResponse.json(
+        { success: false, message: "Missing Authorization" },
+        { status: 401 }
+      );
 
-    const { searchParams } = new URL(req.url);
-    const staffId = searchParams.get("staffId"); // ✅ telecaller filter (optional)
+    const m = authHeader.match(/^Bearer (.+)$/);
+    if (!m)
+      return NextResponse.json(
+        { success: false, message: "Bad Authorization" },
+        { status: 401 }
+      );
 
-    // ✅ TELECALLERS
+    const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
+
+    const decoded = await adminAuth.verifyIdToken(m[1], true);
+    const adminId = decoded.uid;
+
+    /* ✅ VERIFY ADMIN FROM FIRESTORE */
+    const adminSnap = await adminDb.collection("admins").doc(adminId).get();
+    if (!adminSnap.exists) {
+      return NextResponse.json(
+        { success: false, message: "Admin access denied" },
+        { status: 403 }
+      );
+    }
+
+    /* ✅ INPUT (OPTIONAL FILTERS) */
+    const body = await req.json();
+    const { staffId, from, to } = body || {};
+
+    let fromDate: Date | null = from ? new Date(from) : null;
+    let toDate: Date | null = to ? new Date(to) : null;
+
+    if (toDate) {
+      toDate.setHours(23, 59, 59, 999);
+    }
+
+    /* ✅ FETCH ALL TELECALLERS */
     const staffSnap = await adminDb
       .collection("staff")
       .where("role", "==", "telecaller")
       .where("status", "==", "approved")
+      .where("isActive", "==", true)
       .get();
 
     const performance: any[] = [];
@@ -39,12 +66,11 @@ export async function GET(req: Request) {
     for (const staffDoc of staffSnap.docs) {
       const sid = staffDoc.id;
 
-      // ✅ FILTER: agar admin ne specific telecaller select kiya ho
+      // ✅ Optional telecaller filter
       if (staffId && staffId !== sid) continue;
 
       const staffData = staffDoc.data();
 
-      // ✅ ONLY READ FROM LEADS (NO WRITE)
       const leadsSnap = await adminDb
         .collection("leads")
         .where("assignedTo", "==", sid)
@@ -57,19 +83,32 @@ export async function GET(req: Request) {
       let converted = 0;
       let lastNote = "";
 
-      leadsSnap.forEach((doc) => {
+      leadsSnap.docs.forEach((doc) => {
         const lead = doc.data();
+
+        // ✅ DATE FILTER (updatedAt)
+        if (fromDate || toDate) {
+          if (!lead.updatedAt?.toDate) return;
+          const updated = lead.updatedAt.toDate();
+
+          if (fromDate && updated < fromDate) return;
+          if (toDate && updated > toDate) return;
+        }
+
         totalLeads++;
 
         const status = lead.status || "";
 
         if (status === "contacted") contacted++;
         if (status === "interested") interested++;
-        if (status === "callback") followups++;   // ✅ telecaller flow match
+        if (status === "callback") followups++;
         if (status === "converted") converted++;
 
-        if (lead.lastRemark || lead.partnerNotes) {
-          lastNote = lead.lastRemark || lead.partnerNotes;
+        // ✅ Strongest recent note logic
+        if (lead.lastRemark) {
+          lastNote = lead.lastRemark;
+        } else if (!lastNote && lead.partnerNotes) {
+          lastNote = lead.partnerNotes;
         }
       });
 

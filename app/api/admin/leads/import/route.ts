@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
 import * as XLSX from "xlsx";
 
 // ✅ Allowed categories fallback
@@ -10,7 +11,7 @@ const DEFAULT_CATEGORY = "hotel";
 
 export async function POST(req: Request) {
   try {
-    // ✅ ✅ ✅ AUTH COMPLETELY REMOVED (TEMP EMERGENCY FIX)
+    // ✅ ✅ ✅ AUTH STILL REMOVED (AS PER EMERGENCY MODE)
 
     const { db: adminDb } = getFirebaseAdmin();
 
@@ -51,7 +52,6 @@ export async function POST(req: Request) {
 
     let successCount = 0;
     const failed: any[] = [];
-    const now = new Date();
 
     for (const row of rawData) {
       const name = row.name || row.Name;
@@ -92,8 +92,11 @@ export async function POST(req: Request) {
           callLogs: [],
 
           createdBy: "system-import",
-          createdAt: now,
-          updatedAt: now,
+
+          // ✅ ✅ ✅ CRITICAL FIX
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+
           lastUpdatedBy: "system-import",
         });
 

@@ -10,13 +10,13 @@ type Lead = {
   name: string;
   businessName?: string;
   address?: string;
-  phone?: string;       // ✅ phone field as per new schema
+  phone?: string;
   email?: string;
   status: string;
   assignedTo?: string | null;
   category?: string;
   followupDate?: string;
-  createdAt?: any;      // Firestore Timestamp
+  createdAt?: any;
 };
 
 type Staff = {
@@ -35,13 +35,12 @@ export default function AdminLeadsPage() {
   const [staffList, setStaffList] = useState<Staff[]>([]);
   const [assigning, setAssigning] = useState<string | null>(null);
 
-  // ✅ NEW STATES
   const [selectedLeads, setSelectedLeads] = useState<string[]>([]);
   const [bulkStaff, setBulkStaff] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
-  /* ✅ ADMIN PROTECTION */
+  /* ✅ ADMIN PROTECTION + SAFE TOKEN LOAD */
   useEffect(() => {
     if (loading) return;
 
@@ -50,10 +49,13 @@ export default function AdminLeadsPage() {
       return;
     }
 
-    firebaseUser.getIdToken().then((t) => setToken(t));
+    firebaseUser.getIdToken().then((t) => {
+      setToken(t);
+      console.log("✅ Admin token ready");
+    });
   }, [firebaseUser, profile, loading, router]);
 
-  /* ✅ Fetch all leads (then apply date filter client-side) */
+  /* ✅ Fetch all leads */
   const fetchLeads = async () => {
     try {
       const res = await fetch(`/api/admin/leads/all`, {
@@ -68,20 +70,15 @@ export default function AdminLeadsPage() {
 
       let list: Lead[] = data.data || [];
 
-      // ✅ DATE RANGE FILTER (createdAt)
+      // ✅ DATE RANGE FILTER
       if (fromDate || toDate) {
         const from = fromDate ? new Date(fromDate) : null;
         const to = toDate ? new Date(toDate) : null;
-
-        if (to) {
-          // din ke end tak
-          to.setHours(23, 59, 59, 999);
-        }
+        if (to) to.setHours(23, 59, 59, 999);
 
         list = list.filter((lead) => {
           if (!lead.createdAt?.seconds) return false;
           const created = new Date(lead.createdAt.seconds * 1000);
-
           if (from && created < from) return false;
           if (to && created > to) return false;
           return true;
@@ -95,7 +92,7 @@ export default function AdminLeadsPage() {
     }
   };
 
-  /* ✅ Fetch all approved telecallers (new API path) */
+  /* ✅ Fetch all approved telecallers */
   const fetchStaff = async () => {
     try {
       const res = await fetch("/api/admin/staff/list", {
@@ -119,9 +116,13 @@ export default function AdminLeadsPage() {
     fetchStaff();
   }, [token]);
 
-  /* ✅ Excel Upload */
+  /* ✅ ✅ ✅ FINAL FIXED EXCEL UPLOAD */
   const handleUpload = async () => {
     if (!file) return toast.error("Please select an Excel file");
+
+    if (!token) {
+      return toast.error("Token not ready. Page reload karke 2 sec wait karo.");
+    }
 
     const formData = new FormData();
     formData.append("file", file);
@@ -130,7 +131,9 @@ export default function AdminLeadsPage() {
     try {
       const res = await fetch("/api/admin/leads/import", {
         method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`, // ✅ FIXED
+        },
         body: formData,
       });
 
@@ -139,7 +142,7 @@ export default function AdminLeadsPage() {
       if (!res.ok || !data.success)
         throw new Error(data?.message || "Upload failed");
 
-      toast.success(`Leads imported: ${data.successCount}/${data.total}`);
+      toast.success(`✅ Leads imported: ${data.successCount}/${data.total}`);
       setFile(null);
       fetchLeads();
     } catch (err: any) {
@@ -230,130 +233,66 @@ export default function AdminLeadsPage() {
     <div className="p-6 space-y-6">
       <h1 className="text-xl font-semibold">Admin Lead / Task Management</h1>
 
-      {/* ✅ DATE FILTER */}
+      {/* ✅ DATE FILTER + IMPORT */}
       <div className="flex flex-wrap gap-3 items-end">
-        <div>
-          <label className="text-xs">From</label>
-          <input
-            type="date"
-            className="border px-2 py-1 rounded text-sm"
-            value={fromDate}
-            onChange={(e) => setFromDate(e.target.value)}
-          />
-        </div>
-        <div>
-          <label className="text-xs">To</label>
-          <input
-            type="date"
-            className="border px-2 py-1 rounded text-sm"
-            value={toDate}
-            onChange={(e) => setToDate(e.target.value)}
-          />
-        </div>
-        <button
-          onClick={fetchLeads}
-          className="px-4 py-2 text-sm bg-black text-white rounded"
-        >
-          Filter
-        </button>
+        <input type="date" className="border px-2 py-1 rounded text-sm" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+        <input type="date" className="border px-2 py-1 rounded text-sm" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+        <button onClick={fetchLeads} className="px-4 py-2 text-sm bg-black text-white rounded">Filter</button>
 
-        {/* ✅ EXCEL IMPORT */}
         <div className="flex gap-2 items-center ml-auto">
-          <input
-            type="file"
-            accept=".xlsx,.xls"
-            onChange={(e) => setFile(e.target.files?.[0] || null)}
-            className="text-xs"
-          />
+          <input type="file" accept=".xlsx,.xls" onChange={(e) => setFile(e.target.files?.[0] || null)} className="text-xs" />
           <button
             onClick={handleUpload}
-            disabled={uploading}
-            className="px-3 py-1 text-xs bg-blue-600 text-white rounded"
+            disabled={uploading || !token}
+            className="px-3 py-1 text-xs bg-blue-600 text-white rounded disabled:opacity-50"
           >
             {uploading ? "Uploading..." : "Import Excel"}
           </button>
         </div>
       </div>
 
-      {/* ✅ BULK ASSIGN BAR */}
+      {/* ✅ BULK BAR */}
       <div className="flex flex-wrap gap-3 items-center bg-gray-50 p-3 rounded border">
-        <select
-          className="border px-2 py-1 rounded text-sm"
-          value={bulkStaff}
-          onChange={(e) => setBulkStaff(e.target.value)}
-        >
+        <select className="border px-2 py-1 rounded text-sm" value={bulkStaff} onChange={(e) => setBulkStaff(e.target.value)}>
           <option value="">Select Telecaller</option>
           {staffList.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
+            <option key={s.id} value={s.id}>{s.name}</option>
           ))}
         </select>
 
-        <button
-          onClick={handleBulkAssign}
-          className="px-4 py-2 text-sm bg-green-600 text-white rounded"
-        >
+        <button onClick={handleBulkAssign} className="px-4 py-2 text-sm bg-green-600 text-white rounded">
           Assign Selected ({selectedLeads.length})
         </button>
       </div>
 
-      {/* ✅ LEADS TABLE */}
+      {/* ✅ TABLE */}
       <div className="bg-white border rounded-xl overflow-hidden">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-2">
-                <input
-                  type="checkbox"
-                  checked={leads.length > 0 && selectedLeads.length === leads.length}
-                  onChange={toggleAll}
-                />
-              </th>
-              <th className="px-4 py-2 text-left">Name</th>
-              <th className="px-4 py-2 text-left">Business</th>
-              <th className="px-4 py-2 text-left">Contact</th>
-              <th className="px-4 py-2 text-left">Status</th>
-              <th className="px-4 py-2 text-left">Assign</th>
-              <th className="px-4 py-2">View</th>
+              <th><input type="checkbox" checked={leads.length > 0 && selectedLeads.length === leads.length} onChange={toggleAll} /></th>
+              <th>Name</th>
+              <th>Business</th>
+              <th>Contact</th>
+              <th>Status</th>
+              <th>Assign</th>
             </tr>
           </thead>
-          <tbody className="divide-y">
+          <tbody>
             {leads.map((lead) => (
               <tr key={lead.id}>
-                <td className="px-2 text-center">
-                  <input
-                    type="checkbox"
-                    checked={selectedLeads.includes(lead.id)}
-                    onChange={() => toggleSelect(lead.id)}
-                  />
-                </td>
-                <td className="px-4 py-2">{lead.name}</td>
-                <td className="px-4 py-2">{lead.businessName}</td>
-                <td className="px-4 py-2">{lead.phone}</td>
-                <td className="px-4 py-2">{lead.status}</td>
-                <td className="px-4 py-2">
-                  <select
-                    className="border rounded px-2 py-1 text-xs"
-                    value={lead.assignedTo || ""}
-                    onChange={(e) => handleAssign(lead.id, e.target.value)}
-                    disabled={assigning === lead.id}
-                  >
+                <td><input type="checkbox" checked={selectedLeads.includes(lead.id)} onChange={() => toggleSelect(lead.id)} /></td>
+                <td>{lead.name}</td>
+                <td>{lead.businessName}</td>
+                <td>{lead.phone}</td>
+                <td>{lead.status}</td>
+                <td>
+                  <select value={lead.assignedTo || ""} onChange={(e) => handleAssign(lead.id, e.target.value)}>
                     <option value="">Unassigned</option>
                     {staffList.map((staff) => (
-                      <option key={staff.id} value={staff.id}>
-                        {staff.name}
-                      </option>
+                      <option key={staff.id} value={staff.id}>{staff.name}</option>
                     ))}
                   </select>
-                </td>
-                <td className="px-4 py-2">
-                  <button
-                    onClick={() => router.push(`/admin/leads/${lead.id}`)}
-                    className="px-3 py-1 text-xs bg-black text-white rounded"
-                  >
-                    View
-                  </button>
                 </td>
               </tr>
             ))}

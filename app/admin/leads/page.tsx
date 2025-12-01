@@ -8,13 +8,15 @@ import { useAuth } from "@/hooks/useAuth";
 type Lead = {
   id: string;
   name: string;
-  businessName: string;
-  address: string;
-  contact: string;
+  businessName?: string;
+  address?: string;
+  phone?: string;       // ✅ phone field as per new schema
   email?: string;
   status: string;
   assignedTo?: string | null;
-  createdAt?: any;
+  category?: string;
+  followupDate?: string;
+  createdAt?: any;      // Firestore Timestamp
 };
 
 type Staff = {
@@ -51,14 +53,10 @@ export default function AdminLeadsPage() {
     firebaseUser.getIdToken().then((t) => setToken(t));
   }, [firebaseUser, profile, loading, router]);
 
-  /* ✅ Fetch all leads with DATE FILTER */
+  /* ✅ Fetch all leads (then apply date filter client-side) */
   const fetchLeads = async () => {
     try {
-      const query = new URLSearchParams();
-      if (fromDate) query.append("from", fromDate);
-      if (toDate) query.append("to", toDate);
-
-      const res = await fetch(`/api/admin/leads/all?${query.toString()}`, {
+      const res = await fetch(`/api/admin/leads/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -68,17 +66,39 @@ export default function AdminLeadsPage() {
         throw new Error(data?.message || "Leads fetch failed");
       }
 
-      setLeads(data.data || []);
+      let list: Lead[] = data.data || [];
+
+      // ✅ DATE RANGE FILTER (createdAt)
+      if (fromDate || toDate) {
+        const from = fromDate ? new Date(fromDate) : null;
+        const to = toDate ? new Date(toDate) : null;
+
+        if (to) {
+          // din ke end tak
+          to.setHours(23, 59, 59, 999);
+        }
+
+        list = list.filter((lead) => {
+          if (!lead.createdAt?.seconds) return false;
+          const created = new Date(lead.createdAt.seconds * 1000);
+
+          if (from && created < from) return false;
+          if (to && created > to) return false;
+          return true;
+        });
+      }
+
+      setLeads(list);
       setSelectedLeads([]);
     } catch (err: any) {
       toast.error(err?.message || "Leads load nahi ho paaye");
     }
   };
 
-  /* ✅ Fetch all approved telecallers */
+  /* ✅ Fetch all approved telecallers (new API path) */
   const fetchStaff = async () => {
     try {
-      const res = await fetch("/api/admin/staff/telecallers", {
+      const res = await fetch("/api/admin/staff/list", {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
@@ -211,7 +231,7 @@ export default function AdminLeadsPage() {
       <h1 className="text-xl font-semibold">Admin Lead / Task Management</h1>
 
       {/* ✅ DATE FILTER */}
-      <div className="flex gap-3 items-end">
+      <div className="flex flex-wrap gap-3 items-end">
         <div>
           <label className="text-xs">From</label>
           <input
@@ -236,10 +256,27 @@ export default function AdminLeadsPage() {
         >
           Filter
         </button>
+
+        {/* ✅ EXCEL IMPORT */}
+        <div className="flex gap-2 items-center ml-auto">
+          <input
+            type="file"
+            accept=".xlsx,.xls"
+            onChange={(e) => setFile(e.target.files?.[0] || null)}
+            className="text-xs"
+          />
+          <button
+            onClick={handleUpload}
+            disabled={uploading}
+            className="px-3 py-1 text-xs bg-blue-600 text-white rounded"
+          >
+            {uploading ? "Uploading..." : "Import Excel"}
+          </button>
+        </div>
       </div>
 
       {/* ✅ BULK ASSIGN BAR */}
-      <div className="flex gap-3 items-center bg-gray-50 p-3 rounded border">
+      <div className="flex flex-wrap gap-3 items-center bg-gray-50 p-3 rounded border">
         <select
           className="border px-2 py-1 rounded text-sm"
           value={bulkStaff}
@@ -269,7 +306,7 @@ export default function AdminLeadsPage() {
               <th className="px-2">
                 <input
                   type="checkbox"
-                  checked={selectedLeads.length === leads.length && leads.length}
+                  checked={leads.length > 0 && selectedLeads.length === leads.length}
                   onChange={toggleAll}
                 />
               </th>
@@ -293,15 +330,14 @@ export default function AdminLeadsPage() {
                 </td>
                 <td className="px-4 py-2">{lead.name}</td>
                 <td className="px-4 py-2">{lead.businessName}</td>
-                <td className="px-4 py-2">{lead.contact}</td>
+                <td className="px-4 py-2">{lead.phone}</td>
                 <td className="px-4 py-2">{lead.status}</td>
                 <td className="px-4 py-2">
                   <select
                     className="border rounded px-2 py-1 text-xs"
                     value={lead.assignedTo || ""}
-                    onChange={(e) =>
-                      handleAssign(lead.id, e.target.value)
-                    }
+                    onChange={(e) => handleAssign(lead.id, e.target.value)}
+                    disabled={assigning === lead.id}
                   >
                     <option value="">Unassigned</option>
                     {staffList.map((staff) => (

@@ -14,14 +14,14 @@ import toast from "react-hot-toast";
 type Lead = {
   id: string;
   name: string;
-  businessName: string;
+  businessName?: string;
   address?: string;
-  contact: string;
+  phone?: string;
+  contactPerson?: string;
   email?: string;
   status: string;
-  partnerNotes?: string;
-
-  // ✅ TASK FIELDS FROM ADMIN
+  followupDate?: string;
+  category?: string;
   adminNote?: string;
   dueDate?: any;
 };
@@ -36,6 +36,15 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
+const CATEGORY_TABS = [
+  { label: "All", value: "all" },
+  { label: "Hotels", value: "hotel" },
+  { label: "Restaurants", value: "restaurant" },
+  { label: "Cafes", value: "cafe" },
+  { label: "Dhabas", value: "dhaba" },
+  { label: "Guest House", value: "guesthouse" },
+];
+
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
@@ -44,11 +53,19 @@ export default function TelecallerDashboardPage() {
 
   const [staffId, setStaffId] = useState<string | null>(null);
   const [token, setToken] = useState<string>("");
+
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingLeads, setLoadingLeads] = useState(false);
+
   const [leads, setLeads] = useState<Lead[]>([]);
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
+
+  const [selectedDate, setSelectedDate] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
+  const [callOutcome, setCallOutcome] = useState<Record<string, string>>({});
+  const [callNote, setCallNote] = useState<Record<string, string>>({});
 
   const [staffProfile, setStaffProfile] = useState<{
     name?: string;
@@ -119,18 +136,33 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ FETCH ASSIGNED LEADS = TASKS
+     ✅ DEFAULT DATE = TODAY
   ---------------------------------------- */
   useEffect(() => {
-    const fetchLeads = async () => {
-      if (!staffId) return;
-      setLoadingLeads(true);
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const dd = String(today.getDate()).padStart(2, "0");
+    setSelectedDate(`${yyyy}-${mm}-${dd}`);
+  }, []);
 
+  /* ---------------------------------------
+     ✅ FETCH LEADS (NEW API)
+  ---------------------------------------- */
+  useEffect(() => {
+    if (!staffId || !selectedDate) return;
+
+    const fetchLeads = async () => {
+      setLoadingLeads(true);
       try {
-        const res = await fetch("/api/staff/leads", {
+        const res = await fetch("/api/staff/leads/list", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ staffId }),
+          body: JSON.stringify({
+            staffId,
+            date: selectedDate,
+            category: selectedCategory,
+          }),
         });
 
         const data = await res.json();
@@ -138,12 +170,12 @@ export default function TelecallerDashboardPage() {
           throw new Error(data?.message || "Failed to fetch leads");
         }
 
-        const list: Lead[] = data.data || [];
+        const list: Lead[] = data.leads || [];
         setLeads(list);
 
         const draft: Record<string, string> = {};
         list.forEach((lead) => {
-          draft[lead.id] = lead.partnerNotes || "";
+          draft[lead.id] = "";
         });
         setNotesDraft(draft);
       } catch (err: any) {
@@ -154,65 +186,99 @@ export default function TelecallerDashboardPage() {
     };
 
     fetchLeads();
-  }, [staffId]);
+  }, [staffId, selectedDate, selectedCategory]);
 
   /* ---------------------------------------
-     ✅ ✅ ✅ UNIFIED UPDATE (STATUS + NOTES + PERFORMANCE SYNC)
-     This replaces:
-     - /update-status
-     - /update-notes
+     ✅ STATUS UPDATE
   ---------------------------------------- */
-  const updateLead = async (
-    leadId: string,
-    payload: { status?: string; notes?: string }
-  ) => {
+  const updateStatus = async (leadId: string, status: string) => {
     if (!token) return toast.error("Please re-login");
 
     setSavingLeadId(leadId);
     try {
-      const res = await fetch("/api/staff/leads/update", {
+      const res = await fetch("/api/staff/leads/update-status", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          leadId,
-          status: payload.status,
-          note: payload.notes,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId, status }),
       });
 
       const data = await res.json();
       if (!res.ok || !data.success)
-        throw new Error(data?.message || "Lead update failed");
+        throw new Error(data?.message || "Status update failed");
 
-      // ✅ LOCAL STATE SAFE UPDATE (NO DATA LOSS)
       setLeads((prev) =>
         prev.map((lead) =>
-          lead.id === leadId
-            ? {
-                ...lead,
-                status: payload.status ?? lead.status,
-                partnerNotes:
-                  payload.notes !== undefined
-                    ? payload.notes
-                    : lead.partnerNotes,
-              }
-            : lead
+          lead.id === leadId ? { ...lead, status } : lead
         )
       );
 
-      toast.success("Lead updated");
+      toast.success("Status updated ✅");
     } catch (err: any) {
-      toast.error(err?.message || "Update failed");
+      toast.error(err?.message || "Status update failed");
     } finally {
       setSavingLeadId(null);
     }
   };
 
   /* ---------------------------------------
-     ✅ LOADING + BLOCKS
+     ✅ NOTES UPDATE
+  ---------------------------------------- */
+  const saveNote = async (leadId: string) => {
+    const text = notesDraft[leadId];
+    if (!text) return toast.error("Note khali hai");
+
+    try {
+      await fetch("/api/staff/leads/update-notes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId,
+          text,
+          staffId,
+        }),
+      });
+
+      toast.success("Note saved ✅");
+      setNotesDraft((p) => ({ ...p, [leadId]: "" }));
+    } catch {
+      toast.error("Note save failed");
+    }
+  };
+
+  /* ---------------------------------------
+     ✅ CALL LOG
+  ---------------------------------------- */
+  const saveCallLog = async (lead: Lead) => {
+    try {
+      await fetch("/api/staff/leads/log-call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          leadId: lead.id,
+          phone: lead.phone,
+          outcome: callOutcome[lead.id],
+          note: callNote[lead.id],
+          staffId,
+        }),
+      });
+
+      toast.success("Call log saved ✅");
+      setCallOutcome((p) => ({ ...p, [lead.id]: "" }));
+      setCallNote((p) => ({ ...p, [lead.id]: "" }));
+    } catch {
+      toast.error("Call log save failed");
+    }
+  };
+
+  const isOverdue = (dueDate: any, status: string) => {
+    if (!dueDate?.seconds) return false;
+    if (status === "converted") return false;
+    const due = new Date(dueDate.seconds * 1000);
+    return Date.now() > due.getTime();
+  };
+
+  /* ---------------------------------------
+     ✅ LOADING BLOCK
   ---------------------------------------- */
   if (loadingUser) {
     return (
@@ -229,15 +295,8 @@ export default function TelecallerDashboardPage() {
 
   if (!staffId) return null;
 
-  const isOverdue = (dueDate: any, status: string) => {
-    if (!dueDate?.seconds) return false;
-    if (status === "converted") return false;
-    const due = new Date(dueDate.seconds * 1000);
-    return Date.now() > due.getTime();
-  };
-
   /* ---------------------------------------
-     ✅ FINAL RENDER (UI SAME AS BEFORE)
+     ✅ FINAL UI
   ---------------------------------------- */
   return (
     <DashboardLayout
@@ -246,13 +305,39 @@ export default function TelecallerDashboardPage() {
     >
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-semibold">Telecaller Task Dashboard</h1>
+          <h1 className="text-xl font-semibold">Telecaller Lead Dashboard</h1>
           <p className="text-sm text-gray-500">
-            Ye saare leads hi tumhare <b>tasks</b> hain. <br />
-            <b>Converted = DONE</b>
+            Ye saare leads hi tumhare <b>tasks</b> hain. <b>Converted = DONE</b>
           </p>
         </div>
 
+        {/* ✅ DATE + CATEGORY FILTER */}
+        <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
+          <input
+            type="date"
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="border px-2 py-1 rounded text-sm"
+          />
+
+          <div className="flex flex-wrap gap-2">
+            {CATEGORY_TABS.map((cat) => (
+              <button
+                key={cat.value}
+                onClick={() => setSelectedCategory(cat.value)}
+                className={`text-xs px-3 py-1 rounded-full border ${
+                  selectedCategory === cat.value
+                    ? "bg-black text-white"
+                    : "bg-gray-100"
+                }`}
+              >
+                {cat.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* ✅ LEADS TABLE */}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {loadingLeads ? (
             <div className="p-6 text-center text-sm text-gray-500">
@@ -267,11 +352,11 @@ export default function TelecallerDashboardPage() {
               <thead className="bg-gray-100">
                 <tr>
                   <th className="p-3 text-left">Lead</th>
-                  <th className="p-3 text-left">Contact</th>
-                  <th className="p-3 text-left">Admin Note</th>
-                  <th className="p-3 text-left">Due Date</th>
+                  <th className="p-3 text-left">Phone</th>
+                  <th className="p-3 text-left">Category</th>
                   <th className="p-3 text-left">Status</th>
-                  <th className="p-3 text-left">Notes</th>
+                  <th className="p-3 text-left">Note</th>
+                  <th className="p-3 text-left">Call</th>
                   <th className="p-3 text-center">Done</th>
                 </tr>
               </thead>
@@ -286,31 +371,11 @@ export default function TelecallerDashboardPage() {
                       key={lead.id}
                       className={`border-t ${overdue ? "bg-red-50" : ""}`}
                     >
-                      <td className="p-3">
-                        <div className="font-medium">{lead.name}</div>
-                        <div className="text-xs text-gray-500">
-                          {lead.businessName}
-                        </div>
-                      </td>
+                      <td className="p-3 font-medium">{lead.name}</td>
 
-                      <td className="p-3">{lead.contact}</td>
+                      <td className="p-3">{lead.phone || "-"}</td>
 
-                      <td className="p-3 text-xs">
-                        {lead.adminNote || "-"}
-                      </td>
-
-                      <td className="p-3 text-xs">
-                        {lead.dueDate?.seconds
-                          ? new Date(
-                              lead.dueDate.seconds * 1000
-                            ).toLocaleDateString()
-                          : "-"}
-                        {overdue && (
-                          <div className="text-red-600 font-semibold">
-                            Overdue
-                          </div>
-                        )}
-                      </td>
+                      <td className="p-3 text-xs">{lead.category}</td>
 
                       <td className="p-3">
                         <select
@@ -318,14 +383,12 @@ export default function TelecallerDashboardPage() {
                           value={lead.status}
                           disabled={savingLeadId === lead.id}
                           onChange={(e) =>
-                            updateLead(lead.id, { status: e.target.value })
+                            updateStatus(lead.id, e.target.value)
                           }
                         >
                           {STATUS_OPTIONS.map((st) => (
                             <option key={st} value={st}>
-                              {st === "converted"
-                                ? "converted (Done)"
-                                : st.replace("_", " ")}
+                              {st.replace("_", " ")}
                             </option>
                           ))}
                         </select>
@@ -344,15 +407,56 @@ export default function TelecallerDashboardPage() {
                           }
                         />
                         <button
-                          onClick={() =>
-                            updateLead(lead.id, {
-                              notes: notesDraft[lead.id],
-                            })
-                          }
-                          disabled={savingLeadId === lead.id}
+                          onClick={() => saveNote(lead.id)}
                           className="mt-1 px-2 py-1 text-xs bg-black text-white rounded"
                         >
                           Save
+                        </button>
+                      </td>
+
+                      <td className="p-3 space-y-1">
+                        <button
+                          onClick={() => window.open(`tel:${lead.phone}`)}
+                          className="text-xs bg-green-600 text-white px-3 py-1 rounded"
+                        >
+                          📞 Call
+                        </button>
+
+                        <select
+                          value={callOutcome[lead.id] || ""}
+                          onChange={(e) =>
+                            setCallOutcome((p) => ({
+                              ...p,
+                              [lead.id]: e.target.value,
+                            }))
+                          }
+                          className="w-full border px-2 py-1 rounded text-xs"
+                        >
+                          <option value="">Outcome</option>
+                          <option value="not_answered">Not Answered</option>
+                          <option value="busy">Busy</option>
+                          <option value="interested">Interested</option>
+                          <option value="not_interested">Not Interested</option>
+                          <option value="followup_required">Follow-up</option>
+                        </select>
+
+                        <textarea
+                          placeholder="Call note"
+                          value={callNote[lead.id] || ""}
+                          onChange={(e) =>
+                            setCallNote((p) => ({
+                              ...p,
+                              [lead.id]: e.target.value,
+                            }))
+                          }
+                          className="w-full border rounded px-2 py-1 text-xs"
+                        />
+
+                        <button
+                          onClick={() => saveCallLog(lead)}
+                          className="text-xs bg-purple-600 text-white px-3 py-1 rounded"
+                        >
+                          Save Call
                         </button>
                       </td>
 
@@ -360,7 +464,7 @@ export default function TelecallerDashboardPage() {
                         <button
                           onClick={() =>
                             !done &&
-                            updateLead(lead.id, { status: "converted" })
+                            updateStatus(lead.id, "converted")
                           }
                           disabled={done}
                           className={`px-3 py-1 text-xs rounded ${

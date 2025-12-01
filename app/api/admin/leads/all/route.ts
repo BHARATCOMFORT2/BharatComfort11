@@ -13,7 +13,7 @@ function getAuthHeader(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    // ✅ ADMIN TOKEN VERIFY
+    // ✅ ✅ ✅ ADMIN TOKEN VERIFY (ROLE SE ONLY)
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -37,52 +37,52 @@ export async function GET(req: Request) {
       decoded = await adminAuth.verifyIdToken(m[1], true);
     } catch {
       return NextResponse.json(
-        { success: false, message: "Invalid admin token" },
+        { success: false, message: "Invalid token" },
         { status: 401 }
       );
     }
 
-    const adminId = decoded.uid;
-
-    // ✅ VERIFY ADMIN FROM FIRESTORE (SOURCE OF TRUTH)
-    const adminSnap = await adminDb.collection("admins").doc(adminId).get();
-    if (!adminSnap.exists) {
+    // ✅ ✅ ✅ ONLY ROLE CHECK (NO admins COLLECTION)
+    if (!["admin", "superadmin"].includes(decoded.role)) {
       return NextResponse.json(
         { success: false, message: "Admin access denied" },
         { status: 403 }
       );
     }
 
-    // ✅ FETCH ALL LEADS (SAFE)
+    // ✅ FETCH ALL LEADS
     const snapshot = await adminDb
       .collection("leads")
       .orderBy("createdAt", "desc")
       .get();
 
-    const leads = snapshot.docs.map((doc) => ({
-      id: doc.id,
+    const leads = snapshot.docs.map((doc) => {
+      const d = doc.data();
 
-      // ✅ Controlled expose (no accidental sensitive leak)
-      name: doc.data().name || "",
-      businessName: doc.data().businessName || "",
-      phone: doc.data().phone || "",
-      email: doc.data().email || "",
-      contactPerson: doc.data().contactPerson || "",
+      return {
+        id: doc.id,
 
-      category: doc.data().category || "",
-      status: doc.data().status || "new",
-      followupDate: doc.data().followupDate || "",
+        name: d.name || "",
+        businessName: d.businessName || "",
+        phone: d.phone || "",
+        email: d.email || "",
+        contactPerson: d.contactPerson || "",
 
-      assignedTo: doc.data().assignedTo || "",
-      city: doc.data().city || "",
+        category: d.category || "",
+        status: d.status || "new",
+        followupDate: d.followupDate || "",
 
-      adminNote: doc.data().adminNote || "",
-      partnerNotes: doc.data().partnerNotes || "",
+        assignedTo: d.assignedTo || "",
+        city: d.city || "",
 
-      createdAt: doc.data().createdAt || null,
-      updatedAt: doc.data().updatedAt || null,
-      lastUpdatedBy: doc.data().lastUpdatedBy || null,
-    }));
+        adminNote: d.adminNote || "",
+        partnerNotes: d.partnerNotes || "",
+
+        createdAt: d.createdAt || null,
+        updatedAt: d.updatedAt || null,
+        lastUpdatedBy: d.lastUpdatedBy || null,
+      };
+    });
 
     return NextResponse.json({
       success: true,

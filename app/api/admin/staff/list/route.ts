@@ -13,7 +13,7 @@ function getAuthHeader(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    // ✅ ADMIN TOKEN VERIFY
+    // ✅ ADMIN TOKEN VERIFY (ROLE SE)
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -37,23 +37,20 @@ export async function GET(req: Request) {
       decoded = await adminAuth.verifyIdToken(m[1], true);
     } catch {
       return NextResponse.json(
-        { success: false, message: "Invalid admin token" },
+        { success: false, message: "Invalid token" },
         { status: 401 }
       );
     }
 
-    const adminId = decoded.uid;
-
-    // ✅ VERIFY ADMIN FROM FIRESTORE
-    const adminSnap = await adminDb.collection("admins").doc(adminId).get();
-    if (!adminSnap.exists) {
+    // ✅ ✅ ✅ ONLY ROLE CHECK (NO admins COLLECTION)
+    if (!["admin", "superadmin"].includes(decoded.role)) {
       return NextResponse.json(
         { success: false, message: "Admin access denied" },
         { status: 403 }
       );
     }
 
-    // ✅ FETCH ONLY ACTIVE TELECALLERS (ASSIGN DROPDOWN KE LIYE)
+    // ✅ FETCH ONLY ACTIVE TELECALLERS
     const snap = await adminDb
       .collection("staff")
       .where("role", "==", "telecaller")

@@ -110,6 +110,7 @@ export default function TelecallerDashboardPage() {
           return;
         }
 
+        // ✅ staffId = staff document id (yahi admin assign me use ho raha hai)
         setStaffId(user.uid);
 
         const t = await user.getIdToken();
@@ -147,21 +148,20 @@ export default function TelecallerDashboardPage() {
   }, []);
 
   /* ---------------------------------------
-     ✅ FETCH LEADS (NEW API)
+     ✅ FETCH LEADS (CORRECT API + RESPONSE)
   ---------------------------------------- */
   useEffect(() => {
-    if (!staffId || !selectedDate) return;
+    if (!staffId) return;
 
     const fetchLeads = async () => {
       setLoadingLeads(true);
       try {
-        const res = await fetch("/api/staff/leads/list", {
+        // 🔥 CORRECT ENDPOINT: /api/staff/leads  (NOT /list)
+        const res = await fetch("/api/staff/leads", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             staffId,
-            date: selectedDate,
-            category: selectedCategory,
           }),
         });
 
@@ -170,7 +170,27 @@ export default function TelecallerDashboardPage() {
           throw new Error(data?.message || "Failed to fetch leads");
         }
 
-        const list: Lead[] = data.leads || [];
+        // 🔥 CORRECT FIELD: data.data  (NOT data.leads)
+        let list: Lead[] = data.data || [];
+
+        // ✅ Client-side category filter
+        if (selectedCategory !== "all") {
+          list = list.filter(
+            (lead) =>
+              (lead.category || "hotel").toLowerCase() ===
+              selectedCategory.toLowerCase()
+          );
+        }
+
+        // ✅ Client-side date filter (followupDate == selectedDate)
+        if (selectedDate) {
+          list = list.filter((lead) => {
+            if (!lead.followupDate) return true; // agar blank hai to dikha do
+            // assume followupDate in "YYYY-MM-DD" ya string
+            return lead.followupDate.startsWith(selectedDate);
+          });
+        }
+
         setLeads(list);
 
         const draft: Record<string, string> = {};
@@ -179,6 +199,7 @@ export default function TelecallerDashboardPage() {
         });
         setNotesDraft(draft);
       } catch (err: any) {
+        console.error("Telecaller leads fetch error:", err);
         toast.error(err?.message || "Leads load nahi ho paaye");
       } finally {
         setLoadingLeads(false);
@@ -207,9 +228,7 @@ export default function TelecallerDashboardPage() {
         throw new Error(data?.message || "Status update failed");
 
       setLeads((prev) =>
-        prev.map((lead) =>
-          lead.id === leadId ? { ...lead, status } : lead
-        )
+        prev.map((lead) => (lead.id === leadId ? { ...lead, status } : lead))
       );
 
       toast.success("Status updated ✅");
@@ -463,8 +482,7 @@ export default function TelecallerDashboardPage() {
                       <td className="p-3 text-center">
                         <button
                           onClick={() =>
-                            !done &&
-                            updateStatus(lead.id, "converted")
+                            !done && updateStatus(lead.id, "converted")
                           }
                           disabled={done}
                           className={`px-3 py-1 text-xs rounded ${

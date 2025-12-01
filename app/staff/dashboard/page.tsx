@@ -13,7 +13,7 @@ import toast from "react-hot-toast";
 ---------------------------------------- */
 type Lead = {
   id: string;
-  name: string;
+  name?: string;
   businessName?: string;
   address?: string;
   phone?: string;
@@ -39,15 +39,6 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
-const CATEGORY_TABS = [
-  { label: "All", value: "all" },
-  { label: "Hotels", value: "hotel" },
-  { label: "Restaurants", value: "restaurant" },
-  { label: "Cafes", value: "cafe" },
-  { label: "Dhabas", value: "dhaba" },
-  { label: "Guest House", value: "guesthouse" },
-];
-
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
@@ -62,9 +53,6 @@ export default function TelecallerDashboardPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
-
-  const [selectedDate, setSelectedDate] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("all");
 
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
   const [callOutcome, setCallOutcome] = useState<Record<string, string>>({});
@@ -138,19 +126,8 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ DEFAULT DATE
-  ---------------------------------------- */
-  useEffect(() => {
-    const today = new Date();
-    const yyyy = today.getFullYear();
-    const mm = String(today.getMonth() + 1).padStart(2, "0");
-    const dd = String(today.getDate()).padStart(2, "0");
-    setSelectedDate(`${yyyy}-${mm}-${dd}`);
-  }, []);
-
-  /* ---------------------------------------
-     ✅ FETCH LEADS (✅ FIXED)
-     API RETURNS: { success: true, leads: [...] }
+     ✅ FETCH LEADS (✅ FINAL FIX)
+     BACKEND RETURNS: { success: true, data: [] }
   ---------------------------------------- */
   useEffect(() => {
     if (!staffId || !token) return;
@@ -173,25 +150,8 @@ export default function TelecallerDashboardPage() {
           throw new Error(data?.message || "Failed to fetch leads");
         }
 
-        // ✅✅✅ FIX: API `leads` return karta hai (NOT data)
-        let list: Lead[] = data.leads || [];
-
-        // ✅ Category filter
-        if (selectedCategory !== "all") {
-          list = list.filter(
-            (lead) =>
-              (lead.category || "hotel").toLowerCase() ===
-              selectedCategory.toLowerCase()
-          );
-        }
-
-        // ✅ Date filter
-        if (selectedDate) {
-          list = list.filter((lead) => {
-            if (!lead.followupDate) return true;
-            return lead.followupDate.startsWith(selectedDate);
-          });
-        }
+        // ✅ ✅ ✅ FINAL MATCH WITH BACKEND
+        let list: Lead[] = data.data || [];
 
         setLeads(list);
 
@@ -209,7 +169,7 @@ export default function TelecallerDashboardPage() {
     };
 
     fetchLeads();
-  }, [staffId, token, selectedDate, selectedCategory]);
+  }, [staffId, token]);
 
   /* ---------------------------------------
      ✅ STATUS UPDATE
@@ -254,7 +214,7 @@ export default function TelecallerDashboardPage() {
     if (!text) return toast.error("Note khali hai");
 
     try {
-      const res = await fetch("/api/staff/leads/update-notes", {
+      await fetch("/api/staff/leads/update-notes", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -262,10 +222,6 @@ export default function TelecallerDashboardPage() {
         },
         body: JSON.stringify({ leadId, text }),
       });
-
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error("Note save failed");
 
       toast.success("Note saved ✅");
       setNotesDraft((p) => ({ ...p, [leadId]: "" }));
@@ -275,45 +231,11 @@ export default function TelecallerDashboardPage() {
   };
 
   /* ---------------------------------------
-     ✅ CALL LOG
-  ---------------------------------------- */
-  const saveCallLog = async (lead: Lead) => {
-    try {
-      const res = await fetch("/api/staff/leads/log-call", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          leadId: lead.id,
-          phone: lead.phone,
-          outcome: callOutcome[lead.id],
-          note: callNote[lead.id],
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error("Call log failed");
-
-      toast.success("Call log saved ✅");
-      setCallOutcome((p) => ({ ...p, [lead.id]: "" }));
-      setCallNote((p) => ({ ...p, [lead.id]: "" }));
-    } catch {
-      toast.error("Call log save failed");
-    }
-  };
-
-  /* ---------------------------------------
      ✅ LOADING BLOCK
   ---------------------------------------- */
   if (loadingUser) {
     return (
-      <DashboardLayout
-        title="Telecaller Task Dashboard"
-        profile={staffProfile || undefined}
-      >
+      <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
         <div className="flex items-center justify-center h-64 text-sm text-gray-500">
           Checking staff access...
         </div>
@@ -327,97 +249,90 @@ export default function TelecallerDashboardPage() {
      ✅ FINAL UI
   ---------------------------------------- */
   return (
-    <DashboardLayout
-      title="Telecaller Task Dashboard"
-      profile={staffProfile || undefined}
-    >
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold">Telecaller Lead Dashboard</h1>
-        </div>
+    <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
+      <div className="bg-white rounded-lg shadow overflow-x-auto">
+        {loadingLeads ? (
+          <div className="p-6 text-center text-sm text-gray-500">
+            Loading your tasks...
+          </div>
+        ) : leads.length === 0 ? (
+          <div className="p-6 text-center text-sm text-gray-500">
+            Abhi koi task assign nahi hua.
+          </div>
+        ) : (
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="p-3 text-left">Name</th>
+                <th className="p-3 text-left">Business</th>
+                <th className="p-3 text-left">Phone</th>
+                <th className="p-3 text-left">Address</th>
+                <th className="p-3 text-left">Status</th>
+                <th className="p-3 text-left">Note</th>
+                <th className="p-3 text-left">Call</th>
+              </tr>
+            </thead>
 
-        <div className="bg-white rounded-lg shadow overflow-x-auto">
-          {loadingLeads ? (
-            <div className="p-6 text-center text-sm text-gray-500">
-              Loading your tasks...
-            </div>
-          ) : leads.length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-500">
-              Abhi koi task assign nahi hua.
-            </div>
-          ) : (
-            <table className="min-w-full text-sm">
-              <thead className="bg-gray-100">
-                <tr>
-                  <th className="p-3 text-left">Name</th>
-                  <th className="p-3 text-left">Business</th>
-                  <th className="p-3 text-left">Phone</th>
-                  <th className="p-3 text-left">Address</th>
-                  <th className="p-3 text-left">Status</th>
-                  <th className="p-3 text-left">Note</th>
-                  <th className="p-3 text-left">Call</th>
+            <tbody>
+              {leads.map((lead) => (
+                <tr key={lead.id} className="border-t">
+                  <td className="p-3">
+                    {lead.name || lead.businessName || "-"}
+                  </td>
+                  <td className="p-3">{lead.businessName || "-"}</td>
+                  <td className="p-3">{lead.phone || "-"}</td>
+                  <td className="p-3">{lead.address || "-"}</td>
+
+                  <td className="p-3">
+                    <select
+                      className="border px-2 py-1 text-xs"
+                      value={lead.status}
+                      onChange={(e) =>
+                        updateStatus(lead.id, e.target.value)
+                      }
+                    >
+                      {STATUS_OPTIONS.map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                  </td>
+
+                  <td className="p-3">
+                    <textarea
+                      className="border w-full p-1 text-xs"
+                      value={notesDraft[lead.id] || ""}
+                      onChange={(e) =>
+                        setNotesDraft((p) => ({
+                          ...p,
+                          [lead.id]: e.target.value,
+                        }))
+                      }
+                    />
+                    <button
+                      onClick={() => saveNote(lead.id)}
+                      className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
+                    >
+                      Save
+                    </button>
+                  </td>
+
+                  <td className="p-3">
+                    <button
+                      onClick={() =>
+                        window.open(`tel:${lead.phone || ""}`)
+                      }
+                      className="bg-green-600 text-white text-xs px-3 py-1 rounded"
+                    >
+                      📞 Call
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-
-              <tbody>
-                {leads.map((lead) => (
-                  <tr key={lead.id} className="border-t">
-                    <td className="p-3">{lead.name}</td>
-                    <td className="p-3">{lead.businessName}</td>
-                    <td className="p-3">{lead.phone}</td>
-                    <td className="p-3">{lead.address}</td>
-
-                    <td className="p-3">
-                      <select
-                        className="border px-2 py-1 text-xs"
-                        value={lead.status}
-                        onChange={(e) =>
-                          updateStatus(lead.id, e.target.value)
-                        }
-                      >
-                        {STATUS_OPTIONS.map((st) => (
-                          <option key={st} value={st}>
-                            {st}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-
-                    <td className="p-3">
-                      <textarea
-                        className="border w-full p-1 text-xs"
-                        value={notesDraft[lead.id] || ""}
-                        onChange={(e) =>
-                          setNotesDraft((p) => ({
-                            ...p,
-                            [lead.id]: e.target.value,
-                          }))
-                        }
-                      />
-                      <button
-                        onClick={() => saveNote(lead.id)}
-                        className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
-                      >
-                        Save
-                      </button>
-                    </td>
-
-                    <td className="p-3">
-                      <button
-                        onClick={() =>
-                          window.open(`tel:${lead.phone || ""}`)
-                        }
-                        className="bg-green-600 text-white text-xs px-3 py-1 rounded"
-                      >
-                        📞 Call
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </DashboardLayout>
   );

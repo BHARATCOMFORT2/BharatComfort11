@@ -1,19 +1,20 @@
+// app/api/admin/leads/all/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Auth header helper
+// ✅ Same header helper
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
+    ? req.headers.get("authorization") || req.headers.get("Authorization")
+    : (req as any).headers?.authorization || (req as any).headers?.Authorization;
 }
 
 export async function GET(req: Request) {
   try {
-    // ✅ ✅ ✅ ADMIN TOKEN VERIFY (ROLE SE ONLY)
+    // ✅ TOKEN VERIFY ONLY (admins collection check HATA DIYA)
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -32,9 +33,8 @@ export async function GET(req: Request) {
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
-    let decoded: any;
     try {
-      decoded = await adminAuth.verifyIdToken(m[1], true);
+      await adminAuth.verifyIdToken(m[1], true);
     } catch {
       return NextResponse.json(
         { success: false, message: "Invalid token" },
@@ -42,15 +42,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ ONLY ROLE CHECK (NO admins COLLECTION)
-    if (!["admin", "superadmin"].includes(decoded.role)) {
-      return NextResponse.json(
-        { success: false, message: "Admin access denied" },
-        { status: 403 }
-      );
-    }
-
-    // ✅ FETCH ALL LEADS
+    // ✅ AB SIRF LEADS PADHNA – KOI EXTRA FILTER NAHI
     const snapshot = await adminDb
       .collection("leads")
       .orderBy("createdAt", "desc")
@@ -58,10 +50,8 @@ export async function GET(req: Request) {
 
     const leads = snapshot.docs.map((doc) => {
       const d = doc.data();
-
       return {
         id: doc.id,
-
         name: d.name || "",
         businessName: d.businessName || "",
         phone: d.phone || "",

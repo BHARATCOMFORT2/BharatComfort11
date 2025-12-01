@@ -3,21 +3,22 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
+import { useAuth } from "@/hooks/useAuth";
 
 type Lead = {
   id: string;
   name: string;
-  businessName: string;
-  address: string;
-  contact: string;
+  businessName?: string;
+  address?: string;
+  phone?: string;
   email?: string;
   status: string;
   partnerNotes?: string;
   assignedTo?: string | null;
 
-  // ✅ NEW TASK-LIKE FIELDS
+  // ✅ TASK-LIKE FIELDS
   adminNote?: string;
-  dueDate?: any;
+  dueDate?: any; // Firestore Timestamp or Date-like
 };
 
 type Staff = {
@@ -30,27 +31,50 @@ export default function AdminLeadDetailsPage() {
   const router = useRouter();
   const leadId = params?.id as string;
 
+  const { firebaseUser, profile, loading } = useAuth();
+
+  const [token, setToken] = useState("");
   const [lead, setLead] = useState<Lead | null>(null);
   const [staffList, setStaffList] = useState<Staff[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingLead, setLoadingLead] = useState(true);
   const [assigning, setAssigning] = useState(false);
 
-  // ✅ NEW STATES
+  // ✅ TASK FIELDS STATE
   const [adminNote, setAdminNote] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [savingTaskFields, setSavingTaskFields] = useState(false);
 
-  // ✅ Fetch Lead Details
+  /* ✅ ADMIN PROTECTION + TOKEN */
+  useEffect(() => {
+    if (loading) return;
+
+    if (!firebaseUser || !["admin", "superadmin"].includes(profile?.role || "")) {
+      router.push("/");
+      return;
+    }
+
+    firebaseUser.getIdToken().then((t) => setToken(t));
+  }, [firebaseUser, profile, loading, router]);
+
+  // ✅ Fetch Lead Details (secure)
   const fetchLead = async () => {
+    if (!token || !leadId) return;
+    setLoadingLead(true);
+
     try {
-      const res = await fetch(`/api/admin/leads/${leadId}`);
+      const res = await fetch(`/api/admin/leads/${leadId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
       const data = await res.json();
 
       if (!res.ok || !data.success) {
         throw new Error(data?.message || "Lead load failed");
       }
 
-      const leadData = data.data;
+      const leadData = data.data as Lead;
       setLead(leadData);
 
       // ✅ preload task fields
@@ -66,32 +90,43 @@ export default function AdminLeadDetailsPage() {
       toast.error(err?.message || "Lead load nahi ho paayi");
       router.push("/admin/leads");
     } finally {
-      setLoading(false);
+      setLoadingLead(false);
     }
   };
 
-  // ✅ Fetch Telecallers
+  // ✅ Fetch Telecallers (secure)
   const fetchStaff = async () => {
+    if (!token) return;
+
     try {
-      const res = await fetch("/api/admin/staff/telecallers");
+      const res = await fetch("/api/admin/staff/list", {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
       const data = await res.json();
 
       if (res.ok && data.success) {
         setStaffList(data.data || []);
+      } else {
+        throw new Error(data?.message || "Staff fetch failed");
       }
-    } catch (err) {}
+    } catch (err: any) {
+      toast.error(err?.message || "Telecaller list load nahi ho paayi");
+    }
   };
 
   useEffect(() => {
-    if (leadId) {
-      fetchLead();
-      fetchStaff();
-    }
-  }, [leadId]);
+    if (!token || !leadId) return;
+    fetchLead();
+    fetchStaff();
+  }, [token, leadId]);
 
   // ✅ Re-Assign Lead
   const handleAssign = async (staffId: string) => {
     if (!lead) return;
+    if (!staffId) return;
 
     setAssigning(true);
     try {
@@ -99,6 +134,7 @@ export default function AdminLeadDetailsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           leadId: lead.id,
@@ -131,6 +167,7 @@ export default function AdminLeadDetailsPage() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           leadId: lead.id,
@@ -154,7 +191,13 @@ export default function AdminLeadDetailsPage() {
     }
   };
 
-  if (loading) {
+  if (loading || !profile) {
+    return (
+      <div className="p-6 text-sm text-gray-500">Checking admin access...</div>
+    );
+  }
+
+  if (loadingLead) {
     return (
       <div className="p-6 text-sm text-gray-500">Loading lead details...</div>
     );
@@ -190,12 +233,12 @@ export default function AdminLeadDetailsPage() {
 
         <div>
           <p className="text-xs text-gray-500">Business Name</p>
-          <p className="text-sm font-medium">{lead.businessName}</p>
+          <p className="text-sm font-medium">{lead.businessName || "-"}</p>
         </div>
 
         <div>
           <p className="text-xs text-gray-500">Contact</p>
-          <p className="text-sm font-medium">{lead.contact}</p>
+          <p className="text-sm font-medium">{lead.phone || "-"}</p>
         </div>
 
         <div>
@@ -209,7 +252,7 @@ export default function AdminLeadDetailsPage() {
         </div>
       </div>
 
-      {/* ✅ TASK CONTROLS (NEW) */}
+      {/* ✅ TASK CONTROLS */}
       <div className="bg-white border rounded-xl p-5 space-y-4">
         <h3 className="text-sm font-semibold">Task Controls (For Telecaller)</h3>
 

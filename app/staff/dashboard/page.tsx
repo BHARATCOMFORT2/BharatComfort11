@@ -26,6 +26,9 @@ type Lead = {
   dueDate?: any;
 };
 
+/* ---------------------------------------
+   CONSTANTS
+---------------------------------------- */
 const STATUS_OPTIONS = [
   "new",
   "contacted",
@@ -73,7 +76,7 @@ export default function TelecallerDashboardPage() {
   } | null>(null);
 
   /* ---------------------------------------
-     ✅ STAFF AUTH + APPROVAL CHECK
+     ✅ STAFF AUTH + APPROVAL
   ---------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -98,21 +101,19 @@ export default function TelecallerDashboardPage() {
 
         if (profile.role !== "telecaller") {
           await signOut(auth);
-          toast.error("This dashboard is for telecallers only");
+          toast.error("Telecaller only access");
           router.push("/staff/login");
           return;
         }
 
         if (profile.status !== "approved" || profile.isActive !== true) {
           await signOut(auth);
-          toast("Your account is not active", { icon: "⏳" });
+          toast("Account not active", { icon: "⏳" });
           router.push("/staff/login");
           return;
         }
 
-        // ✅ staffId = staff document id (yahi admin assign me use ho raha hai)
         setStaffId(user.uid);
-
         const t = await user.getIdToken();
         setToken(t);
 
@@ -137,7 +138,7 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ DEFAULT DATE = TODAY
+     ✅ DEFAULT DATE
   ---------------------------------------- */
   useEffect(() => {
     const today = new Date();
@@ -148,32 +149,34 @@ export default function TelecallerDashboardPage() {
   }, []);
 
   /* ---------------------------------------
-     ✅ FETCH LEADS (CORRECT API + RESPONSE)
+     ✅ FETCH LEADS (✅ FIXED)
+     API RETURNS: { success: true, leads: [...] }
   ---------------------------------------- */
   useEffect(() => {
-    if (!staffId) return;
+    if (!staffId || !token) return;
 
     const fetchLeads = async () => {
       setLoadingLeads(true);
       try {
-        // 🔥 CORRECT ENDPOINT: /api/staff/leads  (NOT /list)
         const res = await fetch("/api/staff/leads", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            staffId,
-          }),
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ staffId }),
         });
 
         const data = await res.json();
+
         if (!res.ok || !data.success) {
           throw new Error(data?.message || "Failed to fetch leads");
         }
 
-        // 🔥 CORRECT FIELD: data.data  (NOT data.leads)
-        let list: Lead[] = data.data || [];
+        // ✅✅✅ FIX: API `leads` return karta hai (NOT data)
+        let list: Lead[] = data.leads || [];
 
-        // ✅ Client-side category filter
+        // ✅ Category filter
         if (selectedCategory !== "all") {
           list = list.filter(
             (lead) =>
@@ -182,11 +185,10 @@ export default function TelecallerDashboardPage() {
           );
         }
 
-        // ✅ Client-side date filter (followupDate == selectedDate)
+        // ✅ Date filter
         if (selectedDate) {
           list = list.filter((lead) => {
-            if (!lead.followupDate) return true; // agar blank hai to dikha do
-            // assume followupDate in "YYYY-MM-DD" ya string
+            if (!lead.followupDate) return true;
             return lead.followupDate.startsWith(selectedDate);
           });
         }
@@ -207,7 +209,7 @@ export default function TelecallerDashboardPage() {
     };
 
     fetchLeads();
-  }, [staffId, selectedDate, selectedCategory]);
+  }, [staffId, token, selectedDate, selectedCategory]);
 
   /* ---------------------------------------
      ✅ STATUS UPDATE
@@ -219,7 +221,10 @@ export default function TelecallerDashboardPage() {
     try {
       const res = await fetch("/api/staff/leads/update-status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ leadId, status }),
       });
 
@@ -228,7 +233,9 @@ export default function TelecallerDashboardPage() {
         throw new Error(data?.message || "Status update failed");
 
       setLeads((prev) =>
-        prev.map((lead) => (lead.id === leadId ? { ...lead, status } : lead))
+        prev.map((lead) =>
+          lead.id === leadId ? { ...lead, status } : lead
+        )
       );
 
       toast.success("Status updated ✅");
@@ -247,15 +254,18 @@ export default function TelecallerDashboardPage() {
     if (!text) return toast.error("Note khali hai");
 
     try {
-      await fetch("/api/staff/leads/update-notes", {
+      const res = await fetch("/api/staff/leads/update-notes", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          leadId,
-          text,
-          staffId,
-        }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ leadId, text }),
       });
+
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error("Note save failed");
 
       toast.success("Note saved ✅");
       setNotesDraft((p) => ({ ...p, [leadId]: "" }));
@@ -269,17 +279,23 @@ export default function TelecallerDashboardPage() {
   ---------------------------------------- */
   const saveCallLog = async (lead: Lead) => {
     try {
-      await fetch("/api/staff/leads/log-call", {
+      const res = await fetch("/api/staff/leads/log-call", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({
           leadId: lead.id,
           phone: lead.phone,
           outcome: callOutcome[lead.id],
           note: callNote[lead.id],
-          staffId,
         }),
       });
+
+      const data = await res.json();
+      if (!res.ok || !data.success)
+        throw new Error("Call log failed");
 
       toast.success("Call log saved ✅");
       setCallOutcome((p) => ({ ...p, [lead.id]: "" }));
@@ -287,13 +303,6 @@ export default function TelecallerDashboardPage() {
     } catch {
       toast.error("Call log save failed");
     }
-  };
-
-  const isOverdue = (dueDate: any, status: string) => {
-    if (!dueDate?.seconds) return false;
-    if (status === "converted") return false;
-    const due = new Date(dueDate.seconds * 1000);
-    return Date.now() > due.getTime();
   };
 
   /* ---------------------------------------
@@ -325,38 +334,8 @@ export default function TelecallerDashboardPage() {
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-semibold">Telecaller Lead Dashboard</h1>
-          <p className="text-sm text-gray-500">
-            Ye saare leads hi tumhare <b>tasks</b> hain. <b>Converted = DONE</b>
-          </p>
         </div>
 
-        {/* ✅ DATE + CATEGORY FILTER */}
-        <div className="flex flex-col md:flex-row gap-3 md:items-center md:justify-between">
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="border px-2 py-1 rounded text-sm"
-          />
-
-          <div className="flex flex-wrap gap-2">
-            {CATEGORY_TABS.map((cat) => (
-              <button
-                key={cat.value}
-                onClick={() => setSelectedCategory(cat.value)}
-                className={`text-xs px-3 py-1 rounded-full border ${
-                  selectedCategory === cat.value
-                    ? "bg-black text-white"
-                    : "bg-gray-100"
-                }`}
-              >
-                {cat.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* ✅ LEADS TABLE */}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {loadingLeads ? (
             <div className="p-6 text-center text-sm text-gray-500">
@@ -370,133 +349,71 @@ export default function TelecallerDashboardPage() {
             <table className="min-w-full text-sm">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="p-3 text-left">Lead</th>
+                  <th className="p-3 text-left">Name</th>
+                  <th className="p-3 text-left">Business</th>
                   <th className="p-3 text-left">Phone</th>
-                  <th className="p-3 text-left">Category</th>
+                  <th className="p-3 text-left">Address</th>
                   <th className="p-3 text-left">Status</th>
                   <th className="p-3 text-left">Note</th>
                   <th className="p-3 text-left">Call</th>
-                  <th className="p-3 text-center">Done</th>
                 </tr>
               </thead>
 
               <tbody>
-                {leads.map((lead) => {
-                  const done = lead.status === "converted";
-                  const overdue = isOverdue(lead.dueDate, lead.status);
+                {leads.map((lead) => (
+                  <tr key={lead.id} className="border-t">
+                    <td className="p-3">{lead.name}</td>
+                    <td className="p-3">{lead.businessName}</td>
+                    <td className="p-3">{lead.phone}</td>
+                    <td className="p-3">{lead.address}</td>
 
-                  return (
-                    <tr
-                      key={lead.id}
-                      className={`border-t ${overdue ? "bg-red-50" : ""}`}
-                    >
-                      <td className="p-3 font-medium">{lead.name}</td>
+                    <td className="p-3">
+                      <select
+                        className="border px-2 py-1 text-xs"
+                        value={lead.status}
+                        onChange={(e) =>
+                          updateStatus(lead.id, e.target.value)
+                        }
+                      >
+                        {STATUS_OPTIONS.map((st) => (
+                          <option key={st} value={st}>
+                            {st}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
 
-                      <td className="p-3">{lead.phone || "-"}</td>
+                    <td className="p-3">
+                      <textarea
+                        className="border w-full p-1 text-xs"
+                        value={notesDraft[lead.id] || ""}
+                        onChange={(e) =>
+                          setNotesDraft((p) => ({
+                            ...p,
+                            [lead.id]: e.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        onClick={() => saveNote(lead.id)}
+                        className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
+                      >
+                        Save
+                      </button>
+                    </td>
 
-                      <td className="p-3 text-xs">{lead.category}</td>
-
-                      <td className="p-3">
-                        <select
-                          className="border rounded px-2 py-1 text-xs"
-                          value={lead.status}
-                          disabled={savingLeadId === lead.id}
-                          onChange={(e) =>
-                            updateStatus(lead.id, e.target.value)
-                          }
-                        >
-                          {STATUS_OPTIONS.map((st) => (
-                            <option key={st} value={st}>
-                              {st.replace("_", " ")}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-
-                      <td className="p-3">
-                        <textarea
-                          className="border rounded w-full text-xs p-2"
-                          rows={2}
-                          value={notesDraft[lead.id] ?? ""}
-                          onChange={(e) =>
-                            setNotesDraft((prev) => ({
-                              ...prev,
-                              [lead.id]: e.target.value,
-                            }))
-                          }
-                        />
-                        <button
-                          onClick={() => saveNote(lead.id)}
-                          className="mt-1 px-2 py-1 text-xs bg-black text-white rounded"
-                        >
-                          Save
-                        </button>
-                      </td>
-
-                      <td className="p-3 space-y-1">
-                        <button
-                          onClick={() => window.open(`tel:${lead.phone}`)}
-                          className="text-xs bg-green-600 text-white px-3 py-1 rounded"
-                        >
-                          📞 Call
-                        </button>
-
-                        <select
-                          value={callOutcome[lead.id] || ""}
-                          onChange={(e) =>
-                            setCallOutcome((p) => ({
-                              ...p,
-                              [lead.id]: e.target.value,
-                            }))
-                          }
-                          className="w-full border px-2 py-1 rounded text-xs"
-                        >
-                          <option value="">Outcome</option>
-                          <option value="not_answered">Not Answered</option>
-                          <option value="busy">Busy</option>
-                          <option value="interested">Interested</option>
-                          <option value="not_interested">Not Interested</option>
-                          <option value="followup_required">Follow-up</option>
-                        </select>
-
-                        <textarea
-                          placeholder="Call note"
-                          value={callNote[lead.id] || ""}
-                          onChange={(e) =>
-                            setCallNote((p) => ({
-                              ...p,
-                              [lead.id]: e.target.value,
-                            }))
-                          }
-                          className="w-full border rounded px-2 py-1 text-xs"
-                        />
-
-                        <button
-                          onClick={() => saveCallLog(lead)}
-                          className="text-xs bg-purple-600 text-white px-3 py-1 rounded"
-                        >
-                          Save Call
-                        </button>
-                      </td>
-
-                      <td className="p-3 text-center">
-                        <button
-                          onClick={() =>
-                            !done && updateStatus(lead.id, "converted")
-                          }
-                          disabled={done}
-                          className={`px-3 py-1 text-xs rounded ${
-                            done
-                              ? "bg-green-100 text-green-700"
-                              : "bg-green-600 text-white"
-                          }`}
-                        >
-                          {done ? "Done" : "Mark Done"}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
+                    <td className="p-3">
+                      <button
+                        onClick={() =>
+                          window.open(`tel:${lead.phone || ""}`)
+                        }
+                        className="bg-green-600 text-white text-xs px-3 py-1 rounded"
+                      >
+                        📞 Call
+                      </button>
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           )}

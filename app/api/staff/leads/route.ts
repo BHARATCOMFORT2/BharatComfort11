@@ -19,7 +19,7 @@ export async function POST(req: Request) {
 
     const { db: adminDb } = getFirebaseAdmin();
 
-    // ✅ STAFF VALIDATION
+    // ✅ STAFF VALIDATION (SOURCE OF TRUTH)
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ FINAL SAFE FETCH (NO orderBy)
+    // ✅ ✅ ✅ FINAL CORRECT FETCH
     const snapshot = await adminDb
       .collection("leads")
       .where("assignedTo", "==", staffId)
@@ -51,7 +51,24 @@ export async function POST(req: Request) {
 
     const leads = snapshot.docs.map((doc) => ({
       id: doc.id,
-      ...doc.data(),
+
+      // ✅ expose only safe fields (dashboard ke liye)
+      name: doc.data().name || "",
+      businessName: doc.data().businessName || "",
+      phone: doc.data().phone || "",
+      email: doc.data().email || "",
+      city: doc.data().city || "",
+
+      status: doc.data().status || "new",
+      followupDate: doc.data().followupDate || "",
+
+      assignedTo: doc.data().assignedTo || "",
+
+      adminNote: doc.data().adminNote || "",
+      partnerNotes: doc.data().partnerNotes || "",
+
+      createdAt: doc.data().createdAt || null,
+      updatedAt: doc.data().updatedAt || null,
     }));
 
     console.log("✅ TELECALLER LEADS FOUND:", leads.length);
@@ -67,7 +84,6 @@ export async function POST(req: Request) {
       {
         success: false,
         message: "Failed to fetch assigned leads",
-        error: error.message,
       },
       { status: 500 }
     );

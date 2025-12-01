@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
     const { db: adminDb } = getFirebaseAdmin();
 
-    // ✅ STAFF VALIDATION (SOURCE OF TRUTH)
+    // ✅ STAFF VALIDATION
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -42,7 +42,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ FETCH ASSIGNED LEADS
+    // ✅ FETCH ASSIGNED LEADS
     const snapshot = await adminDb
       .collection("leads")
       .where("assignedTo", "==", staffId)
@@ -54,15 +54,14 @@ export async function POST(req: Request) {
       return {
         id: doc.id,
 
-        // ✅ Dashboard required fields
         name: d.name || "",
         businessName: d.businessName || "",
         contactPerson: d.contactPerson || "",
 
-        // ✅ ✅ ✅ PHONE FIX (all possible names)
+        // ✅ PHONE FIX
         phone: d.phone || d.mobile || d.contact || "",
 
-        // ✅ ✅ ✅ ADDRESS FIX (now dashboard will show it)
+        // ✅ ADDRESS FIX
         address: d.address || d.city || d.location || "",
 
         email: d.email || "",
@@ -84,10 +83,10 @@ export async function POST(req: Request) {
 
     console.log("✅ TELECALLER LEADS FOUND:", leads.length);
 
-    // ✅ ✅ ✅ IMPORTANT: frontend `data.leads` expect karta hai
+    // ✅ ✅ ✅ FRONTEND COMPATIBLE RESPONSE (MOST IMPORTANT FIX)
     return NextResponse.json({
       success: true,
-      leads,   // ❗❗❗ NOT `data`
+      data: leads,   // ✅ ✅ ✅ THIS FIXES EVERYTHING
     });
   } catch (error: any) {
     console.error("❌ Telecaller leads fetch error:", error);

@@ -1,4 +1,3 @@
-// app/api/staff/leads/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -43,39 +42,52 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ FINAL CORRECT FETCH
+    // ✅ ✅ ✅ FETCH ASSIGNED LEADS
     const snapshot = await adminDb
       .collection("leads")
       .where("assignedTo", "==", staffId)
       .get();
 
-    const leads = snapshot.docs.map((doc) => ({
-      id: doc.id,
+    const leads = snapshot.docs.map((doc) => {
+      const d = doc.data();
 
-      // ✅ expose only safe fields (dashboard ke liye)
-      name: doc.data().name || "",
-      businessName: doc.data().businessName || "",
-      phone: doc.data().phone || "",
-      email: doc.data().email || "",
-      city: doc.data().city || "",
+      return {
+        id: doc.id,
 
-      status: doc.data().status || "new",
-      followupDate: doc.data().followupDate || "",
+        // ✅ Dashboard required fields
+        name: d.name || "",
+        businessName: d.businessName || "",
+        contactPerson: d.contactPerson || "",
 
-      assignedTo: doc.data().assignedTo || "",
+        // ✅ ✅ ✅ PHONE FIX (all possible names)
+        phone: d.phone || d.mobile || d.contact || "",
 
-      adminNote: doc.data().adminNote || "",
-      partnerNotes: doc.data().partnerNotes || "",
+        // ✅ ✅ ✅ ADDRESS FIX (now dashboard will show it)
+        address: d.address || d.city || d.location || "",
 
-      createdAt: doc.data().createdAt || null,
-      updatedAt: doc.data().updatedAt || null,
-    }));
+        email: d.email || "",
+        category: d.category || "",
+
+        status: d.status || "new",
+        followupDate: d.followupDate || "",
+        dueDate: d.dueDate || null,
+
+        assignedTo: d.assignedTo || "",
+
+        adminNote: d.adminNote || "",
+        partnerNotes: d.partnerNotes || "",
+
+        createdAt: d.createdAt || null,
+        updatedAt: d.updatedAt || null,
+      };
+    });
 
     console.log("✅ TELECALLER LEADS FOUND:", leads.length);
 
+    // ✅ ✅ ✅ IMPORTANT: frontend `data.leads` expect karta hai
     return NextResponse.json({
       success: true,
-      data: leads,
+      leads,   // ❗❗❗ NOT `data`
     });
   } catch (error: any) {
     console.error("❌ Telecaller leads fetch error:", error);

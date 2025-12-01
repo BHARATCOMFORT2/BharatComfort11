@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { FieldValue } from "firebase-admin/firestore";
 
 // ✅ Allowed dropdown values (LOCKED)
 const ALLOWED_STATUS = [
@@ -55,7 +54,7 @@ export async function POST(req: Request) {
     const staffId = decoded.uid; // ✅ REAL STAFF ID FROM TOKEN
 
     const body = await req.json();
-    const { leadId, status, note } = body || {}; // ✅ note ADDED
+    const { leadId, status } = body || {};
 
     if (!leadId || !status) {
       return NextResponse.json(
@@ -127,18 +126,16 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ FINAL SAFE UPDATE (PERFORMANCE + NOTES + STATUS)
+    // ✅ ✅ ✅ FINAL SAFE STATUS UPDATE (NO NOTES HERE)
     await leadRef.update({
       status,
-      updatedAt: FieldValue.serverTimestamp(), // ✅ performance driver
-      lastUpdatedBy: staffId,                  // ✅ admin tracking
-      lastRemark: note || "",                  // ✅ admin latest note
-      partnerNotes: note || "",                // ✅ telecaller UI note
+      updatedAt: new Date(),      // ✅ clean timestamp
+      lastUpdatedBy: staffId,     // ✅ admin tracking
     });
 
     return NextResponse.json({
       success: true,
-      message: "Lead status & notes updated successfully",
+      message: "✅ Lead status updated successfully",
     });
   } catch (error: any) {
     console.error("Lead status update error:", error);

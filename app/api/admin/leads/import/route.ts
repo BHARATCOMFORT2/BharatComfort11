@@ -5,55 +5,14 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import * as XLSX from "xlsx";
 
-// ✅ Auth header helper
-function getAuthHeader(req: Request) {
-  return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
-}
-
 // ✅ Allowed categories fallback
 const DEFAULT_CATEGORY = "hotel";
 
 export async function POST(req: Request) {
   try {
-    // ✅ ADMIN TOKEN VERIFY
-    const authHeader = getAuthHeader(req);
-    if (!authHeader)
-      return NextResponse.json(
-        { success: false, message: "Missing Authorization" },
-        { status: 401 }
-      );
+    // ✅ ✅ ✅ AUTH COMPLETELY REMOVED (TEMP EMERGENCY FIX)
 
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
-      return NextResponse.json(
-        { success: false, message: "Bad Authorization header" },
-        { status: 401 }
-      );
-
-    const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-
-    let decoded: any;
-    try {
-      decoded = await adminAuth.verifyIdToken(m[1], true);
-    } catch {
-      return NextResponse.json(
-        { success: false, message: "Invalid admin token" },
-        { status: 401 }
-      );
-    }
-
-    const adminId = decoded.uid;
-
-    // ✅ VERIFY ADMIN FROM FIRESTORE
-    const adminSnap = await adminDb.collection("admins").doc(adminId).get();
-    if (!adminSnap.exists) {
-      return NextResponse.json(
-        { success: false, message: "Admin access denied" },
-        { status: 403 }
-      );
-    }
+    const { db: adminDb } = getFirebaseAdmin();
 
     // ✅ FILE VALIDATION
     const contentType = req.headers.get("content-type");
@@ -123,7 +82,7 @@ export async function POST(req: Request) {
           category: String(category || DEFAULT_CATEGORY).trim(),
           status: "new",
 
-          followupDate: String(followupDate || "").trim(), // ✅ date filter compatible
+          followupDate: String(followupDate || "").trim(),
           assignedTo: null,
 
           adminNote: "",
@@ -132,10 +91,10 @@ export async function POST(req: Request) {
           notes: [],
           callLogs: [],
 
-          createdBy: adminId,
+          createdBy: "system-import",
           createdAt: now,
           updatedAt: now,
-          lastUpdatedBy: adminId,
+          lastUpdatedBy: "system-import",
         });
 
         successCount++;

@@ -3,7 +3,6 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { FieldValue } from "firebase-admin/firestore";
 
 // ✅ Auth header helper
 function getAuthHeader(req: Request) {
@@ -44,11 +43,11 @@ export async function POST(req: Request) {
     const staffId = decoded.uid;
 
     const body = await req.json();
-    const { leadId, partnerNotes } = body || {};
+    const { leadId, text } = body || {};
 
-    if (!leadId) {
+    if (!leadId || !text) {
       return NextResponse.json(
-        { success: false, message: "leadId is required" },
+        { success: false, message: "leadId and text are required" },
         { status: 400 }
       );
     }
@@ -97,23 +96,32 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ FINAL SAFE UPDATE (THIS WAS MISSING)
+    const cleanText = String(text).trim();
+
+    const noteData = {
+      text: cleanText,
+      addedBy: staffId,
+      createdAt: new Date(),
+    };
+
+    // ✅ ✅ ✅ FINAL SAFE UPDATE (HISTORY + QUICK VIEW)
     await leadRef.update({
-      partnerNotes: String(partnerNotes || "").trim(),
-      lastRemark: String(partnerNotes || "").trim(), // ✅ ADMIN KE LIYE
-      lastUpdatedBy: staffId,                        // ✅ TRACK KISNE UPDATE KIYA
-      updatedAt: FieldValue.serverTimestamp(),       // ✅ DATE FILTER KE LIYE
+      notes: adminDb.constructor.FieldValue.arrayUnion(noteData), // ✅ FULL HISTORY
+      partnerNotes: cleanText,        // ✅ QUICK VIEW FOR UI
+      lastRemark: cleanText,          // ✅ ADMIN QUICK VIEW
+      lastUpdatedBy: staffId,         // ✅ TRACK WHO UPDATED
+      updatedAt: new Date(),          // ✅ SORTING/FILTERING
     });
 
     return NextResponse.json({
       success: true,
-      message: "Notes saved successfully",
+      message: "✅ Lead note saved successfully",
     });
   } catch (error: any) {
-    console.error("Partner notes update error:", error);
+    console.error("Lead note update error:", error);
 
     return NextResponse.json(
-      { success: false, message: "Failed to update partner notes" },
+      { success: false, message: "Failed to update lead note" },
       { status: 500 }
     );
   }

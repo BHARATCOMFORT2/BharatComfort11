@@ -45,36 +45,32 @@ export default function Navbar() {
           BharatComfort
         </Link>
 
-        {/* Desktop Links */}
+        {/* ✅ Desktop Links */}
         <div className="hidden md:flex flex-1 justify-center gap-10">
-          <Link
-            href="/explore"
-            className="text-gray-200 hover:text-yellow-400 transition"
-          >
+          <Link href="/explore" className="text-gray-200 hover:text-yellow-400 transition">
             Explore
           </Link>
-          <Link
-            href="/destinations"
-            className="text-gray-200 hover:text-yellow-400 transition"
-          >
+          <Link href="/destinations" className="text-gray-200 hover:text-yellow-400 transition">
             Destinations
           </Link>
-          <Link
-            href="/bookings"
-            className="text-gray-200 hover:text-yellow-400 transition"
-          >
+          <Link href="/bookings" className="text-gray-200 hover:text-yellow-400 transition">
             Bookings
           </Link>
-          <Link
-            href="/contact"
-            className="text-gray-200 hover:text-yellow-400 transition"
-          >
+          <Link href="/contact" className="text-gray-200 hover:text-yellow-400 transition">
             Contact
           </Link>
         </div>
 
-        {/* ✅ Auth Buttons + Staff Portal (DESKTOP) */}
-        <div className="hidden md:flex gap-4">
+        {/* ✅ Auth + Partner + Staff (DESKTOP) */}
+        <div className="hidden md:flex gap-4 items-center">
+          {/* ✅ NEW: Partner With Us */}
+          <Link
+            href="/partners/register"
+            className="px-5 py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-black font-semibold shadow-lg hover:from-yellow-300 hover:to-amber-400 transition"
+          >
+            Partner With Us
+          </Link>
+
           {!loggedIn ? (
             <>
               {/* ✅ Staff Portal */}
@@ -120,7 +116,7 @@ export default function Navbar() {
           )}
         </div>
 
-        {/* Mobile Menu Toggle */}
+        {/* ✅ Mobile Menu Toggle */}
         <button
           onClick={() => setMenuOpen(!menuOpen)}
           className="md:hidden text-yellow-400 focus:outline-none"
@@ -140,41 +136,33 @@ export default function Navbar() {
             className="md:hidden absolute top-16 left-0 w-full bg-black/80 backdrop-blur-md shadow-lg p-6 space-y-6"
           >
             <div className="flex flex-col items-center gap-6">
-              <Link
-                href="/explore"
-                onClick={() => setMenuOpen(false)}
-                className="text-gray-200 hover:text-yellow-400 transition"
-              >
+              <Link href="/explore" onClick={() => setMenuOpen(false)} className="text-gray-200 hover:text-yellow-400">
                 Explore
               </Link>
-              <Link
-                href="/destinations"
-                onClick={() => setMenuOpen(false)}
-                className="text-gray-200 hover:text-yellow-400 transition"
-              >
+              <Link href="/destinations" onClick={() => setMenuOpen(false)} className="text-gray-200 hover:text-yellow-400">
                 Destinations
               </Link>
-              <Link
-                href="/bookings"
-                onClick={() => setMenuOpen(false)}
-                className="text-gray-200 hover:text-yellow-400 transition"
-              >
+              <Link href="/bookings" onClick={() => setMenuOpen(false)} className="text-gray-200 hover:text-yellow-400">
                 Bookings
               </Link>
-              <Link
-                href="/contact"
-                onClick={() => setMenuOpen(false)}
-                className="text-gray-200 hover:text-yellow-400 transition"
-              >
+              <Link href="/contact" onClick={() => setMenuOpen(false)} className="text-gray-200 hover:text-yellow-400">
                 Contact
               </Link>
             </div>
 
-            {/* ✅ Auth Buttons + Staff Portal (MOBILE) */}
+            {/* ✅ Mobile Partner + Auth + Staff */}
             <div className="flex flex-col gap-4 pt-6 border-t border-yellow-400/30">
+              {/* ✅ NEW: Partner With Us (MOBILE) */}
+              <Link
+                href="/partners/register"
+                onClick={() => setMenuOpen(false)}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-black font-semibold shadow-md text-center"
+              >
+                Partner With Us
+              </Link>
+
               {!loggedIn ? (
                 <>
-                  {/* ✅ Staff Portal */}
                   <Link
                     href="/staff"
                     onClick={() => setMenuOpen(false)}
@@ -183,7 +171,6 @@ export default function Navbar() {
                     Staff Portal
                   </Link>
 
-                  {/* ✅ Login */}
                   <Link
                     href="/auth/login"
                     onClick={() => setMenuOpen(false)}
@@ -192,7 +179,6 @@ export default function Navbar() {
                     Login
                   </Link>
 
-                  {/* ✅ Sign Up */}
                   <Link
                     href="/auth/register"
                     onClick={() => setMenuOpen(false)}

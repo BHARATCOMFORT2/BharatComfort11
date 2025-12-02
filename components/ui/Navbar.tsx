@@ -63,9 +63,9 @@ export default function Navbar() {
 
         {/* ✅ Auth + Partner + Staff (DESKTOP) */}
         <div className="hidden md:flex gap-4 items-center">
-          {/* ✅ NEW: Partner With Us */}
+          {/* ✅ Partner With Us (UPDATED LINK) */}
           <Link
-            href="/partners/register"
+            href="/partner-with-us"
             className="px-5 py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-black font-semibold shadow-lg hover:from-yellow-300 hover:to-amber-400 transition"
           >
             Partner With Us
@@ -152,9 +152,9 @@ export default function Navbar() {
 
             {/* ✅ Mobile Partner + Auth + Staff */}
             <div className="flex flex-col gap-4 pt-6 border-t border-yellow-400/30">
-              {/* ✅ NEW: Partner With Us (MOBILE) */}
+              {/* ✅ Partner With Us (UPDATED LINK) */}
               <Link
-                href="/partners/register"
+                href="/partner-with-us"
                 onClick={() => setMenuOpen(false)}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-yellow-400 to-amber-500 text-black font-semibold shadow-md text-center"
               >

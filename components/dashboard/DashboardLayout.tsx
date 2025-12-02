@@ -80,10 +80,15 @@ export default function DashboardLayout({ title, children, profile }: Props) {
 
   const staffLinks = [{ name: "My Tasks", path: "/staff/dashboard" }];
 
+  // ✅ ✅ ✅ UPDATED ADMIN LINKS (Partner Leads ADDED)
   const adminLinks = [
     { name: "Dashboard", path: "/admin/dashboard" },
     { name: "Users", path: "/admin/dashboard/users" },
     { name: "Partners", path: "/admin/dashboard/partners" },
+
+    // ✅ NEW LINK ADDED HERE
+    { name: "✅ Partner Leads", path: "/admin/partners-confirmed" },
+
     { name: "KYC", path: "/admin/dashboard/kyc" },
     { name: "Listings", path: "/admin/dashboard/homepage" },
     { name: "Staff Management", path: "/admin/staff" },

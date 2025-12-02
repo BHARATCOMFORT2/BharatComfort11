@@ -6,7 +6,6 @@ import {
   collection,
   onSnapshot,
   query,
-  orderBy,
   updateDoc,
   doc,
   serverTimestamp,
@@ -18,7 +17,7 @@ type PartnerLead = {
   mobile: string;
   businessName: string;
   city: string;
-  businessType: string;
+  businessType?: string;
   planType: string;
   status: string; // confirmed | called | followup | converted | rejected
   followUpDate?: string;
@@ -28,24 +27,37 @@ type PartnerLead = {
 export default function ConfirmedPartnerLeadsPage() {
   const [leads, setLeads] = useState<PartnerLead[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    const q = query(
-      collection(db, "confirmedPartnerLeads"),
-      orderBy("createdAt", "desc")
-    );
+    try {
+      // ✅ SAFE QUERY (NO orderBy)
+      const q = query(collection(db, "confirmedPartnerLeads"));
 
-    const unsubscribe = onSnapshot(q, (snap) => {
-      const data: PartnerLead[] = snap.docs.map((docSnap) => ({
-        id: docSnap.id,
-        ...(docSnap.data() as any),
-      }));
+      const unsubscribe = onSnapshot(
+        q,
+        (snap) => {
+          const data: PartnerLead[] = snap.docs.map((docSnap) => ({
+            id: docSnap.id,
+            ...(docSnap.data() as any),
+          }));
 
-      setLeads(data);
+          setLeads(data);
+          setLoading(false);
+        },
+        (err) => {
+          console.error("Firestore error:", err);
+          setError("Firestore permission or index error");
+          setLoading(false);
+        }
+      );
+
+      return () => unsubscribe();
+    } catch (err) {
+      console.error("Listener init failed:", err);
+      setError("Listener failed to initialize");
       setLoading(false);
-    });
-
-    return () => unsubscribe();
+    }
   }, []);
 
   async function updateStatus(id: string, status: string) {
@@ -83,11 +95,15 @@ export default function ConfirmedPartnerLeadsPage() {
 
       {loading && <p className="text-slate-300">Loading leads...</p>}
 
-      {!loading && leads.length === 0 && (
+      {!loading && error && (
+        <p className="text-red-400 font-semibold">{error}</p>
+      )}
+
+      {!loading && !error && leads.length === 0 && (
         <p className="text-slate-400">No partner leads yet.</p>
       )}
 
-      {!loading && leads.length > 0 && (
+      {!loading && !error && leads.length > 0 && (
         <div className="overflow-x-auto rounded-2xl border border-white/10">
           <table className="w-full text-sm">
             <thead className="bg-black/50">

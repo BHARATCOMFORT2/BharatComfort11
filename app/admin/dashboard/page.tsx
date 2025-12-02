@@ -339,32 +339,42 @@ export default function AdminDashboardPage() {
         ))}
       </div>
 
-      {/* ✅ LEADS / TASK MANAGEMENT */}
-      <section className="mt-8 mb-12">
-        <h3 className="font-semibold mb-4">Lead & Task Management</h3>
-        <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
-          <Link
-            href="/admin/leads"
-            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
-          >
-            📋 All Leads / Tasks
-          </Link>
+     {/* ✅ LEADS / TASK MANAGEMENT */}
+<section className="mt-8 mb-12">
+  <h3 className="font-semibold mb-4">Lead & Task Management</h3>
+  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
 
-          <Link
-            href="/admin/leads/import"
-            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
-          >
-            ⬆️ Import Leads (Excel)
-          </Link>
+    <Link
+      href="/admin/leads"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      📋 All Leads / Tasks
+    </Link>
 
-          <Link
-            href="/admin/dashboard/staff-performance"
-            className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
-          >
-            📊 Telecaller Performance
-          </Link>
-        </div>
-      </section>
+    <Link
+      href="/admin/leads/import"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      ⬆️ Import Leads (Excel)
+    </Link>
+
+    <Link
+      href="/admin/dashboard/staff-performance"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      📊 Telecaller Performance
+    </Link>
+
+    {/* ✅✅✅ THIS IS YOUR PARTNER LEADS LINK */}
+    <Link
+      href="/admin/partners-confirmed"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      ✅ Partner Leads (Confirmed)
+    </Link>
+
+  </div>
+</section>
 
       {/* STAFF MANAGEMENT (EXISTING) */}
       <section className="mt-8 mb-12">

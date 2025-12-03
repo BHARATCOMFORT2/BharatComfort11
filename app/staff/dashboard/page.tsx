@@ -30,6 +30,7 @@ type Lead = {
    CONSTANTS
 ---------------------------------------- */
 const STATUS_OPTIONS = [
+  "all",
   "new",
   "contacted",
   "interested",
@@ -38,6 +39,8 @@ const STATUS_OPTIONS = [
   "converted",
   "invalid",
 ];
+
+const DATE_RANGES = ["all", "today", "7days", "month", "custom"];
 
 /* ---------------------------------------
    COMPONENT
@@ -55,13 +58,17 @@ export default function TelecallerDashboardPage() {
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
 
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
-  const [callOutcome, setCallOutcome] = useState<Record<string, string>>({});
-  const [callNote, setCallNote] = useState<Record<string, string>>({});
 
   const [staffProfile, setStaffProfile] = useState<{
     name?: string;
     role?: "staff";
   } | null>(null);
+
+  // ✅ FILTER STATES
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [dateRange, setDateRange] = useState("all");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   /* ---------------------------------------
      ✅ STAFF AUTH + APPROVAL
@@ -126,8 +133,7 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ FETCH LEADS (✅ FINAL FIX)
-     BACKEND RETURNS: { success: true, data: [] }
+     ✅ FETCH LEADS WITH FILTERS
   ---------------------------------------- */
   useEffect(() => {
     if (!staffId || !token) return;
@@ -141,7 +147,13 @@ export default function TelecallerDashboardPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ staffId }),
+          body: JSON.stringify({
+            staffId,
+            status: statusFilter !== "all" ? statusFilter : undefined,
+            range: dateRange !== "all" ? dateRange : undefined,
+            fromDate,
+            toDate,
+          }),
         });
 
         const data = await res.json();
@@ -150,9 +162,7 @@ export default function TelecallerDashboardPage() {
           throw new Error(data?.message || "Failed to fetch leads");
         }
 
-        // ✅ ✅ ✅ FINAL MATCH WITH BACKEND
         let list: Lead[] = data.data || [];
-
         setLeads(list);
 
         const draft: Record<string, string> = {};
@@ -169,7 +179,7 @@ export default function TelecallerDashboardPage() {
     };
 
     fetchLeads();
-  }, [staffId, token]);
+  }, [staffId, token, statusFilter, dateRange, fromDate, toDate]);
 
   /* ---------------------------------------
      ✅ STATUS UPDATE
@@ -246,10 +256,56 @@ export default function TelecallerDashboardPage() {
   if (!staffId) return null;
 
   /* ---------------------------------------
-     ✅ FINAL UI
+     ✅ FINAL UI WITH FILTERS
   ---------------------------------------- */
   return (
     <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
+      
+      {/* ✅ FILTER BAR */}
+      <div className="bg-white mb-4 p-3 rounded shadow flex flex-wrap gap-3 items-center">
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="border px-3 py-1 text-sm"
+        >
+          {STATUS_OPTIONS.map((st) => (
+            <option key={st} value={st}>
+              {st.toUpperCase()}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={dateRange}
+          onChange={(e) => setDateRange(e.target.value)}
+          className="border px-3 py-1 text-sm"
+        >
+          {DATE_RANGES.map((dr) => (
+            <option key={dr} value={dr}>
+              {dr.toUpperCase()}
+            </option>
+          ))}
+        </select>
+
+        {dateRange === "custom" && (
+          <>
+            <input
+              type="date"
+              className="border px-2 py-1 text-sm"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+            />
+            <input
+              type="date"
+              className="border px-2 py-1 text-sm"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+            />
+          </>
+        )}
+      </div>
+
+      {/* ✅ LEADS TABLE */}
       <div className="bg-white rounded-lg shadow overflow-x-auto">
         {loadingLeads ? (
           <div className="p-6 text-center text-sm text-gray-500">
@@ -257,7 +313,7 @@ export default function TelecallerDashboardPage() {
           </div>
         ) : leads.length === 0 ? (
           <div className="p-6 text-center text-sm text-gray-500">
-            Abhi koi task assign nahi hua.
+            Koi matching lead nahi mili.
           </div>
         ) : (
           <table className="min-w-full text-sm">
@@ -291,7 +347,7 @@ export default function TelecallerDashboardPage() {
                         updateStatus(lead.id, e.target.value)
                       }
                     >
-                      {STATUS_OPTIONS.map((st) => (
+                      {STATUS_OPTIONS.filter(s => s !== "all").map((st) => (
                         <option key={st} value={st}>
                           {st}
                         </option>

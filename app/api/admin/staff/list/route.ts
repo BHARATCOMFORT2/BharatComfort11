@@ -1,12 +1,9 @@
-// app/api/admin/staff/list/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Safe header helper (browser + server)
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization") || req.headers.get("Authorization")
@@ -15,7 +12,6 @@ function getAuthHeader(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    // ✅ TOKEN VERIFY
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -43,57 +39,30 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ 1️⃣ PENDING TELECALLERS — FROM staffRequests
-    const pendingSnap = await adminDb
-      .collection("staffRequests")
-      .where("status", "==", "pending")
-      .get();
-
-    const pending = pendingSnap.docs.map((doc) => {
-      const d = doc.data();
-      return {
-        id: doc.id,
-        name: d.name || "",
-        email: d.email || "",
-        phone: d.phone || "",
-        role: d.role || "telecaller",
-        status: "pending",
-        isActive: false,
-        type: "pending", // ✅ UI helper
-      };
-    });
-
-    // ✅ ✅ ✅ 2️⃣ APPROVED TELECALLERS — FROM staff
-    const approvedSnap = await adminDb
+    // ✅ ✅ ✅ ONLY APPROVED TELECALLERS (STABLE OLD BEHAVIOR)
+    const snap = await adminDb
       .collection("staff")
       .where("role", "==", "telecaller")
       .where("status", "==", "approved")
       .where("isActive", "==", true)
       .get();
 
-    const approved = approvedSnap.docs.map((doc) => {
+    const data = snap.docs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
         name: d.name || "",
         email: d.email || "",
         phone: d.phone || "",
-        role: d.role || "telecaller",
-        status: "approved",
-        isActive: true,
-        type: "approved", // ✅ UI helper
+        role: d.role || "",
+        status: d.status || "",
+        isActive: d.isActive || false,
       };
     });
 
-    // ✅ ✅ ✅ COMBINED RESPONSE (ONE ADMIN UI)
     return NextResponse.json({
       success: true,
-      data: {
-        pending,
-        approved,
-        totalPending: pending.length,
-        totalApproved: approved.length,
-      },
+      data, // ✅ ARRAY — UI TUTEGI NAHI
     });
   } catch (err: any) {
     console.error("ADMIN STAFF LIST ERROR:", err);

@@ -1,10 +1,12 @@
+// app/api/admin/staff/list/route.ts
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Safe header helper
+// ✅ Safe header helper (browser + server)
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization") || req.headers.get("Authorization")
@@ -15,18 +17,20 @@ export async function GET(req: Request) {
   try {
     // ✅ TOKEN VERIFY
     const authHeader = getAuthHeader(req);
-    if (!authHeader)
+    if (!authHeader) {
       return NextResponse.json(
         { success: false, message: "Missing Authorization" },
         { status: 401 }
       );
+    }
 
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
+    if (!m) {
       return NextResponse.json(
         { success: false, message: "Bad Authorization header" },
         { status: 401 }
       );
+    }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
@@ -39,7 +43,7 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ 1️⃣ PENDING FROM staffRequests
+    // ✅ ✅ ✅ 1️⃣ PENDING TELECALLERS — FROM staffRequests
     const pendingSnap = await adminDb
       .collection("staffRequests")
       .where("status", "==", "pending")
@@ -52,16 +56,14 @@ export async function GET(req: Request) {
         name: d.name || "",
         email: d.email || "",
         phone: d.phone || "",
-        city: d.city || "",
-        experience: d.experience || "",
-        languages: d.languages || [],
+        role: d.role || "telecaller",
         status: "pending",
         isActive: false,
-        type: "pending", // ✅ FOR UI
+        type: "pending", // ✅ UI helper
       };
     });
 
-    // ✅ ✅ ✅ 2️⃣ APPROVED FROM staff
+    // ✅ ✅ ✅ 2️⃣ APPROVED TELECALLERS — FROM staff
     const approvedSnap = await adminDb
       .collection("staff")
       .where("role", "==", "telecaller")
@@ -76,16 +78,14 @@ export async function GET(req: Request) {
         name: d.name || "",
         email: d.email || "",
         phone: d.phone || "",
-        city: d.city || "",
-        experience: d.experience || "",
-        languages: d.languages || [],
+        role: d.role || "telecaller",
         status: "approved",
         isActive: true,
-        type: "approved", // ✅ FOR UI
+        type: "approved", // ✅ UI helper
       };
     });
 
-    // ✅ ✅ ✅ COMBINED RESPONSE (ONE UI)
+    // ✅ ✅ ✅ COMBINED RESPONSE (ONE ADMIN UI)
     return NextResponse.json({
       success: true,
       data: {

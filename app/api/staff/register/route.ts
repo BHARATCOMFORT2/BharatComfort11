@@ -14,13 +14,12 @@ export async function POST(req: Request) {
       name,
       email,
       password,
-      phone,        // mobile number
+      phone,
       city,
-      experience,   // optional string
-      languages,    // string ya array ["Hindi", "English"]
+      experience,
+      languages,
     } = body || {};
 
-    // Basic validation
     if (!name || !email || !password || !phone) {
       return NextResponse.json(
         {
@@ -34,13 +33,12 @@ export async function POST(req: Request) {
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
-    // Check if email already in use
+    // ✅ Check if email already exists
     let existingUser = null;
     try {
       existingUser = await adminAuth.getUserByEmail(email);
     } catch (err: any) {
       if (err.code !== "auth/user-not-found") {
-        console.error("Error checking existing user:", err);
         return NextResponse.json(
           {
             success: false,
@@ -63,14 +61,14 @@ export async function POST(req: Request) {
       );
     }
 
-    // Normalize phone (assume India if + not given)
+    // ✅ Normalize phone
     let phoneNumber: string | undefined = undefined;
     if (phone) {
       const trimmed = String(phone).trim();
       phoneNumber = trimmed.startsWith("+") ? trimmed : `+91${trimmed}`;
     }
 
-    // Create user in Firebase Auth
+    // ✅ Create Firebase Auth User
     const userRecord = await adminAuth.createUser({
       email,
       password,
@@ -82,7 +80,6 @@ export async function POST(req: Request) {
 
     const staffId = userRecord.uid;
 
-    // Normalize languages
     const normalizedLanguages: string[] =
       Array.isArray(languages)
         ? languages
@@ -90,18 +87,23 @@ export async function POST(req: Request) {
         ? [String(languages)]
         : [];
 
-    // Create staff document in Firestore
-    await adminDb.collection("staff").doc(staffId).set({
+    // ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅
+    // ✅ SAVE ONLY IN staffRequests (NOT IN staff)
+    // ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅ ✅
+    await adminDb.collection("staffRequests").doc(staffId).set({
       name,
       email,
       phone,
       city: city || null,
       experience: experience || null,
       languages: normalizedLanguages,
-      role: "telecaller",           // actual role
-      requestedRole: "telecaller",  // future safety if we add more
-      status: "pending",            // waiting for admin approval
-      isActive: false,              // until approved
+
+      role: "telecaller",
+      requestedRole: "telecaller",
+
+      status: "pending",   // ✅ admin approval pending
+      isActive: false,
+
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
@@ -110,7 +112,7 @@ export async function POST(req: Request) {
       {
         success: true,
         message:
-          "Staff registered successfully. Your profile is pending admin approval.",
+          "✅ Registration submitted successfully! Admin approval pending.",
         staffId,
       },
       { status: 201 }
@@ -122,7 +124,8 @@ export async function POST(req: Request) {
       {
         success: false,
         error: "INTERNAL_ERROR",
-        message: error?.message || "Something went wrong while registering staff.",
+        message:
+          error?.message || "Something went wrong while registering staff.",
       },
       { status: 500 }
     );

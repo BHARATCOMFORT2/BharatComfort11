@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase";
+import { db } from "@/lib/firebase-client"; // ✅ SAME PROJECT AS RULES
 import {
   collection,
   onSnapshot,
@@ -19,20 +19,20 @@ type PartnerLead = {
   city: string;
   businessType?: string;
   planType: string;
-  status: string; // confirmed | called | followup | converted | rejected
+  status: string; // new | called | followup | converted | rejected
   followUpDate?: string;
   createdAt?: any;
 };
 
-export default function ConfirmedPartnerLeadsPage() {
+export default function PartnerLeadsAdminPage() {
   const [leads, setLeads] = useState<PartnerLead[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   useEffect(() => {
     try {
-      // ✅ SAFE QUERY (NO orderBy)
-      const q = query(collection(db, "confirmedPartnerLeads"));
+      // ✅ ✅ ✅ NOW READING FROM partnerLeads (CORRECT COLLECTION)
+      const q = query(collection(db, "partnerLeads"));
 
       const unsubscribe = onSnapshot(
         q,
@@ -62,7 +62,7 @@ export default function ConfirmedPartnerLeadsPage() {
 
   async function updateStatus(id: string, status: string) {
     try {
-      const ref = doc(db, "confirmedPartnerLeads", id);
+      const ref = doc(db, "partnerLeads", id); // ✅ FIXED
       await updateDoc(ref, {
         status,
         lastUpdatedAt: serverTimestamp(),
@@ -75,7 +75,7 @@ export default function ConfirmedPartnerLeadsPage() {
 
   async function updateFollowUp(id: string, followUpDate: string) {
     try {
-      const ref = doc(db, "confirmedPartnerLeads", id);
+      const ref = doc(db, "partnerLeads", id); // ✅ FIXED
       await updateDoc(ref, {
         followUpDate,
         status: "followup",
@@ -90,7 +90,7 @@ export default function ConfirmedPartnerLeadsPage() {
   return (
     <main className="min-h-screen bg-[#0b1220] text-white p-8">
       <h1 className="text-3xl font-bold text-yellow-400 mb-6">
-        ✅ Confirmed Partner Leads – Action Panel
+        ✅ Partner Leads – Admin Action Panel
       </h1>
 
       {loading && <p className="text-slate-300">Loading leads...</p>}
@@ -143,7 +143,7 @@ export default function ConfirmedPartnerLeadsPage() {
                   </td>
 
                   <td className="p-3 font-semibold">
-                    {lead.status === "confirmed" && (
+                    {lead.status === "new" && (
                       <span className="text-blue-400">New</span>
                     )}
                     {lead.status === "called" && (

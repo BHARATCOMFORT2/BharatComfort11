@@ -1,15 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { db } from "@/lib/firebase-client"; // ✅ SAME PROJECT AS RULES
-import {
-  collection,
-  onSnapshot,
-  query,
-  updateDoc,
-  doc,
-  serverTimestamp,
-} from "firebase/firestore";
 
 type PartnerLead = {
   id: string;
@@ -29,60 +20,71 @@ export default function PartnerLeadsAdminPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  useEffect(() => {
+  // ✅ ✅ ✅ API BASED FETCH (NO FIRESTORE DIRECT ACCESS)
+  const fetchLeads = async () => {
     try {
-      // ✅ ✅ ✅ NOW READING FROM partnerLeads (CORRECT COLLECTION)
-      const q = query(collection(db, "partnerLeads"));
+      const res = await fetch("/api/admin/partner-leads");
+      const json = await res.json();
 
-      const unsubscribe = onSnapshot(
-        q,
-        (snap) => {
-          const data: PartnerLead[] = snap.docs.map((docSnap) => ({
-            id: docSnap.id,
-            ...(docSnap.data() as any),
-          }));
+      if (!res.ok || !json.success) {
+        throw new Error(json?.message || "Failed to load partner leads");
+      }
 
-          setLeads(data);
-          setLoading(false);
-        },
-        (err) => {
-          console.error("Firestore error:", err);
-          setError("Firestore permission or index error");
-          setLoading(false);
-        }
-      );
-
-      return () => unsubscribe();
-    } catch (err) {
-      console.error("Listener init failed:", err);
-      setError("Listener failed to initialize");
+      setLeads(json.data || []);
+    } catch (err: any) {
+      console.error("Admin partner leads fetch error:", err);
+      setError(err?.message || "Failed to fetch partner leads");
+    } finally {
       setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    fetchLeads();
   }, []);
 
+  // ✅ ✅ ✅ API BASED STATUS UPDATE
   async function updateStatus(id: string, status: string) {
     try {
-      const ref = doc(db, "partnerLeads", id); // ✅ FIXED
-      await updateDoc(ref, {
-        status,
-        lastUpdatedAt: serverTimestamp(),
+      const res = await fetch("/api/admin/partner-leads/update-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, status }),
       });
-    } catch (err) {
-      alert("Status update failed");
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json?.message || "Status update failed");
+      }
+
+      // ✅ Refresh list after update
+      fetchLeads();
+    } catch (err: any) {
+      alert(err?.message || "Status update failed");
       console.error(err);
     }
   }
 
+  // ✅ ✅ ✅ API BASED FOLLOW-UP UPDATE
   async function updateFollowUp(id: string, followUpDate: string) {
     try {
-      const ref = doc(db, "partnerLeads", id); // ✅ FIXED
-      await updateDoc(ref, {
-        followUpDate,
-        status: "followup",
-        lastUpdatedAt: serverTimestamp(),
+      const res = await fetch("/api/admin/partner-leads/update-followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, followUpDate }),
       });
-    } catch (err) {
-      alert("Follow-up update failed");
+
+      const json = await res.json();
+
+      if (!res.ok || !json.success) {
+        throw new Error(json?.message || "Follow-up update failed");
+      }
+
+      // ✅ Refresh list
+      fetchLeads();
+    } catch (err: any) {
+      alert(err?.message || "Follow-up update failed");
       console.error(err);
     }
   }
@@ -90,7 +92,7 @@ export default function PartnerLeadsAdminPage() {
   return (
     <main className="min-h-screen bg-[#0b1220] text-white p-8">
       <h1 className="text-3xl font-bold text-yellow-400 mb-6">
-        ✅ Partner Leads – Admin Action Panel
+        ✅ Partner Leads – Admin Action Panel (API Based)
       </h1>
 
       {loading && <p className="text-slate-300">Loading leads...</p>}
@@ -142,23 +144,7 @@ export default function PartnerLeadsAdminPage() {
                     {lead.planType}
                   </td>
 
-                  <td className="p-3 font-semibold">
-                    {lead.status === "new" && (
-                      <span className="text-blue-400">New</span>
-                    )}
-                    {lead.status === "called" && (
-                      <span className="text-yellow-300">Called</span>
-                    )}
-                    {lead.status === "followup" && (
-                      <span className="text-orange-300">Follow-up</span>
-                    )}
-                    {lead.status === "converted" && (
-                      <span className="text-green-400">Converted</span>
-                    )}
-                    {lead.status === "rejected" && (
-                      <span className="text-red-400">Rejected</span>
-                    )}
-                  </td>
+                  <td className="p-3 font-semibold">{lead.status}</td>
 
                   <td className="p-3">
                     <input

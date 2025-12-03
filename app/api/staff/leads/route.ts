@@ -4,26 +4,52 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
+// ✅ Auth header helper
+function getAuthHeader(req: Request) {
+  return (req as any).headers?.get
+    ? req.headers.get("authorization")
+    : (req as any).headers?.authorization;
+}
+
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-
-    const {
-      staffId,
-      status,        // ✅ new, contacted, followup, converted
-      range,         // ✅ today | 7days | month | custom
-      fromDate,      // ✅ only for custom
-      toDate,        // ✅ only for custom
-    } = body || {};
-
-    if (!staffId) {
+    // ✅ TOKEN VERIFY (PERMANENT FIX #1)
+    const authHeader = getAuthHeader(req);
+    if (!authHeader)
       return NextResponse.json(
-        { success: false, message: "staffId is required" },
-        { status: 400 }
+        { success: false, message: "Missing Authorization" },
+        { status: 401 }
+      );
+
+    const m = authHeader.match(/^Bearer (.+)$/);
+    if (!m)
+      return NextResponse.json(
+        { success: false, message: "Bad Authorization header" },
+        { status: 401 }
+      );
+
+    const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
+
+    let decoded: any;
+    try {
+      decoded = await adminAuth.verifyIdToken(m[1], true);
+    } catch {
+      return NextResponse.json(
+        { success: false, message: "Invalid token" },
+        { status: 401 }
       );
     }
 
-    const { db: adminDb } = getFirebaseAdmin();
+    // ✅ ✅ ✅ REAL STAFF ID FROM TOKEN
+    const staffId = decoded.uid;
+
+    const body = await req.json();
+    const {
+      status,
+      range,
+      fromDate,
+      toDate,
+    } = body || {};
 
     // ✅ STAFF VALIDATION
     const staffRef = adminDb.collection("staff").doc(staffId);
@@ -49,7 +75,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ BASE QUERY
+    // ✅ ✅ ✅ BASE QUERY (PERMANENT FIX #2)
     let query: FirebaseFirestore.Query = adminDb
       .collection("leads")
       .where("assignedTo", "==", staffId);
@@ -92,8 +118,8 @@ export async function POST(req: Request) {
         .where("createdAt", "<=", to);
     }
 
-    // ✅ EXECUTE QUERY
-    const snapshot = await query.orderBy("createdAt", "desc").get();
+    // ✅ ✅ ✅ EXECUTE QUERY (NO orderBy — INDEX SAFE)
+    const snapshot = await query.get();
 
     const leads = snapshot.docs.map((doc) => {
       const d = doc.data();
@@ -106,7 +132,6 @@ export async function POST(req: Request) {
         contactPerson: d.contactPerson || "",
 
         phone: d.phone || d.mobile || d.contact || "",
-
         address: d.address || d.city || d.location || "",
 
         email: d.email || "",
@@ -126,7 +151,7 @@ export async function POST(req: Request) {
       };
     });
 
-    console.log("✅ FILTERED TELECALLER LEADS:", leads.length);
+    console.log("✅ FINAL SAFE TELECALLER LEADS:", leads.length);
 
     return NextResponse.json({
       success: true,

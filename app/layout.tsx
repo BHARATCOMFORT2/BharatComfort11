@@ -1,11 +1,14 @@
 import type { Metadata } from "next";
 import "@/styles/globals.css";
-import "@/lib/payments/register"; // ✅ Ensures Razorpay provider is globally registered
+import "@/lib/payments/register"; 
 import Navbar from "@/components/ui/Navbar";
 
 export const metadata: Metadata = {
   title: "BharatComfort",
   description: "Discover Comfort in Every Journey",
+  icons: {
+    icon: "/favicon.png",   // ✅ YAHI AAPKA FAVICON LINK HAI
+  },
 };
 
 export default function RootLayout({

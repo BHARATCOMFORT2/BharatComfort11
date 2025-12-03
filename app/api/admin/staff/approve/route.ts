@@ -29,34 +29,44 @@ export async function POST(req: Request) {
 
     const { db: adminDb } = getFirebaseAdmin();
 
-    // ✅ REAL STAFF COLLECTION
-    const ref = adminDb.collection("staff").doc(staffId);
-    const snap = await ref.get();
+    // ✅ ✅ ✅ CORRECT SOURCE: staffRequests
+    const requestRef = adminDb.collection("staffRequests").doc(staffId);
+    const requestSnap = await requestRef.get();
 
-    if (!snap.exists) {
+    if (!requestSnap.exists) {
       return NextResponse.json(
-        { success: false, message: "Staff not found" },
+        { success: false, message: "Staff request not found" },
         { status: 404 }
       );
     }
 
-    // ✅ APPROVE
+    const requestData = requestSnap.data();
+
+    // ✅ ✅ ✅ APPROVE FLOW
     if (action === "approve") {
-      await ref.update({
+      // 1️⃣ Create in real staff collection
+      await adminDb.collection("staff").doc(staffId).set({
+        ...requestData,
+
         status: "approved",
         isActive: true,
+
+        approvedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
       });
 
+      // 2️⃣ Remove from staffRequests
+      await requestRef.delete();
+
       return NextResponse.json({
         success: true,
-        message: "Staff approved successfully",
+        message: "✅ Staff approved and activated successfully",
       });
     }
 
-    // ✅ REJECT
+    // ✅ ✅ ✅ REJECT FLOW
     if (action === "reject") {
-      await ref.update({
+      await requestRef.update({
         status: "rejected",
         isActive: false,
         updatedAt: FieldValue.serverTimestamp(),
@@ -64,10 +74,9 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: "Staff rejected successfully",
+        message: "❌ Staff rejected successfully",
       });
     }
-
   } catch (err: any) {
     console.error("Approve Staff Error:", err);
 

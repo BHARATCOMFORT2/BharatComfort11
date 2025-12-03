@@ -1,11 +1,10 @@
-// app/api/admin/staff/list/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Safe header helper (browser + server)
+// ✅ Safe header helper
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization") || req.headers.get("Authorization")
@@ -14,22 +13,20 @@ function getAuthHeader(req: Request) {
 
 export async function GET(req: Request) {
   try {
-    // ✅ TOKEN VERIFY (sirf valid login check – koi admins collection ki panga nahi)
+    // ✅ TOKEN VERIFY
     const authHeader = getAuthHeader(req);
-    if (!authHeader) {
+    if (!authHeader)
       return NextResponse.json(
         { success: false, message: "Missing Authorization" },
         { status: 401 }
       );
-    }
 
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m) {
+    if (!m)
       return NextResponse.json(
         { success: false, message: "Bad Authorization header" },
         { status: 401 }
       );
-    }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
@@ -42,31 +39,61 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ SIRF STAFF COLLECTION SE TELECALLERS LAO
-    // ❌ orderBy("createdAt") hata diya – index error se bachne ke liye
-    const snap = await adminDb
-      .collection("staff")
-      .where("role", "==", "telecaller")
-      .where("status", "==", "approved")
-      .where("isActive", "==", true)
+    // ✅ ✅ ✅ 1️⃣ PENDING FROM staffRequests
+    const pendingSnap = await adminDb
+      .collection("staffRequests")
+      .where("status", "==", "pending")
       .get();
 
-    const data = snap.docs.map((doc) => {
+    const pending = pendingSnap.docs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
         name: d.name || "",
         email: d.email || "",
         phone: d.phone || "",
-        role: d.role || "",
-        status: d.status || "",
-        isActive: d.isActive || false,
+        city: d.city || "",
+        experience: d.experience || "",
+        languages: d.languages || [],
+        status: "pending",
+        isActive: false,
+        type: "pending", // ✅ FOR UI
       };
     });
 
+    // ✅ ✅ ✅ 2️⃣ APPROVED FROM staff
+    const approvedSnap = await adminDb
+      .collection("staff")
+      .where("role", "==", "telecaller")
+      .where("status", "==", "approved")
+      .where("isActive", "==", true)
+      .get();
+
+    const approved = approvedSnap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        name: d.name || "",
+        email: d.email || "",
+        phone: d.phone || "",
+        city: d.city || "",
+        experience: d.experience || "",
+        languages: d.languages || [],
+        status: "approved",
+        isActive: true,
+        type: "approved", // ✅ FOR UI
+      };
+    });
+
+    // ✅ ✅ ✅ COMBINED RESPONSE (ONE UI)
     return NextResponse.json({
       success: true,
-      data,
+      data: {
+        pending,
+        approved,
+        totalPending: pending.length,
+        totalApproved: approved.length,
+      },
     });
   } catch (err: any) {
     console.error("ADMIN STAFF LIST ERROR:", err);

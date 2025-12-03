@@ -39,30 +39,52 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ ONLY APPROVED TELECALLERS (STABLE OLD BEHAVIOR)
-    const snap = await adminDb
-      .collection("staff")
-      .where("role", "==", "telecaller")
-      .where("status", "==", "approved")
-      .where("isActive", "==", true)
+    // ✅ 1️⃣ Pending from staffRequests
+    const pendingSnap = await adminDb
+      .collection("staffRequests")
+      .where("status", "==", "pending")
       .get();
 
-    const data = snap.docs.map((doc) => {
+    const pending = pendingSnap.docs.map((doc) => {
       const d = doc.data();
       return {
         id: doc.id,
         name: d.name || "",
         email: d.email || "",
         phone: d.phone || "",
-        role: d.role || "",
-        status: d.status || "",
-        isActive: d.isActive || false,
+        role: d.role || "telecaller",
+        status: "pending",
+        isActive: false,
       };
     });
 
+    // ✅ 2️⃣ Approved from staff
+    const approvedSnap = await adminDb
+      .collection("staff")
+      .where("role", "==", "telecaller")
+      .where("status", "==", "approved")
+      .where("isActive", "==", true)
+      .get();
+
+    const approved = approvedSnap.docs.map((doc) => {
+      const d = doc.data();
+      return {
+        id: doc.id,
+        name: d.name || "",
+        email: d.email || "",
+        phone: d.phone || "",
+        role: d.role || "telecaller",
+        status: "approved",
+        isActive: true,
+      };
+    });
+
+    // ✅ ✅ ✅ FLAT ARRAY (OLD UI SAFE FORMAT)
+    const data = [...pending, ...approved];
+
     return NextResponse.json({
       success: true,
-      data, // ✅ ARRAY — UI TUTEGI NAHI
+      data, // ✅ ARRAY — tumhari UI jaise pehle thi waise hi chalegi
     });
   } catch (err: any) {
     console.error("ADMIN STAFF LIST ERROR:", err);

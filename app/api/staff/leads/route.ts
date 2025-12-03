@@ -1,4 +1,3 @@
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -8,7 +7,14 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { staffId } = body || {};
+
+    const {
+      staffId,
+      status,        // ✅ new, contacted, followup, converted
+      range,         // ✅ today | 7days | month | custom
+      fromDate,      // ✅ only for custom
+      toDate,        // ✅ only for custom
+    } = body || {};
 
     if (!staffId) {
       return NextResponse.json(
@@ -43,11 +49,51 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ FETCH ASSIGNED LEADS
-    const snapshot = await adminDb
+    // ✅ BASE QUERY
+    let query: FirebaseFirestore.Query = adminDb
       .collection("leads")
-      .where("assignedTo", "==", staffId)
-      .get();
+      .where("assignedTo", "==", staffId);
+
+    // ✅ STATUS FILTER
+    if (status && status !== "all") {
+      query = query.where("status", "==", status);
+    }
+
+    // ✅ DATE FILTER LOGIC
+    const now = new Date();
+
+    if (range === "today") {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+
+      query = query
+        .where("createdAt", ">=", start)
+        .where("createdAt", "<=", now);
+    }
+
+    if (range === "7days") {
+      const last7 = new Date();
+      last7.setDate(last7.getDate() - 7);
+
+      query = query.where("createdAt", ">=", last7);
+    }
+
+    if (range === "month") {
+      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+      query = query.where("createdAt", ">=", firstDay);
+    }
+
+    if (range === "custom" && fromDate && toDate) {
+      const from = new Date(fromDate);
+      const to = new Date(toDate);
+
+      query = query
+        .where("createdAt", ">=", from)
+        .where("createdAt", "<=", to);
+    }
+
+    // ✅ EXECUTE QUERY
+    const snapshot = await query.orderBy("createdAt", "desc").get();
 
     const leads = snapshot.docs.map((doc) => {
       const d = doc.data();
@@ -59,10 +105,8 @@ export async function POST(req: Request) {
         businessName: d.businessName || "",
         contactPerson: d.contactPerson || "",
 
-        // ✅ PHONE FIX
         phone: d.phone || d.mobile || d.contact || "",
 
-        // ✅ ADDRESS FIX
         address: d.address || d.city || d.location || "",
 
         email: d.email || "",
@@ -82,12 +126,11 @@ export async function POST(req: Request) {
       };
     });
 
-    console.log("✅ TELECALLER LEADS FOUND:", leads.length);
+    console.log("✅ FILTERED TELECALLER LEADS:", leads.length);
 
-    // ✅ ✅ ✅ FRONTEND COMPATIBLE RESPONSE (MOST IMPORTANT FIX)
     return NextResponse.json({
       success: true,
-      data: leads,   // ✅ ✅ ✅ THIS FIXES EVERYTHING
+      data: leads,
     });
   } catch (error: any) {
     console.error("❌ Telecaller leads fetch error:", error);

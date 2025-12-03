@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import admin from "firebase-admin"; // ✅ ✅ ✅ VERY IMPORTANT FIX
 
 // ✅ Auth header helper
 function getAuthHeader(req: Request) {
@@ -104,13 +105,13 @@ export async function POST(req: Request) {
       createdAt: new Date(),
     };
 
-    // ✅ ✅ ✅ FINAL SAFE UPDATE (HISTORY + QUICK VIEW)
+    // ✅ ✅ ✅ ✅ ✅ FINAL 100% WORKING FIX
     await leadRef.update({
-      notes: adminDb.constructor.FieldValue.arrayUnion(noteData), // ✅ FULL HISTORY
-      partnerNotes: cleanText,        // ✅ QUICK VIEW FOR UI
-      lastRemark: cleanText,          // ✅ ADMIN QUICK VIEW
-      lastUpdatedBy: staffId,         // ✅ TRACK WHO UPDATED
-      updatedAt: new Date(),          // ✅ SORTING/FILTERING
+      notes: admin.firestore.FieldValue.arrayUnion(noteData), // ✅ ✅ ✅ CORRECT
+      partnerNotes: cleanText,
+      lastRemark: cleanText,
+      lastUpdatedBy: staffId,
+      updatedAt: new Date(),
     });
 
     return NextResponse.json({

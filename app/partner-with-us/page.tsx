@@ -31,14 +31,17 @@ export default function PartnerWithUsPage() {
     try {
       setLoading(true);
 
-      await addDoc(collection(db, "confirmedPartnerLeads"), {
+      // ✅ ✅ ✅ FIXED COLLECTION NAME (RULES COMPATIBLE)
+      await addDoc(collection(db, "partnerLeads"), {
         ...form,
-        status: "confirmed",
+        status: "new", // ✅ admin will confirm later
         source: "partner-page",
         createdAt: serverTimestamp(),
       });
 
-      alert("✅ Your details have been submitted successfully. Our team will contact you shortly.");
+      alert(
+        "✅ Your details have been submitted successfully. Our team will contact you shortly."
+      );
 
       setForm({
         name: "",
@@ -59,7 +62,6 @@ export default function PartnerWithUsPage() {
 
   return (
     <main className="bg-[#0b1220] text-white min-h-screen">
-
       {/* HERO */}
       <section className="py-20 text-center px-6">
         <h1 className="text-4xl md:text-6xl font-bold text-yellow-400">
@@ -72,7 +74,6 @@ export default function PartnerWithUsPage() {
 
       {/* PRICING */}
       <section className="py-16 px-6 grid md:grid-cols-4 gap-6 max-w-7xl mx-auto">
-
         {/* FREE */}
         <div className="border border-white/10 rounded-2xl p-6">
           <h3 className="text-xl font-bold mb-2">FREE LISTING</h3>
@@ -87,7 +88,9 @@ export default function PartnerWithUsPage() {
 
         {/* SILVER */}
         <div className="border border-yellow-400/30 rounded-2xl p-6 bg-yellow-400/5">
-          <h3 className="text-xl font-bold text-yellow-300 mb-2">SILVER – ₹999/mo</h3>
+          <h3 className="text-xl font-bold text-yellow-300 mb-2">
+            SILVER – ₹999/mo
+          </h3>
           <ul className="text-sm space-y-2">
             <li>✔ Zero Commission</li>
             <li>✔ Google Map Optimization</li>
@@ -100,7 +103,9 @@ export default function PartnerWithUsPage() {
 
         {/* GOLD */}
         <div className="border border-purple-400/40 rounded-2xl p-6 bg-purple-400/5">
-          <h3 className="text-xl font-bold text-purple-300 mb-2">GOLD – ₹2,499/mo</h3>
+          <h3 className="text-xl font-bold text-purple-300 mb-2">
+            GOLD – ₹2,499/mo
+          </h3>
           <ul className="text-sm space-y-2">
             <li>✔ Everything in Silver</li>
             <li>✔ Promo Video + 4 Reels</li>
@@ -126,7 +131,6 @@ export default function PartnerWithUsPage() {
             <li>✔ Social Pages Enhancement (Premium)</li>
           </ul>
         </div>
-
       </section>
 
       {/* UNIVERSAL PRIVILEGES */}
@@ -146,17 +150,6 @@ export default function PartnerWithUsPage() {
         </ul>
       </section>
 
-      {/* TREATMENT */}
-      <section className="py-16 px-6 text-center">
-        <h2 className="text-3xl font-bold text-yellow-400 mb-6">
-          Partner Treatment System
-        </h2>
-        <p className="text-slate-300">
-          Free → Respected Business Member | Silver → Priority Partner |  
-          Gold → Growth Partner | Lifetime → Elite Business Family
-        </p>
-      </section>
-
       {/* PARTNER FORM */}
       <section className="py-20 px-6 max-w-2xl mx-auto">
         <h2 className="text-3xl font-bold text-yellow-400 mb-6 text-center">
@@ -164,26 +157,66 @@ export default function PartnerWithUsPage() {
         </h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <input name="name" value={form.name} onChange={handleChange} placeholder="Your Name *" className="w-full p-3 rounded bg-black/40 border" />
-          <input name="mobile" value={form.mobile} onChange={handleChange} placeholder="Mobile Number *" className="w-full p-3 rounded bg-black/40 border" />
-          <input name="businessName" value={form.businessName} onChange={handleChange} placeholder="Business Name *" className="w-full p-3 rounded bg-black/40 border" />
-          <input name="city" value={form.city} onChange={handleChange} placeholder="City *" className="w-full p-3 rounded bg-black/40 border" />
+          <input
+            name="name"
+            value={form.name}
+            onChange={handleChange}
+            placeholder="Your Name *"
+            className="w-full p-3 rounded bg-black/40 border"
+          />
+          <input
+            name="mobile"
+            value={form.mobile}
+            onChange={handleChange}
+            placeholder="Mobile Number *"
+            className="w-full p-3 rounded bg-black/40 border"
+          />
+          <input
+            name="businessName"
+            value={form.businessName}
+            onChange={handleChange}
+            placeholder="Business Name *"
+            className="w-full p-3 rounded bg-black/40 border"
+          />
+          <input
+            name="city"
+            value={form.city}
+            onChange={handleChange}
+            placeholder="City *"
+            className="w-full p-3 rounded bg-black/40 border"
+          />
 
-          <select name="businessType" value={form.businessType} onChange={handleChange} className="w-full p-3 rounded bg-black/40 border">
+          <select
+            name="businessType"
+            value={form.businessType}
+            onChange={handleChange}
+            className="w-full p-3 rounded bg-black/40 border"
+          >
             <option>Hotel</option>
             <option>Restaurant</option>
             <option>Homestay</option>
             <option>Other</option>
           </select>
 
-          <select name="planType" value={form.planType} onChange={handleChange} className="w-full p-3 rounded bg-black/40 border">
+          <select
+            name="planType"
+            value={form.planType}
+            onChange={handleChange}
+            className="w-full p-3 rounded bg-black/40 border"
+          >
             <option value="free">Free</option>
             <option value="silver">Silver</option>
             <option value="gold">Gold</option>
             <option value="lifetime">Lifetime</option>
           </select>
 
-          <textarea name="message" value={form.message} onChange={handleChange} placeholder="Optional Message" className="w-full p-3 rounded bg-black/40 border" />
+          <textarea
+            name="message"
+            value={form.message}
+            onChange={handleChange}
+            placeholder="Optional Message"
+            className="w-full p-3 rounded bg-black/40 border"
+          />
 
           <button
             type="submit"
@@ -194,7 +227,6 @@ export default function PartnerWithUsPage() {
           </button>
         </form>
       </section>
-
     </main>
   );
 }

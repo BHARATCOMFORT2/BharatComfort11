@@ -15,19 +15,22 @@ function getAuthHeader(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    /* ✅ AUTH HEADER */
     const authHeader = getAuthHeader(req);
-    if (!authHeader)
+    if (!authHeader) {
       return NextResponse.json(
-        { error: "Missing Authorization header" },
+        { success: false, error: "Missing Authorization header" },
         { status: 401 }
       );
+    }
 
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
+    if (!m) {
       return NextResponse.json(
-        { error: "Malformed Authorization header" },
+        { success: false, error: "Malformed Authorization header" },
         { status: 401 }
       );
+    }
 
     const idToken = m[1];
     let decoded: any;
@@ -36,28 +39,55 @@ export async function POST(req: Request) {
       decoded = await adminAuth.verifyIdToken(idToken, true);
     } catch {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { success: false, error: "Invalid or expired token" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
 
+    /* ✅ ✅ KYC ENFORCEMENT (MAIN SECURITY GUARD) */
+    const partnerSnap = await adminDb.collection("partners").doc(uid).get();
+
+    if (!partnerSnap.exists) {
+      return NextResponse.json(
+        { success: false, error: "Partner profile not found" },
+        { status: 403 }
+      );
+    }
+
+    const partner = partnerSnap.data();
+
+    if (partner?.kycStatus !== "APPROVED") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "KYC not approved. You cannot create listings yet.",
+          kycStatus: partner?.kycStatus || "NOT_STARTED",
+        },
+        { status: 403 }
+      );
+    }
+
+    /* ✅ REQUEST BODY */
     const body = await req.json().catch(() => null);
-    if (!body)
+    if (!body) {
       return NextResponse.json(
-        { error: "Invalid JSON body" },
+        { success: false, error: "Invalid JSON body" },
         { status: 400 }
       );
+    }
 
-    // Minimal validation
+    // ✅ Minimal validation
     const { title, description, price, location, metadata } = body;
-    if (!title || typeof title !== "string")
+    if (!title || typeof title !== "string") {
       return NextResponse.json(
-        { error: "title is required" },
+        { success: false, error: "title is required" },
         { status: 400 }
       );
+    }
 
+    /* ✅ CREATE LISTING */
     const docRef = adminDb.collection("listings").doc();
 
     const payload = {
@@ -76,14 +106,14 @@ export async function POST(req: Request) {
     await docRef.set(payload);
 
     return NextResponse.json({
-      ok: true,
+      success: true,
       listingId: docRef.id,
       listing: payload,
     });
   } catch (err: any) {
-    console.error("create listing error:", err);
+    console.error("❌ create listing error:", err);
     return NextResponse.json(
-      { error: err?.message || "Internal server error" },
+      { success: false, error: err?.message || "Internal server error" },
       { status: 500 }
     );
   }

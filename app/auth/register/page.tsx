@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { auth } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { createUserWithEmailAndPassword } from "firebase/auth";
 import { getDocs, query, where, collection } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
@@ -76,7 +76,7 @@ export default function RegisterPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
-  /* 🧩 STEP 1: Register user + Send Phone OTP */
+  /* ✅ STEP 1: Register user + Send Phone OTP */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -117,7 +117,7 @@ export default function RegisterPage() {
     }
   };
 
-  /* 🧩 STEP 2: Verify Phone OTP → Send Email OTP */
+  /* ✅ STEP 2: Verify Phone OTP → Send Email OTP */
   const handleVerifyPhoneOtp = async () => {
     if (!otp.trim()) return setError("Enter OTP first.");
     if (!tempUid) return setError("Session expired. Please re-register.");
@@ -127,10 +127,14 @@ export default function RegisterPage() {
       const resultUser = await verifyOtp(otp);
       if (!resultUser?.uid) throw new Error("Invalid OTP.");
 
+      // ✅ SECURITY FIX — Phone & Email UID must match
+      if (resultUser.uid !== tempUid) {
+        throw new Error("Phone number does not match this account.");
+      }
+
       clearOtpSession();
       setStep("email");
 
-      // Send Email OTP via API
       const res = await fetch("/api/auth/send-email-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,6 +142,7 @@ export default function RegisterPage() {
       });
       const data = await res.json();
       if (!data.success) throw new Error(data.message);
+
       alert("📧 OTP sent to your email!");
     } catch (err: any) {
       console.error("Phone OTP verify error:", err);
@@ -159,7 +164,7 @@ export default function RegisterPage() {
     }
   };
 
-  /* 🧩 STEP 3: Verify Email OTP + Secure Firestore Write via API */
+  /* ✅ STEP 3: Verify Email OTP + Secure User/Partner Creation */
   const handleVerifyEmailOtp = async () => {
     if (!emailOtp.trim()) return setError("Enter Email OTP first.");
     if (!tempUid) return setError("Session expired. Please re-register.");
@@ -174,21 +179,20 @@ export default function RegisterPage() {
       const verifyData = await verifyRes.json();
       if (!verifyData.success) throw new Error(verifyData.message);
 
-      // Get referral if valid
+      /* ✅ Referral Lookup FIX (no window.db crash) */
       let referredBy: string | null = null;
-      try {
+      if (form.referral.trim()) {
         const refQuery = query(
-          collection(window.db, "users"),
+          collection(db, "users"),
           where("referralCode", "==", form.referral.trim())
         );
         const snapshot = await getDocs(refQuery);
         if (!snapshot.empty) referredBy = snapshot.docs[0].id;
-      } catch {}
+      }
 
       const referralCode =
         form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
 
-      // ✅ Use secure API instead of direct Firestore write
       const createRes = await fetch("/api/auth/create-verified-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -200,15 +204,21 @@ export default function RegisterPage() {
           role: form.role,
           referredBy,
           referralCode,
+          kycStatus: form.role === "partner" ? "NOT_STARTED" : null,
         }),
       });
 
-      const createData = await createRes.json();
+      let createData;
+      try {
+        createData = await createRes.json();
+      } catch {
+        throw new Error("Invalid server response.");
+      }
+
       if (!createData.success) throw new Error(createData.message);
 
-      /* 🔁 FIX: Trigger referral claim API (connects user ↔ referrer) */
+      /* ✅ Referral Claim (safe) */
       try {
-        // read referral code from cookie if not entered manually
         const cookieRef = document.cookie
           .split("; ")
           .find((c) => c.startsWith("bc_referral_code="))
@@ -216,15 +226,17 @@ export default function RegisterPage() {
 
         const referralInput = form.referral?.trim() || cookieRef || null;
 
-        await fetch("/api/referrals/claim", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            uid: tempUid,
-            userType: form.role,
-            referralCode: referralInput,
-          }),
-        });
+        if (referralInput) {
+          await fetch("/api/referrals/claim", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              uid: tempUid,
+              userType: form.role,
+              referralCode: referralInput,
+            }),
+          });
+        }
       } catch (err) {
         console.warn("Referral claim skipped:", err);
       }
@@ -239,7 +251,7 @@ export default function RegisterPage() {
     }
   };
 
-  /* 🖼️ UI */
+  /* ✅ FULL UI */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 space-y-6">
@@ -358,7 +370,6 @@ export default function RegisterPage() {
                 {loading ? "Registering..." : "Register"}
               </Button>
             </form>
-            <div id="recaptcha-container" className="hidden" />
           </>
         )}
 
@@ -422,6 +433,8 @@ export default function RegisterPage() {
           </>
         )}
       </div>
+
+      <div id="recaptcha-container" className="hidden" />
     </div>
   );
 }

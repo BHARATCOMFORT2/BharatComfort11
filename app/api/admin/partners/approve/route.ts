@@ -4,16 +4,17 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
- * ✅ Admin: Approve Partner (Production Safe)
+ * ✅ Admin: Approve Partner KYC (Aligned with NEW KYC System)
  */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
     // -----------------------------------
-    // 1) Verify Session Cookie
+    // 1) Admin Session Verification
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
 
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Not authenticated (no session)" },
+        { success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
@@ -34,14 +35,13 @@ export async function POST(req: Request) {
       .verifySessionCookie(sessionCookie, true)
       .catch(() => null);
 
-    if (!decoded) {
+    if (!decoded?.uid) {
       return NextResponse.json(
-        { error: "Invalid or expired admin session" },
+        { success: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
-    // ✅ STRICT ADMIN ROLE CHECK (Firestore)
     const adminSnap = await adminDb
       .collection("users")
       .doc(decoded.uid)
@@ -49,13 +49,13 @@ export async function POST(req: Request) {
 
     if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
-        { error: "Admin access required" },
+        { success: false, error: "Admin access required" },
         { status: 403 }
       );
     }
 
     // -----------------------------------
-    // 2) Parse Request Body
+    // 2) Parse Body
     // -----------------------------------
     const body = await req.json().catch(() => ({}));
     const partnerId = body?.partnerId;
@@ -65,20 +65,20 @@ export async function POST(req: Request) {
 
     if (!partnerId) {
       return NextResponse.json(
-        { error: "partnerId is required" },
+        { success: false, error: "partnerId is required" },
         { status: 400 }
       );
     }
 
     // -----------------------------------
-    // 3) Fetch Partner Document
+    // 3) Load Partner
     // -----------------------------------
     const partnerRef = adminDb.collection("partners").doc(partnerId);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        { error: "Partner not found" },
+        { success: false, error: "Partner not found" },
         { status: 404 }
       );
     }
@@ -86,16 +86,10 @@ export async function POST(req: Request) {
     const partner = partnerSnap.data() || {};
     const partnerUid = partner.uid || partnerId;
 
-    // ✅ BLOCK DOUBLE APPROVAL
-    if (
-      partner.status === "approved" ||
-      partner.status === "ACTIVE" ||
-      partner.approved === true ||
-      partner.kycStatus === "APPROVED" ||
-      partner.kyc?.status === "APPROVED"
-    ) {
+    // ✅ Strict double-approval protection
+    if (String(partner.kycStatus).toUpperCase() === "APPROVED") {
       return NextResponse.json(
-        { error: "Partner already approved" },
+        { success: false, error: "Partner already approved" },
         { status: 409 }
       );
     }
@@ -104,27 +98,28 @@ export async function POST(req: Request) {
     const adminUid = decoded.uid;
 
     // -----------------------------------
-    // 4) Update Partner Document
+    // 4) Update Partner (SOURCE OF TRUTH)
     // -----------------------------------
     await partnerRef.update({
+      kycStatus: "APPROVED",
       status: "ACTIVE",
       approved: true,
       approvedAt: now,
       approvedBy: adminUid,
       remarks,
-      kycStatus: "APPROVED",
       "kyc.status": "APPROVED",
       kycApprovedAt: now,
       updatedAt: now,
     });
 
     // -----------------------------------
-    // 5) Set Custom Claims (Partner Role)
+    // 5) Assign Partner Custom Claim
     // -----------------------------------
     const existingUser = await adminAuth.getUser(partnerUid).catch(() => null);
+
     if (!existingUser) {
       return NextResponse.json(
-        { error: "Auth user not found for partner" },
+        { success: false, error: "Auth user not found for partner" },
         { status: 404 }
       );
     }
@@ -139,13 +134,13 @@ export async function POST(req: Request) {
     await adminAuth.setCustomUserClaims(partnerUid, newClaims);
 
     // -----------------------------------
-    // 6) Log approval event
+    // 6) Approval Audit Log
     // -----------------------------------
     await adminDb.collection("partnerApprovals").add({
       partnerId,
       partnerUid,
       adminId: adminUid,
-      action: "approve",
+      action: "APPROVE",
       remarks,
       rewardAmount,
       createdAt: now,
@@ -216,7 +211,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("Admin Partner Approve Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

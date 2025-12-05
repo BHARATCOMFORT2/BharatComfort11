@@ -4,9 +4,10 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
- * ✅ Admin: Reject Partner KYC (Production Safe)
+ * ✅ Admin: Reject Partner KYC (Aligned with New KYC System)
  * Body: { partnerId: string; reason: string }
  */
 export async function POST(req: Request) {
@@ -14,7 +15,7 @@ export async function POST(req: Request) {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
     // -----------------------------------
-    // 1) Verify Session Cookie
+    // 1) Verify Admin Session
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
 
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Not authenticated (no session)" },
+        { success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
@@ -35,14 +36,14 @@ export async function POST(req: Request) {
       .verifySessionCookie(sessionCookie, true)
       .catch(() => null);
 
-    if (!decoded) {
+    if (!decoded?.uid) {
       return NextResponse.json(
-        { error: "Invalid or expired admin session" },
+        { success: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
-    // ✅ STRICT ADMIN ROLE CHECK
+    // ✅ Confirm admin from Firestore
     const adminSnap = await adminDb
       .collection("users")
       .doc(decoded.uid)
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
 
     if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
-        { error: "Admin access required" },
+        { success: false, error: "Admin access required" },
         { status: 403 }
       );
     }
@@ -64,7 +65,7 @@ export async function POST(req: Request) {
 
     if (!partnerId || !reason) {
       return NextResponse.json(
-        { error: "partnerId and reason are required" },
+        { success: false, error: "partnerId and reason are required" },
         { status: 400 }
       );
     }
@@ -77,7 +78,7 @@ export async function POST(req: Request) {
 
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        { error: "Partner not found" },
+        { success: false, error: "Partner not found" },
         { status: 404 }
       );
     }
@@ -85,15 +86,20 @@ export async function POST(req: Request) {
     const partner = partnerSnap.data() || {};
     const partnerUid = partner.uid || partnerId;
 
-    // ✅ BLOCK DOUBLE REJECTION
-    if (
-      partner.status === "REJECTED" ||
-      partner.kycStatus === "REJECTED" ||
-      partner.kyc?.status === "REJECTED"
-    ) {
+    const currentKycStatus = String(partner.kycStatus || "").toUpperCase();
+
+    // ✅ Block invalid transitions
+    if (currentKycStatus === "REJECTED") {
       return NextResponse.json(
-        { error: "Partner already rejected" },
+        { success: false, error: "Partner already rejected" },
         { status: 409 }
+      );
+    }
+
+    if (currentKycStatus === "APPROVED") {
+      return NextResponse.json(
+        { success: false, error: "Approved partner cannot be rejected" },
+        { status: 400 }
       );
     }
 
@@ -104,24 +110,26 @@ export async function POST(req: Request) {
     // 4) Update Partner Document (REJECT)
     // -----------------------------------
     await partnerRef.update({
+      kycStatus: "REJECTED",
       status: "REJECTED",
       approved: false,
-      kycStatus: "REJECTED",
+
       "kyc.status": "REJECTED",
+      "kyc.rejectionReason": reason,
+
       kycRejectedAt: now,
-      kycRejectionReason: reason,
       rejectedBy: adminUid,
       updatedAt: now,
     });
 
     // -----------------------------------
-    // 5) Log Rejection Event
+    // 5) Audit Log
     // -----------------------------------
     await adminDb.collection("partnerApprovals").add({
       partnerId,
       partnerUid,
       adminId: adminUid,
-      action: "reject",
+      action: "REJECT",
       reason,
       createdAt: now,
     });
@@ -133,7 +141,7 @@ export async function POST(req: Request) {
   } catch (err: any) {
     console.error("Admin Partner Reject Error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

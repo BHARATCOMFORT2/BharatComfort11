@@ -6,12 +6,10 @@ import { NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebaseadmin";
 
 /**
- * Creates a verified user record. If role === "partner", it creates:
- *  - partners/{uid}   <-- full partner profile, kycStatus = "NOT_STARTED"
- *  - users/{uid}      <-- light pointer record: role = "partner", partnerId = uid
- *
- * This prevents duplication of full partner profile inside users/ and ensures
- * the onboarding flow checks partners/{uid}.kycStatus to decide whether to show KYC form.
+ * Creates a verified user record.
+ * If role === "partner", it creates:
+ *  - users/{uid}     -> light pointer record
+ *  - partners/{uid} -> full partner profile with kycStatus
  */
 export async function POST(req: Request) {
   try {
@@ -24,66 +22,84 @@ export async function POST(req: Request) {
       phone,
       role = "user",
       referredBy = null,
+      referralCode = null,
+      kycStatus = null,
     } = data ?? {};
 
     if (!uid || !email) {
-      return NextResponse.json({ success: false, message: "Missing uid or email" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "Missing uid or email" },
+        { status: 400 }
+      );
     }
 
-    // 1) Write a lightweight users/{uid} document (common fields)
+    const now = new Date().toISOString();
+
+    /* ✅ 1. USERS/{uid} (LIGHT POINTER DOC) */
     const userDoc = {
       uid,
       name: name || null,
       email,
       phone: phone || null,
       role,
-      // keep a simple onboarding status on users; real KYC status lives under partners/{uid}
       status: role === "partner" ? "partner_onboarding" : "active",
       emailVerified: true,
       phoneVerified: true,
       verified: role === "partner" ? false : true,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       referredBy: referredBy ?? null,
+      referralCode: referralCode ?? null,
+      partnerId: role === "partner" ? uid : null, // ✅ LINK TO PARTNER DOC
     };
 
     await adminDb.collection("users").doc(uid).set(userDoc, { merge: true });
 
-    // 2) If partner, create the partners/{uid} document (with kycStatus)
+    /* ✅ 2. PARTNERS/{uid} (ONLY IF PARTNER) */
     if (role === "partner") {
-      const partnerDoc = {
-        uid,
-        name: name || null,
-        email,
-        phone: phone || null,
-        createdAt: new Date().toISOString(),
-        // KYC lifecycle:
-        // - "NOT_STARTED" (no KYC data submitted)
-        // - "PENDING_KYC" (KYC form shown / started)
-        // - "UNDER_REVIEW" (submitted, waiting admin review)
-        // - "APPROVED"
-        // - "REJECTED"
-        kycStatus: "NOT_STARTED",
-        kyc: null, // store submitted KYC object here once user submits
-      };
+      const partnerRef = adminDb.collection("partners").doc(uid);
+      const partnerSnap = await partnerRef.get();
 
-      await adminDb.collection("partners").doc(uid).set(partnerDoc, { merge: true });
+      // ✅ Prevent duplicate overwrite if already exists
+      if (!partnerSnap.exists) {
+        const partnerDoc = {
+          uid,
+          name: name || null,
+          email,
+          phone: phone || null,
+          createdAt: now,
+
+          // ✅ Partner lifecycle
+          status: "PENDING_KYC", // PENDING_KYC → ACTIVE → BLOCKED
+          kycStatus: kycStatus || "NOT_STARTED",
+
+          kyc: null, // actual KYC object will be saved later
+          approved: false,
+          approvedAt: null,
+        };
+
+        await partnerRef.set(partnerDoc);
+      }
 
       return NextResponse.json({
         success: true,
-        message: "Partner user created (pending KYC).",
+        message: "✅ Partner user created (pending KYC).",
         partnerId: uid,
       });
     }
 
-    // Non-partner (regular user) created
+    /* ✅ 3. NORMAL USER */
     return NextResponse.json({
       success: true,
-      message: "User created successfully.",
+      message: "✅ User created successfully.",
     });
   } catch (err: any) {
     console.error("❌ Error creating verified user:", err);
+
     return NextResponse.json(
-      { success: false, message: err?.message || "Internal server error." },
+      {
+        success: false,
+        message: err?.message || "Internal server error.",
+      },
       { status: 500 }
     );
   }

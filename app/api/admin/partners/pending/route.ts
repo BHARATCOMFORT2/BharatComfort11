@@ -1,8 +1,8 @@
 // app/api/admin/partners/pending/route.ts
-// ✔ Lists all pending KYC submissions
-// ✔ Matches new KYC structure: partners/{uid}/kycDocs/{kycId}
-// ✔ Returns partner details + docs
-// ✔ Requires admin auth
+// ✅ Lists all partners with kycStatus = UNDER_REVIEW
+// ✅ Reads KYC from partners/{uid}.kyc (NOT subcollection)
+// ✅ Admin only
+// ✅ Matches your current production KYC structure
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,9 +14,9 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -------------------------------
-    // 1) Extract & verify admin session
-    // -------------------------------
+    // -----------------------------------
+    // 1) Auth: Admin session verification
+    // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -27,7 +27,7 @@ export async function GET(req: Request) {
 
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Not authenticated" },
+        { success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
@@ -36,26 +36,35 @@ export async function GET(req: Request) {
       .verifySessionCookie(sessionCookie, true)
       .catch(() => null);
 
-    if (!decoded) {
+    if (!decoded?.uid) {
       return NextResponse.json(
-        { error: "Invalid or expired session" },
+        { success: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
-    if (!decoded.admin) {
+    // ✅ Double-confirm admin from users collection
+    const adminUserSnap = await adminDb
+      .collection("users")
+      .doc(decoded.uid)
+      .get();
+
+    const adminUser = adminUserSnap.exists ? adminUserSnap.data() : null;
+
+    if (!adminUser || adminUser.role !== "admin") {
       return NextResponse.json(
-        { error: "Admin access required" },
+        { success: false, error: "Admin access required" },
         { status: 403 }
       );
     }
 
-    // -------------------------------
-    // 2) Find all partners with pending KYC
-    // -------------------------------
+    // -----------------------------------
+    // 2) Fetch all partners with UNDER_REVIEW KYC
+    // -----------------------------------
     const partnersSnap = await adminDb
       .collection("partners")
-      .where("kycStatus", "==", "pending")
+      .where("kycStatus", "==", "UNDER_REVIEW")
+      .orderBy("kycSubmittedAt", "desc")
       .get();
 
     const pendingList: any[] = [];
@@ -63,20 +72,6 @@ export async function GET(req: Request) {
     for (const partnerDoc of partnersSnap.docs) {
       const partnerId = partnerDoc.id;
       const partnerData = partnerDoc.data();
-
-      // get the latest pending KYC submission from kycDocs
-      const kycSnap = await adminDb
-        .collection("partners")
-        .doc(partnerId)
-        .collection("kycDocs")
-        .where("status", "==", "pending")
-        .orderBy("submittedAt", "desc")
-        .limit(1)
-        .get();
-
-      if (kycSnap.empty) continue;
-
-      const kycDoc = kycSnap.docs[0];
 
       pendingList.push({
         partnerId,
@@ -86,8 +81,9 @@ export async function GET(req: Request) {
           phone: partnerData.phone || null,
           businessName: partnerData.businessName || null,
         },
-        kycId: kycDoc.id,
-        kyc: kycDoc.data(),
+        kyc: partnerData.kyc || null,
+        kycStatus: partnerData.kycStatus || "UNDER_REVIEW",
+        submittedAt: partnerData.kycSubmittedAt || null,
       });
     }
 
@@ -99,7 +95,7 @@ export async function GET(req: Request) {
   } catch (err: any) {
     console.error("🔥 Admin pending KYC error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

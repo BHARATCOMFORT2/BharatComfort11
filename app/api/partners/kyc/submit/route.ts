@@ -7,39 +7,7 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
- * ✅ Partner KYC Submit / Resubmit
- *
- * Accepts body (two shapes supported):
- *
- * 1) From main KYC page:
- * {
- *   token?: string;
- *   idType: "AADHAAR";
- *   idNumberMasked: string;
- *   documents: { docType: string; storagePath: string }[];
- *   meta: {
- *     gstNumber?: string | null;
- *     businessName: string;
- *     phone: string;
- *     address: {
- *       line1: string;
- *       line2?: string;
- *       city: string;
- *       state: string;
- *       pincode: string;
- *     };
- *   };
- * }
- *
- * 2) From resubmit page:
- * {
- *   isResubmission: true;
- *   businessName: string;
- *   phone: string;
- *   aadhaar: string;
- *   gstNumber?: string | null;
- *   documents: { docType: string; storagePath: string }[];
- * }
+ * ✅ Partner KYC Submit / Resubmit (Hardened)
  */
 
 export async function POST(req: Request) {
@@ -47,7 +15,7 @@ export async function POST(req: Request) {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
     // -----------------------------------
-    // 1) Auth: Try session cookie, fallback to ID token
+    // 1) Auth: Try session cookie, fallback to ID token from body.token
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
@@ -69,9 +37,7 @@ export async function POST(req: Request) {
     }
 
     if (!decoded && idToken) {
-      decoded = await adminAuth
-        .verifyIdToken(idToken)
-        .catch(() => null);
+      decoded = await adminAuth.verifyIdToken(idToken).catch(() => null);
     }
 
     if (!decoded) {
@@ -89,7 +55,7 @@ export async function POST(req: Request) {
     // -----------------------------------
     const isResubmission: boolean = !!body?.isResubmission;
 
-    // Documents array
+    // Documents
     const documents: { docType: string; storagePath: string }[] = Array.isArray(
       body?.documents
     )
@@ -98,7 +64,13 @@ export async function POST(req: Request) {
         )
       : [];
 
-    // Base fields (from both shapes)
+    if (!documents.length) {
+      return NextResponse.json(
+        { success: false, error: "At least one document is required" },
+        { status: 400 }
+      );
+    }
+
     let businessName: string | null = null;
     let phone: string | null = null;
     let gstNumber: string | null = null;
@@ -117,10 +89,10 @@ export async function POST(req: Request) {
           ? meta.gstNumber.toString().trim()
           : null;
       address = meta.address || null;
+
       idType = body.idType || "AADHAAR";
       idNumberMasked = body.idNumberMasked || null;
 
-      // Try to extract last4 from masked (e.g. 1234XXXX5678)
       if (idNumberMasked && idNumberMasked.length >= 4) {
         aadhaarLast4 = idNumberMasked.slice(-4);
       }
@@ -150,8 +122,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (!aadhaarLast4) {
-      // Aadhaar is mandatory for this flow
+    if (!aadhaarLast4 || !idNumberMasked) {
       return NextResponse.json(
         { success: false, error: "Aadhaar details are required" },
         { status: 400 }
@@ -159,26 +130,47 @@ export async function POST(req: Request) {
     }
 
     // -----------------------------------
-    // 3) Partner doc reference
+    // 3) Existing partner doc + KYC state checks
     // -----------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
+    const existingPartner: any = partnerSnap.exists ? partnerSnap.data() : null;
 
-    if (!partnerSnap.exists) {
-      // Minimal partner doc create
-      await partnerRef.set(
+    const existingKycStatus = existingPartner?.kycStatus
+      ? String(existingPartner.kycStatus).toUpperCase()
+      : "NOT_STARTED";
+
+    // ✅ Prevent random double submits
+    if (!isResubmission) {
+      if (existingKycStatus === "UNDER_REVIEW") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "KYC already submitted and under review",
+          },
+          { status: 400 }
+        );
+      }
+
+      if (existingKycStatus === "APPROVED") {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "KYC already approved",
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Resubmission allowed mainly after REJECTED (or if PENDING_KYC/NOT_STARTED)
+    if (isResubmission && existingKycStatus === "APPROVED") {
+      return NextResponse.json(
         {
-          uid,
-          businessName,
-          phone,
-          gstNumber,
-          address: address || null,
-          createdAt: now,
-          updatedAt: now,
-          status: "PENDING_KYC",
-          kycStatus: "UNDER_REVIEW",
+          success: false,
+          error: "KYC already approved. Resubmission not required.",
         },
-        { merge: true }
+        { status: 400 }
       );
     }
 
@@ -188,35 +180,43 @@ export async function POST(req: Request) {
     const kycPayload = {
       status: "UNDER_REVIEW",
       idType,
-      idNumberMasked: idNumberMasked || null,
+      idNumberMasked,
       aadhaarLast4,
       gstNumber,
-      documents: documents || [],
+      documents,
       isResubmission,
       submittedAt: now,
     };
 
     // -----------------------------------
-    // 5) Update Partner Document
+    // 5) Partner doc update payload
     // -----------------------------------
-    await partnerRef.set(
-      {
-        uid,
-        businessName,
-        phone,
-        gstNumber,
-        address: address || admin.firestore.FieldValue.delete(),
-        kycStatus: "UNDER_REVIEW",
-        kyc: kycPayload,
-        status: "PENDING_KYC",
-        kycSubmittedAt: now,
-        updatedAt: now,
-      },
-      { merge: true }
-    );
+    const partnerUpdate: any = {
+      uid,
+      businessName,
+      phone,
+      gstNumber,
+      kycStatus: "UNDER_REVIEW",
+      kyc: kycPayload,
+      status: "PENDING_KYC",
+      kycSubmittedAt: now,
+      updatedAt: now,
+    };
+
+    // Only overwrite address if provided in this request
+    if (address) {
+      partnerUpdate.address = address;
+    }
+
+    // If partner doc does not exist, create a basic one
+    if (!partnerSnap.exists) {
+      partnerUpdate.createdAt = now;
+    }
+
+    await partnerRef.set(partnerUpdate, { merge: true });
 
     // -----------------------------------
-    // 6) Optional: audit trail
+    // 6) Audit trail
     // -----------------------------------
     await adminDb.collection("kycAudit").add({
       uid,

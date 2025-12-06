@@ -40,7 +40,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // 1️⃣ Firebase login
+      // ✅ 1) Firebase login
       await signInWithEmailAndPassword(
         auth,
         form.email.trim(),
@@ -50,7 +50,7 @@ export default function LoginPage() {
       const user = auth.currentUser;
       if (!user) throw new Error("Auth initialization failed.");
 
-      // 2️⃣ Create secure session cookie
+      // ✅ 2) Create secure session cookie
       const idToken = await getIdToken(user, false);
 
       const sessionRes = await fetch("/api/auth/session", {
@@ -61,18 +61,17 @@ export default function LoginPage() {
 
       if (!sessionRes.ok) throw new Error("Session cookie creation failed.");
 
-      // 3️⃣ Admin direct access
+      // ✅ 3) Admin direct access
       if (ADMIN_EMAILS.includes(user.email || "")) {
         router.push("/admin/dashboard");
         return;
       }
 
-      // 4️⃣ Load user profile document (role detection)
+      // ✅ 4) Load user profile
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
 
       if (!snap.exists()) {
-        // No profile — sign out with message
         setError("⚠️ No profile found.");
         await auth.signOut();
         return;
@@ -82,29 +81,44 @@ export default function LoginPage() {
       const role = data.role || "user";
 
       // ======================================================
-      // ⭐ PARTNER LOGIN: handle partner early (allow dashboard access)
+      // ✅ ✅ ✅ PARTNER LOGIN — STRICT KYC ENFORCEMENT
       // ======================================================
       if (role === "partner") {
-        try {
-          // Fetch partner doc (not strictly required, but useful to decide KYC state)
-          const partnerRef = doc(db, "partners", user.uid);
-          const pSnap = await getDoc(partnerRef);
+        const partnerRef = doc(db, "partners", user.uid);
+        const pSnap = await getDoc(partnerRef);
 
-          // If partner document does not exist or KYC not started, we still allow
-          // dashboard access. The dashboard will show a KYC card and route the user
-          // to the KYC form when they click it.
-          router.push("/partner/dashboard");
+        const kycStatus =
+          pSnap.exists() && pSnap.data()?.kycStatus
+            ? String(pSnap.data().kycStatus).toUpperCase()
+            : "NOT_STARTED";
+
+        if (kycStatus === "NOT_STARTED") {
+          router.push("/partner/dashboard/kyc");
           return;
-        } catch (err) {
-          console.error("Partner read error (login):", err);
-          // Still allow them to dashboard — we don't want auth to be blocked here.
+        }
+
+        if (kycStatus === "UNDER_REVIEW") {
+          router.push("/partner/dashboard/kyc/pending");
+          return;
+        }
+
+        if (kycStatus === "REJECTED") {
+          router.push("/partner/dashboard/kyc?resubmit=1");
+          return;
+        }
+
+        if (kycStatus === "APPROVED") {
           router.push("/partner/dashboard");
           return;
         }
+
+        // ✅ Safety fallback
+        router.push("/partner/dashboard/kyc");
+        return;
       }
 
       // ======================================================
-      // ⭐ NON-PARTNER: Email + phone verification checks (unchanged)
+      // ✅ NORMAL USER VERIFICATION FLOW
       // ======================================================
       if (!user.emailVerified || !data.emailVerified) {
         router.push("/auth/verify");
@@ -116,7 +130,6 @@ export default function LoginPage() {
         return;
       }
 
-      // Sync verification flags if possible (best-effort)
       try {
         await updateDoc(userRef, {
           emailVerified: true,
@@ -124,13 +137,9 @@ export default function LoginPage() {
           verified: true,
           updatedAt: new Date(),
         });
-      } catch (e) {
-        // ignore sync failures
-      }
+      } catch {}
 
-      // ======================================================
-      // ⭐ NORMAL USER LOGIN LOGIC
-      // ======================================================
+      // ✅ Booking redirect
       if (
         redirectTo &&
         redirectTo.startsWith("/listing/") &&
@@ -213,13 +222,19 @@ export default function LoginPage() {
         <div className="mt-4 text-center text-gray-500 text-sm space-y-1">
           <p>
             Forgot password?{" "}
-            <a className="text-blue-600 hover:underline" href="/auth/forgot-password">
+            <a
+              className="text-blue-600 hover:underline"
+              href="/auth/forgot-password"
+            >
               Reset here
             </a>
           </p>
           <p>
             Don’t have an account?{" "}
-            <a className="text-blue-600 hover:underline" href="/auth/register">
+            <a
+              className="text-blue-600 hover:underline"
+              href="/auth/register"
+            >
               Register
             </a>
           </p>

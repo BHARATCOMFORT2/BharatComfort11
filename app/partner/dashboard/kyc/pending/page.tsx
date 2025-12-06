@@ -8,6 +8,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 export default function KYCPendingPage() {
   const router = useRouter();
+
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState<string>("UNDER_REVIEW");
   const [partner, setPartner] = useState<any>(null);
@@ -17,7 +18,7 @@ export default function KYCPendingPage() {
 
     const unsub = onAuthStateChanged(auth, async (user) => {
       if (!user) {
-        router.push("/auth/login");
+        router.replace("/auth/login");
         return;
       }
 
@@ -25,29 +26,35 @@ export default function KYCPendingPage() {
         const res = await fetch("/api/partners/profile", {
           credentials: "include",
         });
+
         const j = await res.json().catch(() => null);
 
         if (!mounted) return;
 
         if (j?.partner) {
-          const kyc =
+          const rawKyc =
             j.kycStatus ||
             j.partner?.kycStatus ||
-            j.partner?.kyc?.status;
+            j.partner?.kyc?.status ||
+            "UNDER_REVIEW";
 
-          setStatus((kyc || "UNDER_REVIEW").toUpperCase());
+          const normalized = String(rawKyc).toUpperCase();
+
+          setStatus(normalized);
           setPartner(j.partner);
 
-          // ✅ Auto redirect based on latest status
-          if (kyc === "APPROVED") {
-            router.push("/partner/dashboard");
+          // ✅ AUTO REDIRECT — FINAL AUTHORITY
+          if (normalized === "APPROVED") {
+            router.replace("/partner/dashboard");
             return;
           }
 
-          if (kyc === "REJECTED") {
-            router.push("/partner/dashboard/kyc/resubmit");
+          if (normalized === "REJECTED") {
+            router.replace("/partner/dashboard/kyc/resubmit");
             return;
           }
+
+          // ✅ Else stay on pending page
         }
       } catch (e) {
         console.error("KYC Pending load error:", e);

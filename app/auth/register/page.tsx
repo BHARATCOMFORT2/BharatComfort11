@@ -117,7 +117,7 @@ export default function RegisterPage() {
     }
   };
 
-  /* ✅ STEP 2: Verify Phone OTP → Send Email OTP */
+  /* ✅ STEP 2: Verify Phone OTP → Send Email OTP (UID mismatch check removed) */
   const handleVerifyPhoneOtp = async () => {
     if (!otp.trim()) return setError("Enter OTP first.");
     if (!tempUid) return setError("Session expired. Please re-register.");
@@ -125,12 +125,16 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       const resultUser = await verifyOtp(otp);
-      if (!resultUser?.uid) throw new Error("Invalid OTP.");
 
-      // ✅ SECURITY FIX — Phone & Email UID must match
-      if (resultUser.uid !== tempUid) {
-        throw new Error("Phone number does not match this account.");
+      // ✅ Bas itna check ki OTP sahi hai
+      if (!resultUser) {
+        throw new Error("Invalid OTP.");
       }
+
+      // ❌ YAHAN SE PROBLEM WALI UID CHECK HATA DI:
+      // if (resultUser.uid !== tempUid) {
+      //   throw new Error("Phone number does not match this account.");
+      // }
 
       clearOtpSession();
       setStep("email");
@@ -393,7 +397,7 @@ export default function RegisterPage() {
                 placeholder="Enter OTP"
                 className="flex-1 border rounded-lg p-3"
               />
-              <Button onClick={handleVerifyPhoneOtp} disabled={loading}>
+            <Button onClick={handleVerifyPhoneOtp} disabled={loading}>
                 {loading ? "Verifying..." : "Verify"}
               </Button>
             </div>

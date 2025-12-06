@@ -1,10 +1,7 @@
 // middleware.ts
-export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-
 import { NextRequest, NextResponse } from "next/server";
 
-export async function middleware(request: NextRequest) {
+export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const host = request.headers.get("host") || "";
 
@@ -29,7 +26,7 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     3️⃣ UNIVERSAL API FIX — INJECT __session INTO HEADERS
+     3️⃣ UNIVERSAL API FIX — INJECT __session
   ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     const sessionCookie =
@@ -50,14 +47,12 @@ export async function middleware(request: NextRequest) {
     }
 
     return NextResponse.next({
-      request: {
-        headers: newHeaders,
-      },
+      request: { headers: newHeaders },
     });
   }
 
   /* ---------------------------------------------------
-     4️⃣ SKIP AUTH ROUTES
+     4️⃣ SKIP AUTH / STAFF LOGIN ROUTES
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/auth") ||
@@ -68,7 +63,7 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     5️⃣ CAPTURE REFERRAL CODE
+     5️⃣ REFERRAL CAPTURE
   ----------------------------------------------------*/
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
@@ -85,14 +80,14 @@ export async function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     ✅ 6️⃣ PROTECTED ROUTES (STAFF INCLUDED)
+     ✅ 6️⃣ PROTECTED ROUTES
   ----------------------------------------------------*/
   const protectedPaths = [
     "/dashboard",
     "/user",
     "/partner",
     "/admin",
-    "/staff",        // ✅✅✅ THIS WAS MISSING (ROOT CAUSE)
+    "/staff",
     "/chat",
     "/book",
   ];
@@ -124,7 +119,7 @@ export async function middleware(request: NextRequest) {
 }
 
 /* ---------------------------------------------------
-   7️⃣ MATCHER
+   ✅ 7️⃣ MATCHER
 ----------------------------------------------------*/
 export const config = {
   matcher: [

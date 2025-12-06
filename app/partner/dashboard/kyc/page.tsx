@@ -33,19 +33,20 @@ export default function PartnerKYCPage() {
 
   const [partnerProfile, setPartnerProfile] = useState<any>(null);
 
+  // ✅ Load user + partner profile
   useEffect(() => {
     let mounted = true;
 
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) {
-        router.push("/auth/login");
+        router.replace("/auth/login");
         return;
       }
 
       if (!mounted) return;
 
       setUser(u);
-      const t = await u.getIdToken();
+      const t = await u.getIdToken(true);
       setToken(t);
 
       try {
@@ -70,8 +71,17 @@ export default function PartnerKYCPage() {
             setPincode(p.address.pincode || "");
           }
 
-          if (p.kycStatus?.toUpperCase() === "APPROVED") {
-            router.push("/partner/dashboard");
+          const kyc = String(
+            p.kycStatus || p.kyc?.status || "NOT_STARTED"
+          ).toUpperCase();
+
+          if (kyc === "APPROVED") {
+            router.replace("/partner/dashboard");
+            return;
+          }
+
+          if (kyc === "UNDER_REVIEW" || kyc === "SUBMITTED") {
+            router.replace("/partner/dashboard/kyc/pending");
             return;
           }
         }
@@ -90,7 +100,6 @@ export default function PartnerKYCPage() {
 
   // ✅ Upload helper
   async function uploadFile(file: File, docType: string) {
-    if (!file) throw new Error("No file selected");
     if (!user || !token) throw new Error("Not authenticated");
 
     const form = new FormData();
@@ -110,9 +119,10 @@ export default function PartnerKYCPage() {
       throw new Error(j?.error || "Upload failed");
     }
 
-    return j.storagePath;
+    return j.storagePath as string;
   }
 
+  // ✅ Submit KYC
   const handleSubmit = async () => {
     if (submitting) return;
 
@@ -122,7 +132,6 @@ export default function PartnerKYCPage() {
         return;
       }
 
-      // ✅ Validation
       const aadNum = aadhaar.replace(/\D/g, "");
       if (!/^\d{12}$/.test(aadNum)) {
         toast.error("Enter valid 12-digit Aadhaar number");
@@ -134,7 +143,12 @@ export default function PartnerKYCPage() {
         return;
       }
 
-      if (!addrLine1.trim() || !city.trim() || !stateField.trim() || !pincode.trim()) {
+      if (
+        !addrLine1.trim() ||
+        !city.trim() ||
+        !stateField.trim() ||
+        !pincode.trim()
+      ) {
         toast.error("Please fill full business address");
         return;
       }
@@ -146,8 +160,11 @@ export default function PartnerKYCPage() {
 
       setSubmitting(true);
 
-      // ✅ Upload docs
-      const aadhaarStoragePath = await uploadFile(aadhaarFile, "aadhaar_file");
+      // ✅ Upload documents
+      const aadhaarStoragePath = await uploadFile(
+        aadhaarFile,
+        "aadhaar_file"
+      );
 
       let gstStoragePath: string | null = null;
       if (gstFile) {
@@ -174,18 +191,20 @@ export default function PartnerKYCPage() {
             address,
           }),
         });
-      } catch (err) {
-        console.warn("Profile update failed (non-fatal)", err);
+      } catch {
+        // ignore
       }
 
       const documents: any[] = [
         { docType: "aadhaar_file", storagePath: aadhaarStoragePath },
       ];
       if (gstStoragePath) {
-        documents.push({ docType: "gst_file", storagePath: gstStoragePath });
+        documents.push({
+          docType: "gst_file",
+          storagePath: gstStoragePath,
+        });
       }
 
-      // ✅ Mask Aadhaar safely
       const maskedAadhaar = `${aadNum.slice(0, 4)}XXXX${aadNum.slice(-4)}`;
 
       const submitRes = await fetch("/api/partners/kyc/submit", {
@@ -207,12 +226,13 @@ export default function PartnerKYCPage() {
       });
 
       const submitJson = await submitRes.json().catch(() => null);
+
       if (!submitRes.ok || !submitJson?.success) {
         throw new Error(submitJson?.error || "KYC submit failed");
       }
 
-      toast.success("KYC submitted. Admin will review.");
-      router.push("/partner/dashboard/kyc/pending");
+      toast.success("✅ KYC submitted. Admin will review.");
+      router.replace("/partner/dashboard/kyc/pending");
     } catch (err: any) {
       console.error("KYC submit failed:", err);
       toast.error(err?.message || "Failed to submit KYC");
@@ -234,85 +254,63 @@ export default function PartnerKYCPage() {
       <div className="max-w-2xl mx-auto bg-white p-6 rounded-2xl shadow">
         <h1 className="text-2xl font-bold mb-4">Partner KYC</h1>
         <p className="text-gray-600 mb-6">
-          Please fill business details and upload Aadhaar (GST optional).
+          Please fill business details and upload Aadhaar (GST optional)
         </p>
 
         <div className="grid gap-4">
-          <div>
-            <label className="block text-sm font-medium">Aadhaar Number *</label>
-            <input
-              value={aadhaar}
-              onChange={(e) => setAadhaar(e.target.value)}
-              placeholder="123412341234"
-              className="mt-1 w-full border rounded p-2"
-              inputMode="numeric"
-            />
-          </div>
+          <input
+            placeholder="Aadhaar Number *"
+            value={aadhaar}
+            onChange={(e) => setAadhaar(e.target.value)}
+            className="border p-2 rounded"
+          />
 
-          <div>
-            <label className="block text-sm font-medium">Aadhaar File *</label>
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={(e) => setAadhaarFile(e.target.files?.[0] || null)}
-              className="mt-1"
-            />
-          </div>
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            onChange={(e) => setAadhaarFile(e.target.files?.[0] || null)}
+          />
 
-          <div>
-            <label className="block text-sm font-medium">GST Number (optional)</label>
-            <input
-              value={gst}
-              onChange={(e) => setGst(e.target.value)}
-              className="mt-1 w-full border rounded p-2"
-            />
-          </div>
+          <input
+            placeholder="GST (optional)"
+            value={gst}
+            onChange={(e) => setGst(e.target.value)}
+            className="border p-2 rounded"
+          />
 
-          <div>
-            <label className="block text-sm font-medium">GST File (optional)</label>
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={(e) => setGstFile(e.target.files?.[0] || null)}
-              className="mt-1"
-            />
-          </div>
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            onChange={(e) => setGstFile(e.target.files?.[0] || null)}
+          />
 
-          <div>
-            <label className="block text-sm font-medium">Phone *</label>
-            <input
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              className="mt-1 w-full border rounded p-2"
-            />
-          </div>
+          <input
+            placeholder="Phone"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            className="border p-2 rounded"
+          />
 
-          <div>
-            <label className="block text-sm font-medium">Business Name *</label>
-            <input
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-              className="mt-1 w-full border rounded p-2"
-            />
-          </div>
+          <input
+            placeholder="Business Name"
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+            className="border p-2 rounded"
+          />
 
-          <div>
-            <label className="block text-sm font-medium">Address Line 1 *</label>
-            <input
-              value={addrLine1}
-              onChange={(e) => setAddrLine1(e.target.value)}
-              className="mt-1 w-full border rounded p-2"
-            />
-          </div>
+          <input
+            placeholder="Address Line 1"
+            value={addrLine1}
+            onChange={(e) => setAddrLine1(e.target.value)}
+            className="border p-2 rounded"
+          />
 
-          <div>
-            <label className="block text-sm font-medium">Address Line 2</label>
-            <input
-              value={addrLine2}
-              onChange={(e) => setAddrLine2(e.target.value)}
-              className="mt-1 w-full border rounded p-2"
-            />
-          </div>
+          <input
+            placeholder="Address Line 2"
+            value={addrLine2}
+            onChange={(e) => setAddrLine2(e.target.value)}
+            className="border p-2 rounded"
+          />
 
           <div className="grid grid-cols-3 gap-3">
             <input
@@ -335,22 +333,13 @@ export default function PartnerKYCPage() {
             />
           </div>
 
-          <div className="pt-4 flex gap-3">
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="px-4 py-2 bg-blue-600 disabled:opacity-60 text-white rounded"
-            >
-              {submitting ? "Submitting…" : "Submit KYC"}
-            </button>
-
-            <button
-              onClick={() => router.push("/partner/dashboard")}
-              className="px-4 py-2 border rounded"
-            >
-              Cancel
-            </button>
-          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            className="bg-blue-600 text-white py-2 rounded"
+          >
+            {submitting ? "Submitting…" : "Submit KYC"}
+          </button>
         </div>
       </div>
     </DashboardLayout>

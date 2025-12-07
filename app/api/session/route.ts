@@ -1,71 +1,82 @@
-// app/api/session/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Header helper (browser / server dono ke liye safe)
-function getAuthHeader(req: Request) {
-  const anyReq = req as any;
-  if (anyReq.headers?.get) {
-    return (
-      anyReq.headers.get("authorization") ||
-      anyReq.headers.get("Authorization")
-    );
-  }
-  return anyReq.headers?.authorization || anyReq.headers?.Authorization;
-}
-
-// ✅ Common handler (GET + POST dono yahi use karenge)
-async function handleSession(req: Request) {
+// ✅ Create & Verify Firebase Session Cookie
+export async function POST(req: Request) {
   try {
-    const authHeader = getAuthHeader(req);
+    const { adminAuth } = getFirebaseAdmin();
+    const { token } = await req.json();
 
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!token) {
       return NextResponse.json(
-        {
-          success: false,
-          user: null,
-          message: "Missing Authorization",
-        },
-        { status: 401 }
+        { success: false, message: "Missing ID token" },
+        { status: 400 }
       );
     }
 
-    const token = authHeader.replace("Bearer ", "").trim();
-    const { auth: adminAuth } = getFirebaseAdmin();
-
-    // ✅ Token verify
-    const decoded = await adminAuth.verifyIdToken(token, true);
-
-    return NextResponse.json({
-      success: true,
-      user: {
-        uid: decoded.uid,
-        email: decoded.email || null,
-        role: (decoded as any).role || "user",
-      },
+    // ✅ Create SESSION COOKIE (THIS WAS MISSING IN YOUR PROJECT)
+    const expiresIn = 5 * 24 * 60 * 60 * 1000; // 5 days
+    const sessionCookie = await adminAuth.createSessionCookie(token, {
+      expiresIn,
     });
-  } catch (err) {
-    console.error("SESSION API ERROR:", err);
+
+    const res = NextResponse.json({
+      success: true,
+      message: "Session created",
+    });
+
+    // ✅ THIS COOKIE IS THE KEY FOR ALL ADMIN & PARTNER APIs
+    res.cookies.set("__session", sessionCookie, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+      maxAge: expiresIn / 1000,
+    });
+
+    return res;
+  } catch (err: any) {
+    console.error("SESSION CREATE ERROR:", err);
     return NextResponse.json(
       {
         success: false,
-        user: null,
-        message: "Session invalid",
+        message: err.message || "Failed to create session",
       },
-      { status: 401 }
+      { status: 500 }
     );
   }
 }
 
-// ✅ Frontend se POST aa raha hai → ye required hai (405 fix)
-export async function POST(req: Request) {
-  return handleSession(req);
-}
-
-// ✅ Agar kahin GET se bhi use ho raha ho to safe hai
+// ✅ Optional: Check session validity
 export async function GET(req: Request) {
-  return handleSession(req);
+  try {
+    const { adminAuth } = getFirebaseAdmin();
+
+    const cookieHeader = req.headers.get("cookie") || "";
+    const sessionCookie =
+      cookieHeader
+        .split(";")
+        .map((c) => c.trim())
+        .find((c) => c.startsWith("__session="))
+        ?.split("=")[1] || "";
+
+    if (!sessionCookie) {
+      return NextResponse.json({ valid: false }, { status: 401 });
+    }
+
+    const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+
+    return NextResponse.json({
+      valid: true,
+      uid: decoded.uid,
+      email: decoded.email,
+      role: decoded.role || "user",
+      admin: decoded.admin || false,
+    });
+  } catch {
+    return NextResponse.json({ valid: false }, { status: 401 });
+  }
 }

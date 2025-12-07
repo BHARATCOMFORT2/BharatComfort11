@@ -6,7 +6,7 @@ declare global {
 }
 
 /* -------------------------------------------------------
-   Safe ENV reader
+   Safe ENV reader (NO SILENT FAIL)
 ------------------------------------------------------- */
 function getEnv(name: string): string {
   const v = process.env[name];
@@ -31,7 +31,7 @@ function getPrivateKey(): string {
 }
 
 /* -------------------------------------------------------
-   SAFE SINGLETON INITIALIZATION
+   🔥 SAFE SINGLETON INITIALIZATION (FINAL FIX)
 ------------------------------------------------------- */
 export function getAdminApp(): admin.app.App {
   if (global._firebaseAdminApp) return global._firebaseAdminApp;
@@ -40,8 +40,8 @@ export function getAdminApp(): admin.app.App {
   const clientEmail = getEnv("FIREBASE_CLIENT_EMAIL");
   const privateKey = getPrivateKey();
 
-  const storageBucket =
-    process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`;
+  // ✅ ✅ ✅ FINAL FIX: NO AUTO appspot fallback
+  const storageBucket = getEnv("FIREBASE_STORAGE_BUCKET");
 
   global._firebaseAdminApp = admin.initializeApp({
     credential: admin.credential.cert({
@@ -49,27 +49,24 @@ export function getAdminApp(): admin.app.App {
       clientEmail,
       privateKey,
     }),
-    storageBucket,
+    storageBucket, // ✅ ONLY REAL BUCKET
   });
 
   return global._firebaseAdminApp;
 }
 
 /* -------------------------------------------------------
-   ✅ REAL INSTANCES (SAFE & CORRECT)
+   ✅ REAL INSTANCES
 ------------------------------------------------------- */
 export const adminApp = getAdminApp();
 export const adminDb = adminApp.firestore();
 export const adminAuth = adminApp.auth();
 
-/**
- * ✅ THIS IS THE CRITICAL FIX:
- * We export STORAGE SERVICE, not bucket
- */
-export const adminStorage = adminApp.storage(); // ✅ CORRECT
+/* ✅ STORAGE SERVICE (NOT BUCKET) */
+export const adminStorage = adminApp.storage();
 
 /* -------------------------------------------------------
-   ✅ Backward compatibility (safe)
+   ✅ Backward compatibility
 ------------------------------------------------------- */
 export const db = adminDb;
 export const auth = adminAuth;
@@ -79,7 +76,7 @@ export const storage = adminStorage;
 export { admin };
 
 /* -------------------------------------------------------
-   ✅ Single unified bundle (safe everywhere)
+   ✅ Unified export
 ------------------------------------------------------- */
 export function getFirebaseAdmin() {
   return {
@@ -92,7 +89,7 @@ export function getFirebaseAdmin() {
     auth: adminAuth,
     adminAuth,
 
-    storage: adminStorage,   // ✅ service
+    storage: adminStorage,
     adminStorage,
   };
 }

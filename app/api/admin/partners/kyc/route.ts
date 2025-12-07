@@ -5,101 +5,195 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import { FieldValue } from "firebase-admin/firestore";
 
-// Robust header extractor
-function getAuthHeader(req: Request) {
-  const anyReq = req as any;
-  if (anyReq?.headers?.get) return anyReq.headers.get("authorization");
-  return anyReq?.headers?.authorization || anyReq?.headers?.Authorization || null;
+/**
+ * ✅ Admin KYC Review API
+ *
+ * Method: POST
+ * Body:
+ * {
+ *   partnerUid: string;
+ *   kycId: string;
+ *   action: "approve" | "reject";
+ *   reason?: string;
+ * }
+ *
+ * Auth:
+ *  - Firebase session cookie (__session)
+ *  - users/{uid}.role must be "admin"
+ */
+
+function getSessionCookie(req: Request): string {
+  const cookieHeader = req.headers.get("cookie") || "";
+  return (
+    cookieHeader
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("__session="))
+      ?.split("=")[1] || ""
+  );
 }
 
 export async function POST(req: Request) {
   try {
-    const { adminDb, adminAuth } = getFirebaseAdmin();
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    const authHeader = getAuthHeader(req);
-    if (!authHeader) {
-      return NextResponse.json({ error: "Missing Authorization" }, { status: 401 });
+    // -----------------------------------
+    // 1) Auth: Session cookie
+    // -----------------------------------
+    const sessionCookie = getSessionCookie(req);
+
+    if (!sessionCookie) {
+      return NextResponse.json(
+        { error: "Not authenticated (no session)" },
+        { status: 401 }
+      );
     }
 
-    const token = authHeader.replace(/^Bearer\s+/i, "");
-    const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
+    const decoded = await adminAuth
+      .verifySessionCookie(sessionCookie, true)
+      .catch(() => null);
+
     if (!decoded) {
-      return NextResponse.json({ error: "Invalid token" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Invalid or expired admin session" },
+        { status: 401 }
+      );
     }
 
-    // Enforce admin claim/role
-    const isAdmin = !!decoded.admin || (decoded.role && String(decoded.role).toLowerCase() === "admin");
-    if (!isAdmin) {
-      return NextResponse.json({ error: "Forbidden: admin only" }, { status: 403 });
+    const adminUid = decoded.uid;
+
+    // ✅ Enforce admin role from Firestore users/{uid}
+    const adminSnap = await adminDb.collection("users").doc(adminUid).get();
+    if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
+      return NextResponse.json(
+        { error: "Admin access required" },
+        { status: 403 }
+      );
     }
 
+    // -----------------------------------
+    // 2) Parse body
+    // -----------------------------------
     const body = await req.json().catch(() => null);
-    const { partnerUid, kycId, action, reason = "" } = body || {};
+    if (!body) {
+      return NextResponse.json(
+        { error: "Invalid JSON body" },
+        { status: 400 }
+      );
+    }
+
+    const { partnerUid, kycId, action, reason = "" } = body;
 
     if (!partnerUid || !kycId || !action) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return NextResponse.json(
+        { error: "partnerUid, kycId and action are required" },
+        { status: 400 }
+      );
     }
 
-    const kycRef = adminDb
-      .collection("partners")
-      .doc(partnerUid)
-      .collection("kycDocs")
-      .doc(kycId);
-
-    const kycSnap = await kycRef.get();
-    if (!kycSnap.exists) {
-      return NextResponse.json({ error: "KYC not found" }, { status: 404 });
-    }
-
-    // Normalize action -> status
+    // Normalize action to final status
+    const act = String(action).toLowerCase();
     let newStatus: "APPROVED" | "REJECTED";
-    if (String(action).toLowerCase() === "approve" || String(action).toLowerCase() === "approved") {
+
+    if (act === "approve" || act === "approved") {
       newStatus = "APPROVED";
-    } else if (String(action).toLowerCase() === "reject" || String(action).toLowerCase() === "rejected") {
+    } else if (act === "reject" || act === "rejected") {
       newStatus = "REJECTED";
     } else {
-      return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Invalid action (must be approve/reject)" },
+        { status: 400 }
+      );
     }
 
-    // Prepare update
-    const updatePayload: any = {
+    const now = admin.firestore.FieldValue.serverTimestamp();
+
+    // -----------------------------------
+    // 3) Load partner & KYC doc
+    // -----------------------------------
+    const partnerRef = adminDb.collection("partners").doc(partnerUid);
+    const partnerSnap = await partnerRef.get();
+
+    if (!partnerSnap.exists) {
+      return NextResponse.json(
+        { error: "Partner not found" },
+        { status: 404 }
+      );
+    }
+
+    const partnerData = partnerSnap.data() || {};
+
+    const kycRef = partnerRef.collection("kycDocs").doc(kycId);
+    const kycSnap = await kycRef.get();
+
+    if (!kycSnap.exists) {
+      return NextResponse.json(
+        { error: "KYC document not found" },
+        { status: 404 }
+      );
+    }
+
+    // -----------------------------------
+    // 4) Update individual KYC doc
+    // -----------------------------------
+    const kycUpdate: any = {
       status: newStatus,
-      reviewedAt: FieldValue.serverTimestamp(),
-      reviewedBy: decoded.uid,
+      reviewedAt: now,
+      reviewedBy: adminUid,
     };
 
     if (newStatus === "REJECTED") {
-      updatePayload.rejectedReason = reason || "No reason provided";
+      kycUpdate.rejectedReason = reason || "No reason provided";
     }
 
-    // Update KYC doc
-    await kycRef.update(updatePayload);
+    await kycRef.update(kycUpdate);
 
-    // Update partner-level status (merge)
-    await adminDb.collection("partners").doc(partnerUid).set(
-      {
-        kycStatus: newStatus,
-        kycReviewedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    // -----------------------------------
+    // 5) Update partner-level status + embedded kyc object
+    // -----------------------------------
+    const partnerUpdate: any = {
+      kycStatus: newStatus,
+      kycReviewedAt: now,
+      updatedAt: now,
+      // sync embedded kyc object (if present)
+      "kyc.status": newStatus,
+      "kyc.reviewedAt": now,
+      "kyc.reviewedBy": adminUid,
+    };
 
-    // Audit trail
-    await adminDb
-      .collection("partners")
-      .doc(partnerUid)
-      .collection("kycAudit")
-      .add({
-        action: newStatus === "APPROVED" ? "approved" : "rejected",
-        reason: reason || null,
-        adminUid: decoded.uid,
-        kycId,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+    if (newStatus === "APPROVED") {
+      partnerUpdate.approved = true;
+      partnerUpdate.approvedAt = partnerData.approvedAt || now;
+      partnerUpdate.status = partnerData.status || "ACTIVE";
+      partnerUpdate.kycRejectionReason = null;
+    }
 
-    // Optional: create a notification for partner (partner client listens)
+    if (newStatus === "REJECTED") {
+      partnerUpdate.approved = false;
+      // do NOT wipe approvedAt if it was previously approved historically
+      partnerUpdate.kycRejectionReason = reason || "KYC rejected by admin";
+      // ensure partner is not fully active until fresh approval
+      partnerUpdate.status = "PENDING_KYC";
+    }
+
+    await partnerRef.set(partnerUpdate, { merge: true });
+
+    // -----------------------------------
+    // 6) Audit trail
+    // -----------------------------------
+    await partnerRef.collection("kycAudit").add({
+      action: newStatus === "APPROVED" ? "approved" : "rejected",
+      reason: reason || null,
+      adminUid,
+      kycId,
+      newStatus,
+      createdAt: now,
+    });
+
+    // -----------------------------------
+    // 7) Notification (non-fatal if fails)
+    // -----------------------------------
     try {
       await adminDb.collection("notifications").add({
         userId: partnerUid,
@@ -108,19 +202,38 @@ export async function POST(req: Request) {
         body:
           newStatus === "APPROVED"
             ? "Your KYC has been approved by the admin."
-            : `Your KYC was rejected. Reason: ${reason || "See details in dashboard."}`,
-        createdAt: FieldValue.serverTimestamp(),
+            : `Your KYC was rejected. Reason: ${
+                reason || "See details in your partner dashboard."
+              }`,
+        status: newStatus,
+        createdAt: now,
         read: false,
-        meta: { kycId, status: newStatus },
+        meta: {
+          kycId,
+          kycStatus: newStatus,
+        },
       });
     } catch (notifErr) {
-      console.warn("Failed to create notification:", notifErr);
+      console.warn("Admin KYC: notification create failed:", notifErr);
       // non-fatal
     }
 
-    return NextResponse.json({ ok: true, status: newStatus });
+    return NextResponse.json({
+      ok: true,
+      success: true,
+      status: newStatus,
+      partnerUid,
+      kycId,
+    });
   } catch (err: any) {
     console.error("Admin KYC review error:", err);
-    return NextResponse.json({ error: err?.message || "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      {
+        ok: false,
+        success: false,
+        error: err?.message || "Internal server error",
+      },
+      { status: 500 }
+    );
   }
 }

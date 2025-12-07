@@ -1,21 +1,27 @@
-// app/api/admin/partners/approve/route.ts
-
-import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+import { NextResponse } from "next/server";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
+
 /**
- * ✅ Admin: Approve Partner KYC (Aligned with NEW KYC System)
+ * ✅ ADMIN: APPROVE PARTNER KYC
+ * Body:
+ * {
+ *   partnerUid: string,
+ *   kycId: string,
+ *   remarks?: string,
+ *   rewardAmount?: number
+ * }
  */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    // -----------------------------------
-    // 1) Admin Session Verification
-    // -----------------------------------
+    /* -----------------------------------
+       1️⃣ Verify Admin via SESSION COOKIE
+    ----------------------------------- */
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -42,11 +48,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const adminSnap = await adminDb
-      .collection("users")
-      .doc(decoded.uid)
-      .get();
+    const adminUid = decoded.uid;
 
+    // ✅ Enforce admin from users collection
+    const adminSnap = await adminDb.collection("users").doc(adminUid).get();
     if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Admin access required" },
@@ -54,26 +59,27 @@ export async function POST(req: Request) {
       );
     }
 
-    // -----------------------------------
-    // 2) Parse Body
-    // -----------------------------------
+    /* -----------------------------------
+       2️⃣ Parse Body
+    ----------------------------------- */
     const body = await req.json().catch(() => ({}));
-    const partnerId = body?.partnerId;
+    const partnerUid = body?.partnerUid;
+    const kycId = body?.kycId;
     const remarks = body?.remarks || null;
     const rewardAmount =
       typeof body?.rewardAmount === "number" ? body.rewardAmount : 500;
 
-    if (!partnerId) {
+    if (!partnerUid || !kycId) {
       return NextResponse.json(
-        { success: false, error: "partnerId is required" },
+        { success: false, error: "partnerUid and kycId are required" },
         { status: 400 }
       );
     }
 
-    // -----------------------------------
-    // 3) Load Partner
-    // -----------------------------------
-    const partnerRef = adminDb.collection("partners").doc(partnerId);
+    /* -----------------------------------
+       3️⃣ Load Partner + KYC Doc
+    ----------------------------------- */
+    const partnerRef = adminDb.collection("partners").doc(partnerUid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
@@ -83,23 +89,42 @@ export async function POST(req: Request) {
       );
     }
 
-    const partner = partnerSnap.data() || {};
-    const partnerUid = partner.uid || partnerId;
+    const kycRef = partnerRef.collection("kycDocs").doc(kycId);
+    const kycSnap = await kycRef.get();
 
-    // ✅ Strict double-approval protection
-    if (String(partner.kycStatus).toUpperCase() === "APPROVED") {
+    if (!kycSnap.exists) {
+      return NextResponse.json(
+        { success: false, error: "KYC record not found" },
+        { status: 404 }
+      );
+    }
+
+    const partner = partnerSnap.data() || {};
+    const currentStatus = String(partner.kycStatus || "").toUpperCase();
+
+    // ✅ Strict double approval protection
+    if (currentStatus === "APPROVED") {
       return NextResponse.json(
         { success: false, error: "Partner already approved" },
         { status: 409 }
       );
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    const adminUid = decoded.uid;
+    const now = FieldValue.serverTimestamp();
 
-    // -----------------------------------
-    // 4) Update Partner (SOURCE OF TRUTH)
-    // -----------------------------------
+    /* -----------------------------------
+       4️⃣ Update KYC DOC (SOURCE OF TRUTH)
+    ----------------------------------- */
+    await kycRef.update({
+      status: "APPROVED",
+      reviewedAt: now,
+      reviewedBy: adminUid,
+      remarks: remarks || null,
+    });
+
+    /* -----------------------------------
+       5️⃣ Update PARTNER ROOT DOC
+    ----------------------------------- */
     await partnerRef.update({
       kycStatus: "APPROVED",
       status: "ACTIVE",
@@ -112,43 +137,34 @@ export async function POST(req: Request) {
       updatedAt: now,
     });
 
-    // -----------------------------------
-    // 5) Assign Partner Custom Claim
-    // -----------------------------------
-    const existingUser = await adminAuth.getUser(partnerUid).catch(() => null);
-
-    if (!existingUser) {
-      return NextResponse.json(
-        { success: false, error: "Auth user not found for partner" },
-        { status: 404 }
-      );
+    /* -----------------------------------
+       6️⃣ Set Firebase Custom Claim (Partner)
+    ----------------------------------- */
+    const authUser = await adminAuth.getUser(partnerUid).catch(() => null);
+    if (authUser) {
+      await adminAuth.setCustomUserClaims(partnerUid, {
+        ...(authUser.customClaims || {}),
+        partner: true,
+        partnerId: partnerUid,
+      });
     }
 
-    const existingClaims = existingUser.customClaims || {};
-    const newClaims = {
-      ...existingClaims,
-      partner: true,
-      partnerId,
-    };
-
-    await adminAuth.setCustomUserClaims(partnerUid, newClaims);
-
-    // -----------------------------------
-    // 6) Approval Audit Log
-    // -----------------------------------
+    /* -----------------------------------
+       7️⃣ Audit Log
+    ----------------------------------- */
     await adminDb.collection("partnerApprovals").add({
-      partnerId,
       partnerUid,
-      adminId: adminUid,
+      kycId,
+      adminUid,
       action: "APPROVE",
       remarks,
       rewardAmount,
       createdAt: now,
     });
 
-    // -----------------------------------
-    // 7) Referral Reward Processing (SAFE)
-    // -----------------------------------
+    /* -----------------------------------
+       8️⃣ Referral Reward (SAFE)
+    ----------------------------------- */
     const referralsQ = await adminDb
       .collection("referrals")
       .where("referredUserId", "==", partnerUid)
@@ -179,10 +195,8 @@ export async function POST(req: Request) {
             );
           } else {
             tx.update(referrerRef, {
-              walletBalance:
-                admin.firestore.FieldValue.increment(rewardAmount),
-              totalEarnings:
-                admin.firestore.FieldValue.increment(rewardAmount),
+              walletBalance: FieldValue.increment(rewardAmount),
+              totalEarnings: FieldValue.increment(rewardAmount),
               updatedAt: now,
             });
           }
@@ -206,7 +220,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: "✅ Partner approved successfully",
+      message: "✅ Partner KYC approved successfully",
     });
   } catch (err: any) {
     console.error("Admin Partner Approve Error:", err);

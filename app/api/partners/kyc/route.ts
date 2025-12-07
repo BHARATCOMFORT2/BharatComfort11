@@ -6,7 +6,7 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /* -------------------------------------------------------
-   READ AUTH COOKIE (Corrected)
+   ✅ READ AUTH COOKIE (ALL SUPPORTED)
 ------------------------------------------------------- */
 function extractSessionCookie(req: Request) {
   const cookieHeader = req.headers.get("cookie") || "";
@@ -15,12 +15,13 @@ function extractSessionCookie(req: Request) {
   return (
     cookies.find((c) => c.startsWith("__session="))?.split("=")[1] ||
     cookies.find((c) => c.startsWith("session="))?.split("=")[1] ||
+    cookies.find((c) => c.startsWith("firebase_session="))?.split("=")[1] ||
     ""
   );
 }
 
 /* -------------------------------------------------------
-   GET → return latest KYC status
+   ✅ GET → Return Latest KYC Status
 ------------------------------------------------------- */
 export async function GET(req: Request) {
   try {
@@ -29,7 +30,7 @@ export async function GET(req: Request) {
     const sessionCookie = extractSessionCookie(req);
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "No authentication session" },
+        { ok: false, error: "No authentication session" },
         { status: 401 }
       );
     }
@@ -40,14 +41,13 @@ export async function GET(req: Request) {
 
     if (!decoded) {
       return NextResponse.json(
-        { error: "Invalid or expired session" },
+        { ok: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
 
-    // Partner profile
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
 
@@ -62,14 +62,14 @@ export async function GET(req: Request) {
 
     const partner = partnerSnap.data() || {};
 
-    // Latest KYC Doc
+    // Latest KYC doc
     const kycSnap = await partnerRef
       .collection("kycDocs")
       .orderBy("submittedAt", "desc")
       .limit(1)
       .get();
 
-    let kycStatus = (partner.kycStatus || "NOT_STARTED").toUpperCase();
+    let kycStatus = String(partner.kycStatus || "NOT_STARTED").toUpperCase();
     let latestKyc = null;
 
     if (!kycSnap.empty) {
@@ -78,9 +78,8 @@ export async function GET(req: Request) {
 
       const raw = latestKyc.status || partner.kycStatus || "NOT_STARTED";
 
-      // normalize status
       if (raw === "PENDING") kycStatus = "UNDER_REVIEW";
-      else kycStatus = raw.toUpperCase();
+      else kycStatus = String(raw).toUpperCase();
     }
 
     return NextResponse.json({
@@ -92,27 +91,34 @@ export async function GET(req: Request) {
   } catch (err: any) {
     console.error("🔥 KYC GET Error:", err);
     return NextResponse.json(
-      { error: err.message || "Server error" },
+      { ok: false, error: err.message || "Server error" },
       { status: 500 }
     );
   }
 }
 
 /* -------------------------------------------------------
-   POST → SUBMIT KYC
+   ✅ POST → SUBMIT / RESUBMIT KYC
 ------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
-    const { adminAuth, adminDb } = getFirebaseAdmin();
+    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json({ error: "Invalid body" }, { status: 400 });
     }
 
-    const { token, idType, idNumberMasked, documents } = body;
+    const {
+      token,
+      idType,
+      idNumberMasked,
+      documents = [],
+      meta = {},
+      isResubmission = false,
+    } = body;
 
-    if (!token || !idType || !idNumberMasked || !documents) {
+    if (!token || !idType || !idNumberMasked) {
       return NextResponse.json(
         { error: "Missing required fields" },
         { status: 400 }
@@ -139,35 +145,46 @@ export async function POST(req: Request) {
       );
     }
 
-    // Clean docs
-    const cleanedDocs = documents.map((d: any) => ({
-      docType: d.docType,
-      storagePath: d.storagePath,
-      uploadedAt: new Date(),
-    }));
+    // ✅ Clean documents safely
+    const cleanedDocs = Array.isArray(documents)
+      ? documents.map((d: any) => ({
+          docType: d.docType || "UNKNOWN",
+          storagePath: d.storagePath,
+          uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
+        }))
+      : [];
 
-    // Create new KYC submission
+    // ✅ Create new KYC Submission (Audit Safe)
     const kycRef = partnerRef.collection("kycDocs").doc();
+
     await kycRef.set({
       idType,
       idNumberMasked,
       documents: cleanedDocs,
-      status: "UNDER_REVIEW", // 🔥 corrected
-      submittedAt: new Date(),
+      meta: meta || {},
+      status: "UNDER_REVIEW",
+      submittedAt: admin.firestore.FieldValue.serverTimestamp(),
+      isResubmission: !!isResubmission,
     });
 
-    // update main partner profile
+    // ✅ Update main partner profile
     await partnerRef.set(
       {
         kycStatus: "UNDER_REVIEW",
-        updatedAt: new Date(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        kyc: {
+          status: "UNDER_REVIEW",
+          lastSubmittedAt: admin.firestore.FieldValue.serverTimestamp(),
+          lastKycId: kycRef.id,
+        },
       },
       { merge: true }
     );
 
     return NextResponse.json({
       ok: true,
-      message: "KYC submitted successfully",
+      success: true,
+      message: "✅ KYC submitted successfully",
       kycId: kycRef.id,
     });
   } catch (err: any) {

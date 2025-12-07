@@ -6,28 +6,27 @@ declare global {
 }
 
 /* -------------------------------------------------------
-   Get env var safely
+   Safe ENV reader
 ------------------------------------------------------- */
-function getEnv(name: string): string | undefined {
+function getEnv(name: string): string {
   const v = process.env[name];
-  return v && v.trim() !== "" ? v : undefined;
+  if (!v || v.trim() === "") {
+    throw new Error(`❌ Missing environment variable: ${name}`);
+  }
+  return v;
 }
 
 /* -------------------------------------------------------
-   Private key loader
+   Private key loader (BASE64 + RAW supported)
 ------------------------------------------------------- */
 function getPrivateKey(): string {
-  const base64Key = getEnv("FIREBASE_PRIVATE_KEY_BASE64");
+  const base64Key = process.env.FIREBASE_PRIVATE_KEY_BASE64;
 
-  if (base64Key) {
+  if (base64Key && base64Key.trim() !== "") {
     return Buffer.from(base64Key, "base64").toString("utf8");
   }
 
   const rawKey = getEnv("FIREBASE_PRIVATE_KEY");
-  if (!rawKey) {
-    throw new Error("❌ Missing Firebase private key");
-  }
-
   return rawKey.replace(/\\n/g, "\n");
 }
 
@@ -41,13 +40,8 @@ export function getAdminApp(): admin.app.App {
   const clientEmail = getEnv("FIREBASE_CLIENT_EMAIL");
   const privateKey = getPrivateKey();
 
-  if (!projectId || !clientEmail || !privateKey) {
-    throw new Error("❌ Missing Firebase Admin environment variables");
-  }
-
-  // THE FIX IS HERE 👇
   const storageBucket =
-    getEnv("FIREBASE_STORAGE_BUCKET") || `${projectId}.appspot.com`;
+    process.env.FIREBASE_STORAGE_BUCKET || `${projectId}.appspot.com`;
 
   global._firebaseAdminApp = admin.initializeApp({
     credential: admin.credential.cert({
@@ -62,35 +56,34 @@ export function getAdminApp(): admin.app.App {
 }
 
 /* -------------------------------------------------------
-   REAL instances (correct way)
+   ✅ REAL INSTANCES (SAFE & CORRECT)
 ------------------------------------------------------- */
 export const adminApp = getAdminApp();
 export const adminDb = adminApp.firestore();
 export const adminAuth = adminApp.auth();
-export const adminStorage = adminApp.storage().bucket();
+
+/**
+ * ✅ THIS IS THE CRITICAL FIX:
+ * We export STORAGE SERVICE, not bucket
+ */
+export const adminStorage = adminApp.storage(); // ✅ CORRECT
 
 /* -------------------------------------------------------
-   Backward compatibility
+   ✅ Backward compatibility (safe)
 ------------------------------------------------------- */
 export const db = adminDb;
 export const auth = adminAuth;
-export const storage = adminStorage;
 export const app = adminApp;
+export const storage = adminStorage;
 
 export { admin };
 
-export const firebaseAdmin = admin;
-export const adminInstance = admin;
-export const adminSDK = admin;
-export const adminDefault = admin;
-
 /* -------------------------------------------------------
-   Bundle for `getFirebaseAdmin()`
+   ✅ Single unified bundle (safe everywhere)
 ------------------------------------------------------- */
 export function getFirebaseAdmin() {
   return {
     admin,
-
     app: adminApp,
 
     db: adminDb,
@@ -99,7 +92,7 @@ export function getFirebaseAdmin() {
     auth: adminAuth,
     adminAuth,
 
-    storage: adminStorage,
+    storage: adminStorage,   // ✅ service
     adminStorage,
   };
 }

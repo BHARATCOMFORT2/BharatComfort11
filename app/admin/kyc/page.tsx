@@ -1,21 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
 
-export default function AdminKYCReviewPage() {
-  const router = useRouter();
-
-  const [pending, setPending] = useState<any[]>([]);
-  const [selected, setSelected] = useState<any>(null);
+export default function AdminKYCPage() {
+  const [list, setList] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<any>(null);
   const [remark, setRemark] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  /* ✅ LOAD PENDING KYC — FROM CORRECT ADMIN API */
-  async function loadPending() {
+  /* ✅ LOAD KYC LIST FROM ADMIN API ONLY */
+  async function loadKYC() {
     try {
       setLoading(true);
 
@@ -26,10 +23,10 @@ export default function AdminKYCReviewPage() {
       const data = await res.json();
 
       if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Failed to load pending KYCs");
+        throw new Error(data?.error || "Failed to load KYCs");
       }
 
-      setPending(data.data || []);
+      setList(data.data || []);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Failed to load KYC list");
@@ -39,10 +36,10 @@ export default function AdminKYCReviewPage() {
   }
 
   useEffect(() => {
-    loadPending();
+    loadKYC();
   }, []);
 
-  /* ✅ ✅ ✅ FINAL FIX — APPROVE / REJECT USING SINGLE CORRECT API */
+  /* ✅ FINAL APPROVE / REJECT — ONLY VIA ADMIN API */
   async function handleDecision(type: "approve" | "reject") {
     if (!selected) return;
 
@@ -55,7 +52,7 @@ export default function AdminKYCReviewPage() {
     try {
       const res = await fetch("/api/admin/partners/kyc", {
         method: "POST",
-        credentials: "include", // ✅ COOKIE-BASED ADMIN AUTH
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
         },
@@ -81,7 +78,7 @@ export default function AdminKYCReviewPage() {
 
       setSelected(null);
       setRemark("");
-      loadPending();
+      loadKYC();
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Action failed");
@@ -92,26 +89,25 @@ export default function AdminKYCReviewPage() {
 
   return (
     <DashboardLayout title="KYC Review" profile={{ role: "admin", name: "Admin" }}>
-      <div className="bg-white rounded-2xl p-6 shadow-lg">
-        <h2 className="text-xl font-bold mb-4">Pending KYC Verifications</h2>
+      <div className="bg-white rounded-xl p-6 shadow">
+        <h2 className="text-xl font-semibold mb-4">Pending KYCs</h2>
 
         {loading ? (
-          <p className="text-center py-10">Loading pending KYCs…</p>
-        ) : pending.length === 0 ? (
-          <p className="text-gray-500">🎉 No pending KYCs found</p>
+          <p>Loading...</p>
+        ) : list.length === 0 ? (
+          <p className="text-gray-500">No pending KYC found</p>
         ) : (
           <div className="grid md:grid-cols-2 gap-4">
-            {pending.map((p) => (
+            {list.map((p) => (
               <div
                 key={p.partnerId || p.uid}
-                className="border rounded-lg p-4 hover:shadow cursor-pointer"
                 onClick={() => setSelected(p)}
+                className="border rounded-lg p-4 hover:shadow cursor-pointer"
               >
                 <h3 className="font-semibold">
                   {p.partner?.businessName || p.partner?.name}
                 </h3>
                 <p className="text-sm text-gray-500">{p.partner?.email}</p>
-
                 <span className="inline-block mt-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
                   UNDER REVIEW
                 </span>
@@ -121,76 +117,46 @@ export default function AdminKYCReviewPage() {
         )}
       </div>
 
-      {/* ✅ REVIEW MODAL */}
+      {/* ✅ MODAL */}
       {selected && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-[95%] max-w-lg shadow-xl relative">
             <button
               onClick={() => setSelected(null)}
-              className="absolute top-3 right-3 text-gray-600 hover:text-black"
+              className="absolute top-3 right-3"
             >
               ✕
             </button>
 
             <h3 className="text-lg font-semibold mb-1">
-              {selected.partner?.businessName ||
-                selected.partner?.name ||
-                "Partner"}
+              {selected.partner?.businessName || selected.partner?.name}
             </h3>
 
-            <p className="text-gray-600 mb-4 text-sm">
+            <p className="text-sm text-gray-600 mb-3">
               {selected.partner?.email} | {selected.partner?.phone}
             </p>
 
-            <div className="space-y-2 mb-5 text-sm">
-              <p>
-                <b>Aadhaar:</b> {selected.kyc?.aadhaarLast4 || "—"}
-              </p>
-              <p>
-                <b>GST:</b> {selected.kyc?.gstNumber || "—"}
-              </p>
-
-              {Array.isArray(selected.kyc?.documents) &&
-                selected.kyc.documents.map((doc: any, i: number) => (
-                  <a
-                    key={i}
-                    href={`/api/files/view?path=${encodeURIComponent(
-                      doc.storagePath
-                    )}`}
-                    target="_blank"
-                    className="block text-blue-600 underline"
-                  >
-                    View {doc.docType}
-                  </a>
-                ))}
-            </div>
-
-            <label className="block text-sm font-medium mb-1">
-              Admin Remark (required for rejection)
-            </label>
-
+            <label className="block text-sm mb-1">Admin Remark</label>
             <textarea
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
-              className="w-full border rounded-lg p-2 mb-4"
-              placeholder="Enter rejection reason"
+              className="w-full border rounded p-2 mb-4"
             />
 
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => handleDecision("reject")}
                 disabled={actionLoading}
-                className="px-4 py-2 bg-red-600 text-white rounded-lg"
+                className="bg-red-600 text-white px-4 py-2 rounded"
               >
-                {actionLoading ? "Processing..." : "Reject"}
+                Reject
               </button>
-
               <button
                 onClick={() => handleDecision("approve")}
                 disabled={actionLoading}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg"
+                className="bg-green-600 text-white px-4 py-2 rounded"
               >
-                {actionLoading ? "Processing..." : "Approve"}
+                Approve
               </button>
             </div>
           </div>

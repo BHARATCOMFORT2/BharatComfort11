@@ -15,7 +15,7 @@ function getAuthHeader(req: Request) {
 }
 
 /* ---------------------------------------------
-   PARTNER LISTING IMAGE UPLOAD API
+   PARTNER LISTING IMAGE UPLOAD API ✅ FINAL FIXED
 --------------------------------------------- */
 export async function POST(req: Request) {
   try {
@@ -24,19 +24,19 @@ export async function POST(req: Request) {
 
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: "Missing or invalid Authorization header" },
+        { success: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
       );
     }
 
     const idToken = authHeader.replace("Bearer ", "").trim();
 
-    let decoded;
+    let decoded: any;
     try {
       decoded = await adminAuth.verifyIdToken(idToken, true);
     } catch {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { success: false, error: "Invalid or expired token" },
         { status: 401 }
       );
     }
@@ -49,7 +49,7 @@ export async function POST(req: Request) {
 
     if (!file) {
       return NextResponse.json(
-        { error: "File missing" },
+        { success: false, error: "File missing" },
         { status: 400 }
       );
     }
@@ -61,8 +61,8 @@ export async function POST(req: Request) {
     const filename = `${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
     const path = `listings/${uid}/${filename}`;
 
-    /* ✅ ✅ ✅ MAIN FIX (NO MORE u.C.bucket ERROR) */
-    const bucket = adminStorage.bucket(); // ✅ THIS WAS THE ROOT CAUSE
+    /* ✅ 4️⃣ STORAGE BUCKET (FINAL FIX) */
+    const bucket = adminStorage.bucket();
     const fileRef = bucket.file(path);
 
     await fileRef.save(buffer, {
@@ -76,15 +76,16 @@ export async function POST(req: Request) {
 
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
 
+    /* ✅ ✅ ✅ MOST IMPORTANT FIX */
     return NextResponse.json({
-      ok: true,
+      success: true,   // 🔥 FRONTEND IS LOOKING FOR THIS
       url: publicUrl,
       path,
     });
   } catch (err: any) {
     console.error("🔥 Upload error:", err);
     return NextResponse.json(
-      { error: err.message || "Upload failed" },
+      { success: false, error: err.message || "Upload failed" },
       { status: 500 }
     );
   }

@@ -1,91 +1,122 @@
-// app/api/admin/partners/kyc/get/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// Extract Authorization header
-function getAuthHeader(req: Request) {
-  const auth = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return auth || "";
+/**
+ * ✅ ADMIN: GET SINGLE PARTNER KYC
+ *
+ * GET /api/admin/partners/kyc/get?partnerUid=XXX&kycId=YYY
+ *
+ * Auth:
+ *  - Firebase __session cookie
+ *  - users/{uid}.role === "admin"
+ */
+
+/* -----------------------------------
+   Extract Session Cookie
+----------------------------------- */
+function getSessionCookie(req: Request) {
+  const cookieHeader = req.headers.get("cookie") || "";
+  return (
+    cookieHeader
+      .split(";")
+      .map((c) => c.trim())
+      .find((c) => c.startsWith("__session="))
+      ?.split("=")[1] || ""
+  );
 }
 
 export async function GET(req: Request) {
   try {
-    // 1) Authenticate admin
-    const authHeader = getAuthHeader(req);
-    if (!authHeader)
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 }
-      );
+    const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    const match = authHeader.match(/^Bearer (.+)$/);
-    if (!match)
-      return NextResponse.json(
-        { error: "Malformed Authorization header" },
-        { status: 401 }
-      );
+    /* -----------------------------------
+       1️⃣ Admin Authentication (SESSION)
+    ----------------------------------- */
+    const sessionCookie = getSessionCookie(req);
 
-    const idToken = match[1];
-    let decoded: any;
-
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken, true);
-    } catch {
+    if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    if (!decoded.admin) {
+    const decoded = await adminAuth
+      .verifySessionCookie(sessionCookie, true)
+      .catch(() => null);
+
+    if (!decoded) {
+      return NextResponse.json(
+        { error: "Invalid or expired session" },
+        { status: 401 }
+      );
+    }
+
+    const adminUid = decoded.uid;
+
+    // ✅ Enforce admin role from USERS collection
+    const adminSnap = await adminDb.collection("users").doc(adminUid).get();
+
+    if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
         { error: "Admin access required" },
         { status: 403 }
       );
     }
 
-    // 2) Read URL query parameters
+    /* -----------------------------------
+       2️⃣ Read Query Params
+    ----------------------------------- */
     const url = new URL(req.url);
     const partnerUid = url.searchParams.get("partnerUid");
     const kycId = url.searchParams.get("kycId");
 
     if (!partnerUid) {
       return NextResponse.json(
-        { error: "Missing partnerUid" },
+        { error: "partnerUid is required" },
         { status: 400 }
       );
     }
 
-    // 3) Fetch partner profile
+    /* -----------------------------------
+       3️⃣ Fetch Partner Profile
+    ----------------------------------- */
     const partnerRef = adminDb.collection("partners").doc(partnerUid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
-      return NextResponse.json({ error: "Partner not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Partner not found" },
+        { status: 404 }
+      );
     }
 
     const partnerData = partnerSnap.data() || {};
 
-    // 4) Fetch KYC document(s)
-    let kycDocSnap: FirebaseFirestore.DocumentSnapshot;
+    /* -----------------------------------
+       4️⃣ Fetch KYC Document
+    ----------------------------------- */
+    let kycDocSnap: FirebaseFirestore.QueryDocumentSnapshot;
 
-    // If a specific KYC ID is provided
     if (kycId) {
-      kycDocSnap = await partnerRef.collection("kycDocs").doc(kycId).get();
-      if (!kycDocSnap.exists) {
+      const singleSnap = await partnerRef
+        .collection("kycDocs")
+        .doc(kycId)
+        .get();
+
+      if (!singleSnap.exists) {
         return NextResponse.json(
           { error: "KYC record not found" },
           { status: 404 }
         );
       }
+
+      // 👇 convert to QueryDocumentSnapshot-like
+      kycDocSnap = singleSnap as any;
     } else {
-      // If no specific ID, fetch the latest KYC record
       const kycListSnap = await partnerRef
         .collection("kycDocs")
         .orderBy("submittedAt", "desc")
@@ -103,30 +134,40 @@ export async function GET(req: Request) {
     }
 
     const kycData = kycDocSnap.data() || {};
+    const kycStatus = String(
+      kycData.status || partnerData.kycStatus || "UNDER_REVIEW"
+    ).toUpperCase();
 
-    // 5) Return combined KYC + Partner data
+    /* -----------------------------------
+       5️⃣ Final Response
+    ----------------------------------- */
     return NextResponse.json({
       ok: true,
       partnerUid,
       kycId: kycDocSnap.id,
+
       partner: {
+        name: partnerData.name || null,
         displayName: partnerData.displayName || null,
         businessName: partnerData.businessName || null,
         email: partnerData.email || null,
         phone: partnerData.phone || null,
         status: partnerData.status || null,
+        kycStatus: partnerData.kycStatus || null,
       },
+
       kyc: {
         idType: kycData.idType || null,
         idNumberMasked: kycData.idNumberMasked || null,
         documents: kycData.documents || [],
         submittedAt: kycData.submittedAt || null,
-        status: kycData.status || "submitted",
+        status: kycStatus,
         rejectedReason: kycData.rejectedReason || null,
+        reviewedAt: kycData.reviewedAt || null,
       },
     });
   } catch (err: any) {
-    console.error("Admin KYC get error:", err);
+    console.error("Admin KYC GET Error:", err);
     return NextResponse.json(
       { error: err?.message || "Internal server error" },
       { status: 500 }

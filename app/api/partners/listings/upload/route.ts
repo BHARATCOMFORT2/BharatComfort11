@@ -15,7 +15,7 @@ function getAuthHeader(req: Request) {
 }
 
 /* ---------------------------------------------
-   PARTNER LISTING IMAGE UPLOAD API ✅ FINAL FIXED
+   ✅ PARTNER LISTING IMAGE UPLOAD API (FINAL REAL FIX)
 --------------------------------------------- */
 export async function POST(req: Request) {
   try {
@@ -61,24 +61,23 @@ export async function POST(req: Request) {
     const filename = `${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
     const path = `listings/${uid}/${filename}`;
 
-    /* ✅ 4️⃣ STORAGE BUCKET (FINAL FIX) */
+    /* ✅ 4️⃣ STORAGE BUCKET */
     const bucket = adminStorage.bucket();
     const fileRef = bucket.file(path);
 
+    /* ✅ ✅ ✅ FINAL CORE FIX HERE */
     await fileRef.save(buffer, {
       contentType: file.type || "application/octet-stream",
-      public: true,
-      gzip: true,
-      metadata: {
-        firebaseStorageDownloadTokens: uuidv4(),
-      },
+      resumable: false,          // ✅ public: true HATA DIYA
     });
+
+    // ✅ FILE KO PUBLIC BANAO (YAHI ASLI FIX HAI)
+    await fileRef.makePublic();
 
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
 
-    /* ✅ ✅ ✅ MOST IMPORTANT FIX */
     return NextResponse.json({
-      success: true,   // 🔥 FRONTEND IS LOOKING FOR THIS
+      success: true,          // ✅ Frontend yahi expect karta hai
       url: publicUrl,
       path,
     });
@@ -89,15 +88,4 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
-}
-
-/* ---------------------------------------------
-   ✅ TOKEN FOR PUBLIC FILE ACCESS
---------------------------------------------- */
-function uuidv4() {
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
-    const r = (Math.random() * 16) | 0,
-      v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
 }

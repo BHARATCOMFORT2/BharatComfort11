@@ -1,65 +1,61 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import {
-  collection,
-  onSnapshot,
-  doc,
-  updateDoc,
-  deleteDoc,
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
 import { Button } from "@/components/ui/Button";
 
-/* -------------------------------------------
-   🔹 Props Interface
--------------------------------------------- */
 interface DataListProps {
-  collectionName: string;
-  token?: string; // ✅ optional, for admin-authenticated fetches if needed later
+  collectionName: string; // users | partners | listings | staffs | etc
+  token?: string;
 }
 
-/* -------------------------------------------
-   DataList Component (Persistent Filters + Search)
--------------------------------------------- */
-export default function DataList({ collectionName, token }: DataListProps) {
+export default function DataList({ collectionName }: DataListProps) {
   const [data, setData] = useState<any[]>([]);
   const [filtered, setFiltered] = useState<any[]>([]);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState("all");
   const [loading, setLoading] = useState(true);
 
-  /* -------------------------------------------
-     Load saved filters from localStorage
-  -------------------------------------------- */
+  /* ✅ LOAD FILTERS FROM LOCAL STORAGE */
   useEffect(() => {
     const saved = localStorage.getItem(`filters_${collectionName}`);
     if (saved) {
       try {
-        const { search: savedSearch, filterStatus: savedFilter } = JSON.parse(saved);
-        setSearch(savedSearch || "");
-        setFilterStatus(savedFilter || "all");
-      } catch {
-        console.warn("Invalid saved filters JSON");
-      }
+        const { search, filterStatus } = JSON.parse(saved);
+        setSearch(search || "");
+        setFilterStatus(filterStatus || "all");
+      } catch {}
     }
   }, [collectionName]);
 
-  /* -------------------------------------------
-     Real-time Firestore listener
-  -------------------------------------------- */
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, collectionName), (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setData(docs);
+  /* ✅ LOAD DATA FROM ADMIN API (NO FIRESTORE) */
+  async function loadData() {
+    try {
+      setLoading(true);
+
+      const res = await fetch(
+        `/api/admin/data?type=${encodeURIComponent(collectionName)}`,
+        { credentials: "include" }
+      );
+
+      const data = await res.json();
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to load data");
+      }
+
+      setData(data.data || []);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Failed to load data");
+    } finally {
       setLoading(false);
-    });
-    return () => unsub();
+    }
+  }
+
+  useEffect(() => {
+    loadData();
   }, [collectionName]);
 
-  /* -------------------------------------------
-     Search + Filter logic + Persistence
-  -------------------------------------------- */
+  /* ✅ SEARCH + FILTER */
   useEffect(() => {
     let results = [...data];
 
@@ -74,14 +70,10 @@ export default function DataList({ collectionName, token }: DataListProps) {
     if (search.trim()) {
       const term = search.toLowerCase();
       results = results.filter((item) =>
-        Object.values(item)
-          .join(" ")
-          .toLowerCase()
-          .includes(term)
+        Object.values(item).join(" ").toLowerCase().includes(term)
       );
     }
 
-    // Save filters to localStorage
     localStorage.setItem(
       `filters_${collectionName}`,
       JSON.stringify({ search, filterStatus })
@@ -90,34 +82,58 @@ export default function DataList({ collectionName, token }: DataListProps) {
     setFiltered(results);
   }, [data, search, filterStatus, collectionName]);
 
-  /* -------------------------------------------
-     Firestore Actions
-  -------------------------------------------- */
+  /* ✅ ADMIN ACTIONS (API ONLY) */
   const handleApprove = async (id: string) => {
-    await updateDoc(doc(db, collectionName, id), {
-      status: "approved",
-      updatedAt: new Date(),
+    const res = await fetch(`/api/admin/data/approve`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionName, id }),
     });
-    alert("✅ Approved successfully");
+
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || "Approve failed");
+
+    alert("✅ Approved");
+    loadData();
   };
 
   const handleReject = async (id: string) => {
-    await updateDoc(doc(db, collectionName, id), {
-      status: "rejected",
-      updatedAt: new Date(),
+    const reason = prompt("Enter rejection reason");
+    if (!reason) return;
+
+    const res = await fetch(`/api/admin/data/reject`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionName, id, reason }),
     });
+
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || "Reject failed");
+
     alert("❌ Rejected");
+    loadData();
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this record?")) return;
-    await deleteDoc(doc(db, collectionName, id));
-    alert("🗑️ Deleted successfully");
+    if (!confirm("Delete this record?")) return;
+
+    const res = await fetch(`/api/admin/data/delete`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ collectionName, id }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) return alert(data.error || "Delete failed");
+
+    alert("🗑️ Deleted");
+    loadData();
   };
 
-  /* -------------------------------------------
-     Render
-  -------------------------------------------- */
+  /* ✅ UI */
   if (loading)
     return (
       <p className="text-center py-6 text-gray-500">
@@ -136,89 +152,58 @@ export default function DataList({ collectionName, token }: DataListProps) {
 
   return (
     <div className="max-h-[75vh] overflow-y-auto text-sm">
-      {/* Header Controls */}
+      {/* CONTROLS */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
         <h3 className="text-lg font-semibold capitalize">
           {collectionName} ({filtered.length})
         </h3>
 
         <div className="flex gap-2 items-center">
-          {/* Search */}
           <input
-            type="text"
             placeholder="🔍 Search..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="border p-2 rounded w-40 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+            className="border p-2 rounded text-sm"
           />
 
-          {/* Filter */}
-          {(collectionName === "partners" || collectionName === "listings") && (
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="border p-2 rounded text-sm"
-            >
-              <option value="all">All</option>
-              <option value="approved">Approved</option>
-              <option value="pending">Pending</option>
-              <option value="rejected">Rejected</option>
-            </select>
-          )}
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value)}
+            className="border p-2 rounded text-sm"
+          >
+            <option value="all">All</option>
+            <option value="approved">Approved</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-x-auto rounded-lg shadow border border-gray-200">
-        <table className="w-full border-collapse">
-          <thead className="bg-gray-100 sticky top-0 z-10">
+      {/* TABLE */}
+      <div className="overflow-x-auto border rounded">
+        <table className="w-full">
+          <thead className="bg-gray-100">
             <tr>
-              {fields.map((key) => (
-                <th key={key} className="border p-2 capitalize text-left">
-                  {key}
+              {fields.map((f) => (
+                <th key={f} className="p-2 border text-left capitalize">
+                  {f}
                 </th>
               ))}
-              <th className="border p-2 text-center">Actions</th>
+              <th className="p-2 border text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((item) => (
-              <tr key={item.id} className="hover:bg-gray-50 transition">
-                {fields.map((key) => (
-                  <td
-                    key={key}
-                    className="border p-2 truncate max-w-[180px] text-gray-700"
-                  >
-                    {String(item[key] ?? "—")}
+              <tr key={item.id} className="hover:bg-gray-50">
+                {fields.map((f) => (
+                  <td key={f} className="p-2 border">
+                    {String(item[f] ?? "—")}
                   </td>
                 ))}
-
-                <td className="border p-2 text-center flex gap-2 justify-center">
-                  {(collectionName === "partners" ||
-                    collectionName === "listings") &&
-                    item.status !== "approved" && (
-                      <>
-                        <Button
-                          onClick={() => handleApprove(item.id)}
-                          className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 text-xs"
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          onClick={() => handleReject(item.id)}
-                          className="bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1 text-xs"
-                        >
-                          Reject
-                        </Button>
-                      </>
-                    )}
-
-                  <Button
-                    onClick={() => handleDelete(item.id)}
-                    className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 text-xs"
-                  >
-                    Delete
-                  </Button>
+                <td className="p-2 border flex gap-2 justify-center">
+                  <Button onClick={() => handleApprove(item.id)}>Approve</Button>
+                  <Button onClick={() => handleReject(item.id)}>Reject</Button>
+                  <Button onClick={() => handleDelete(item.id)}>Delete</Button>
                 </td>
               </tr>
             ))}

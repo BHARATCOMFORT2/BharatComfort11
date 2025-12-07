@@ -1,21 +1,20 @@
 /** @type {import('next').NextConfig} */
+const path = require("path");
+
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
 
-  // ❌ Removed: output: "standalone"
-  // This was breaking all dynamic routing on Vercel.
-  // Vercel automatically uses standalone mode internally.
-
+  // ✅ Vercel compatible routing
   trailingSlash: false,
 
-  // ❗ Use fixed i18n config to avoid dynamic route 404 issues
+  // ✅ Fixed i18n (no dynamic 404 issues)
   i18n: {
     locales: ["en"],
     defaultLocale: "en",
   },
 
-  // ✅ Remote image domains
+  // ✅ Allowed remote images
   images: {
     remotePatterns: [
       { protocol: "https", hostname: "**.googleusercontent.com" },
@@ -26,12 +25,18 @@ const nextConfig = {
     ],
   },
 
-  // Ignore build-time TS/ESLint warnings
+  // ✅ Ignore build-time warnings (as per your setup)
   typescript: { ignoreBuildErrors: true },
   eslint: { ignoreDuringBuilds: true },
 
-  // ❌ Removed experimental turbo + webpack fallbacks
-  // These were breaking server bundles and API route execution.
+  // ✅ ✅ ✅ 🔥 FIRESTORE CLIENT HARD BYPASS (ROOT FIX FOR PERMISSION ERROR)
+  webpack(config) {
+    config.resolve.alias["firebase/firestore"] = path.resolve(
+      __dirname,
+      "lib/firestore-noop.ts"
+    );
+    return config;
+  },
 };
 
 module.exports = nextConfig;

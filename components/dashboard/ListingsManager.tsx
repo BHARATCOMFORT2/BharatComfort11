@@ -1,21 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { db, storage } from "@/lib/firebase";
-import {
-  collection,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  serverTimestamp,
-  query,
-  where,
-  orderBy,
-  getDoc,
-} from "firebase/firestore";
-import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 
@@ -23,7 +8,7 @@ import { Button } from "@/components/ui/Button";
    Listing Interface
 ---------------------------------------------------- */
 interface Listing {
-  id?: string;
+  id: string;
   name: string;
   description: string;
   location: string;
@@ -37,12 +22,14 @@ interface Listing {
 }
 
 /* ----------------------------------------------------
-   Main Component
+   Main Component (API ONLY - NO FIRESTORE CLIENT)
 ---------------------------------------------------- */
 export default function ListingsManager() {
-  const { firebaseUser: user } = useAuth();
-  const [userRole, setUserRole] = useState<string | null>(null);
+  const { firebaseUser, profile } = useAuth();
+
   const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(false);
+
   const [formData, setFormData] = useState({
     name: "",
     description: "",
@@ -51,138 +38,109 @@ export default function ListingsManager() {
     images: [] as File[],
     allowPayAtHotel: false,
   });
+
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
-  const [loading, setLoading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [editId, setEditId] = useState<string | null>(null);
 
   /* ----------------------------------------------------
-     Fetch Role of Logged-In User
+     ✅ LOAD LISTINGS (API ONLY)
   ---------------------------------------------------- */
+  async function loadListings() {
+    try {
+      setLoading(true);
+      const res = await fetch("/api/admin/listings", {
+        credentials: "include",
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Failed to load listings");
+
+      setListings(data.listings || []);
+    } catch (err: any) {
+      console.error("Load listings error:", err);
+      alert(err.message || "Failed to load listings");
+    } finally {
+      setLoading(false);
+    }
+  }
+
   useEffect(() => {
-    const fetchRole = async () => {
-      if (!user?.uid) return;
-      const refDoc = doc(db, "users", user.uid);
-      const snap = await getDoc(refDoc);
-      setUserRole(snap.exists() ? snap.data().role || "partner" : "partner");
-    };
-    fetchRole();
-  }, [user]);
+    loadListings();
+  }, []);
 
   /* ----------------------------------------------------
-     Fetch Listings in Real-time
-  ---------------------------------------------------- */
-  useEffect(() => {
-    if (!user || !userRole) return;
-
-    const q =
-      userRole === "admin"
-        ? query(collection(db, "listings"), orderBy("createdAt", "desc"))
-        : query(
-            collection(db, "listings"),
-            where("createdBy", "==", user.uid),
-            orderBy("createdAt", "desc")
-          );
-
-    const unsub = onSnapshot(q, (snap) => {
-      const data = snap.docs.map((d) => ({
-        ...(d.data() as Listing),
-        id: d.id,
-      }));
-      setListings(data);
-    });
-
-    return () => unsub();
-  }, [user, userRole]);
-
-  /* ----------------------------------------------------
-     Upload Images to Firebase Storage
+     ✅ IMAGE UPLOAD (SERVER API)
   ---------------------------------------------------- */
   const uploadImages = async (
     files: File[],
     onProgress: (progress: number) => void
   ) => {
-    const urls: string[] = [];
-    let totalBytes = 0;
-    let uploadedBytes = 0;
+    const uploadedUrls: string[] = [];
 
-    files.forEach((f) => (totalBytes += f.size));
+    for (let i = 0; i < files.length; i++) {
+      const formData = new FormData();
+      formData.append("file", files[i]);
 
-    for (const file of files) {
-      try {
-        const storageRef = ref(storage, `listings/${Date.now()}-${file.name}`);
-        const uploadTask = uploadBytesResumable(storageRef, file);
+      const res = await fetch("/api/uploads", {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
 
-        await new Promise<void>((resolve, reject) => {
-          uploadTask.on(
-            "state_changed",
-            (snapshot) => {
-              const progress =
-                ((uploadedBytes + snapshot.bytesTransferred) / totalBytes) * 100;
-              onProgress(Math.min(progress, 100));
-            },
-            (error) => reject(error),
-            async () => {
-              uploadedBytes += uploadTask.snapshot.totalBytes;
-              const url = await getDownloadURL(uploadTask.snapshot.ref);
-              urls.push(url);
-              resolve();
-            }
-          );
-        });
-      } catch (err) {
-        console.error("❌ Image upload failed:", err);
-        alert(`Image upload failed: ${(err as Error).message}`);
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Upload failed");
+
+      uploadedUrls.push(data.url);
+      onProgress(Math.round(((i + 1) / files.length) * 100));
     }
 
-    onProgress(100);
-    return urls;
+    return uploadedUrls;
   };
 
   /* ----------------------------------------------------
-     Add or Edit Listing
+     ✅ ADD / UPDATE LISTING (API ONLY)
   ---------------------------------------------------- */
   const handleSubmit = async () => {
-    if (!user) return alert("Please login first");
+    if (!firebaseUser) return alert("Please login first");
 
-    if (!formData.name || !formData.location || !formData.price)
+    if (!formData.name || !formData.location || !formData.price) {
       return alert("Please fill in all required fields");
+    }
 
     setLoading(true);
     setUploadProgress(0);
 
     try {
-      const newUrls =
+      const uploadedUrls =
         formData.images.length > 0
           ? await uploadImages(formData.images, setUploadProgress)
           : [];
 
-      const mergedImages = [...previewUrls, ...newUrls]; // ✅ Keep old + new
+      const mergedImages = [...previewUrls, ...uploadedUrls];
 
-      const data = {
+      const payload = {
+        id: editId,
         name: formData.name.trim(),
         description: formData.description.trim(),
         location: formData.location.trim(),
         price: Number(formData.price),
         images: mergedImages,
-        createdBy: user.uid,
-        status: userRole === "admin" ? "approved" : "pending",
-        featured: false,
-        allowPayAtHotel: formData.allowPayAtHotel, // ✅ NEW FIELD
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
+        allowPayAtHotel: formData.allowPayAtHotel,
       };
 
-      if (editId) {
-        await updateDoc(doc(db, "listings", editId), data);
-        alert("✅ Listing updated!");
-      } else {
-        await addDoc(collection(db, "listings"), data);
-        alert("✅ Listing added successfully!");
-      }
+      const res = await fetch("/api/partner/listings/save", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
-      // Reset form
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Save failed");
+
+      alert(editId ? "✅ Listing updated" : "✅ Listing created");
+
       setFormData({
         name: "",
         description: "",
@@ -191,30 +149,49 @@ export default function ListingsManager() {
         images: [],
         allowPayAtHotel: false,
       });
+
       setPreviewUrls([]);
-      setUploadProgress(0);
       setEditId(null);
-    } catch (err) {
-      console.error("🔥 Error saving listing:", err);
-      alert(`❌ Failed to save listing: ${(err as Error).message}`);
+      setUploadProgress(0);
+      loadListings();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Failed to save listing");
     } finally {
       setLoading(false);
     }
   };
 
   /* ----------------------------------------------------
-     Delete Listing
+     ✅ DELETE LISTING (API ONLY)
   ---------------------------------------------------- */
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this listing?")) return;
-    await deleteDoc(doc(db, "listings", id));
+
+    try {
+      const res = await fetch("/api/partner/listings/delete", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Delete failed");
+
+      alert("✅ Listing deleted");
+      loadListings();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Delete failed");
+    }
   };
 
   /* ----------------------------------------------------
-     Edit Listing
+     ✅ EDIT LISTING (LOCAL ONLY)
   ---------------------------------------------------- */
   const handleEdit = (listing: Listing) => {
-    setEditId(listing.id!);
+    setEditId(listing.id);
     setFormData({
       name: listing.name,
       description: listing.description,
@@ -223,34 +200,68 @@ export default function ListingsManager() {
       images: [],
       allowPayAtHotel: listing.allowPayAtHotel ?? false,
     });
+
     setPreviewUrls(listing.images || []);
   };
 
   /* ----------------------------------------------------
-     Approve / Reject (Admin Only)
+     ✅ ADMIN APPROVE (API)
   ---------------------------------------------------- */
   const handleApprove = async (id: string) => {
-    if (userRole !== "admin") return;
-    await updateDoc(doc(db, "listings", id), { status: "approved" });
-  };
+    try {
+      const res = await fetch("/api/admin/listings/approve", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listingId: id }),
+      });
 
-  const handleReject = async (id: string) => {
-    if (userRole !== "admin") return;
-    await updateDoc(doc(db, "listings", id), { status: "rejected" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Approval failed");
+
+      alert("✅ Listing approved");
+      loadListings();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Approval failed");
+    }
   };
 
   /* ----------------------------------------------------
-     UI Rendering
+     ✅ ADMIN REJECT (API)
   ---------------------------------------------------- */
-  if (!user)
-    return <p className="text-gray-500">Please log in to manage listings.</p>;
+  const handleReject = async (id: string) => {
+    const reason = prompt("Enter rejection reason");
+    if (!reason) return;
 
-  if (!userRole)
-    return <p className="text-gray-500">Loading your role...</p>;
+    try {
+      const res = await fetch("/api/admin/listings/reject", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ listingId: id, reason }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Rejection failed");
+
+      alert("❌ Listing rejected");
+      loadListings();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Rejection failed");
+    }
+  };
+
+  /* ----------------------------------------------------
+     UI
+  ---------------------------------------------------- */
+  if (!firebaseUser)
+    return <p className="text-gray-500">Please log in to manage listings.</p>;
 
   return (
     <div className="mt-10">
-      {/* ====== Listing Form ====== */}
+      {/* ====== FORM ====== */}
       <div className="grid md:grid-cols-2 gap-4 mb-6 bg-white shadow p-6 rounded-lg">
         <h2 className="text-xl font-semibold mb-3 col-span-full">
           {editId ? "Edit Listing" : "Add New Listing"}
@@ -262,6 +273,7 @@ export default function ListingsManager() {
           value={formData.name}
           onChange={(e) => setFormData({ ...formData, name: e.target.value })}
         />
+
         <input
           placeholder="Location"
           className="border p-2 rounded"
@@ -270,6 +282,7 @@ export default function ListingsManager() {
             setFormData({ ...formData, location: e.target.value })
           }
         />
+
         <input
           placeholder="Price"
           type="number"
@@ -279,6 +292,7 @@ export default function ListingsManager() {
             setFormData({ ...formData, price: e.target.value })
           }
         />
+
         <textarea
           placeholder="Description"
           className="border p-2 rounded col-span-full"
@@ -288,7 +302,6 @@ export default function ListingsManager() {
           }
         />
 
-        {/* ✅ Pay at Hotel toggle */}
         <label className="flex items-center gap-2 col-span-full mt-1 cursor-pointer">
           <input
             type="checkbox"
@@ -296,14 +309,12 @@ export default function ListingsManager() {
             onChange={(e) =>
               setFormData({ ...formData, allowPayAtHotel: e.target.checked })
             }
-            className="w-5 h-5 accent-green-600"
           />
-          <span className="text-sm text-gray-700">
+          <span className="text-sm">
             Allow Pay at Hotel / Restaurant
           </span>
         </label>
 
-        {/* File Upload */}
         <input
           type="file"
           multiple
@@ -316,51 +327,35 @@ export default function ListingsManager() {
           }
         />
 
-        {/* Show Preview */}
         {previewUrls.length > 0 && (
           <div className="col-span-full flex flex-wrap gap-3 mt-2">
             {previewUrls.map((url, idx) => (
-              <div key={idx} className="relative w-24 h-24">
-                <img
-                  src={url}
-                  alt="preview"
-                  className="object-cover w-full h-full rounded-md"
-                />
-              </div>
+              <img
+                key={idx}
+                src={url}
+                className="w-24 h-24 rounded object-cover"
+              />
             ))}
           </div>
         )}
 
         <div className="col-span-full">
-          <Button
-            onClick={handleSubmit}
-            disabled={loading}
-            className="bg-blue-600 text-white w-full py-3 rounded-lg mt-3 transition hover:bg-blue-700"
-          >
+          <Button onClick={handleSubmit} disabled={loading}>
             {loading
               ? uploadProgress < 100
-                ? `Uploading ${Math.floor(uploadProgress)}%...`
+                ? `Uploading ${uploadProgress}%`
                 : "Processing..."
               : editId
               ? "Update Listing"
               : "Add Listing"}
           </Button>
-
-          {/* 🩵 Progress Bar */}
-          {loading && uploadProgress > 0 && (
-            <div className="w-full bg-gray-200 rounded-full h-2 mt-2">
-              <div
-                className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${uploadProgress}%` }}
-              ></div>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* ====== Listing Cards ====== */}
+      {/* ====== LISTINGS ====== */}
       <div className="bg-white p-6 rounded-lg shadow">
         <h2 className="text-xl font-semibold mb-4">Your Listings</h2>
+
         {listings.length === 0 ? (
           <p className="text-gray-500">No listings found.</p>
         ) : (
@@ -372,54 +367,18 @@ export default function ListingsManager() {
               >
                 <div>
                   <h3 className="font-semibold">{l.name}</h3>
-                  <p className="text-sm text-gray-600">{l.location}</p>
-                  <p className="text-sm text-gray-600">
-                    ₹{l.price} •{" "}
-                    <span
-                      className={`font-semibold ${
-                        l.status === "approved"
-                          ? "text-green-600"
-                          : l.status === "pending"
-                          ? "text-yellow-600"
-                          : "text-red-600"
-                      }`}
-                    >
-                      {l.status}
-                    </span>
-                  </p>
-                  {l.allowPayAtHotel && (
-                    <p className="text-xs text-green-600 font-medium mt-1">
-                      ✅ Pay at Hotel Enabled
-                    </p>
-                  )}
+                  <p className="text-sm">{l.location}</p>
+                  <p className="text-sm">₹{l.price} • {l.status}</p>
                 </div>
+
                 <div className="flex gap-2">
-                  <Button
-                    onClick={() => handleEdit(l)}
-                    className="bg-yellow-500 hover:bg-yellow-600"
-                  >
-                    Edit
-                  </Button>
-                  <Button
-                    onClick={() => handleDelete(l.id!)}
-                    className="bg-red-600 hover:bg-red-700"
-                  >
-                    Delete
-                  </Button>
-                  {userRole === "admin" && (
+                  <Button onClick={() => handleEdit(l)}>Edit</Button>
+                  <Button onClick={() => handleDelete(l.id)}>Delete</Button>
+
+                  {profile?.role === "admin" && (
                     <>
-                      <Button
-                        onClick={() => handleApprove(l.id!)}
-                        className="bg-green-600 hover:bg-green-700"
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        onClick={() => handleReject(l.id!)}
-                        className="bg-gray-600 hover:bg-gray-700"
-                      >
-                        Reject
-                      </Button>
+                      <Button onClick={() => handleApprove(l.id)}>Approve</Button>
+                      <Button onClick={() => handleReject(l.id)}>Reject</Button>
                     </>
                   )}
                 </div>

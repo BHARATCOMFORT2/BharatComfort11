@@ -1,5 +1,3 @@
-// app/api/partners/listings/create/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -41,7 +39,7 @@ export async function POST(req: Request) {
     const uid = decoded.uid;
 
     /* ─────────────────────────────
-       ✅ 2️⃣ KYC ENFORCEMENT (CRITICAL)
+       ✅ 2️⃣ KYC ENFORCEMENT (🔥 FIXED)
     ───────────────────────────── */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
@@ -54,12 +52,19 @@ export async function POST(req: Request) {
 
     const partner = partnerSnap.data();
 
-    if (partner?.kycStatus !== "APPROVED") {
+    // ✅ ✅ UNIVERSAL KYC STATUS FETCH
+    const kycStatus =
+      partner?.kycStatus ||
+      partner?.kyc?.status ||
+      partner?.kyc?.kycStatus ||
+      "NOT_STARTED";
+
+    if (kycStatus !== "APPROVED") {
       return NextResponse.json(
         {
           success: false,
           error: "KYC not approved. You cannot create listings yet.",
-          kycStatus: partner?.kycStatus || "NOT_STARTED",
+          kycStatus,
         },
         { status: 403 }
       );
@@ -93,15 +98,15 @@ export async function POST(req: Request) {
 
     const payload = {
       id: docRef.id,
-      partnerId: uid,          // ✅ STANDARDIZED FIELD
+      partnerId: uid, // ✅ STANDARDIZED FIELD
       title,
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
       location: location || null,
       metadata: metadata || {},
       status: "active",
-      createdAt: FieldValue.serverTimestamp(), // ✅ SAFE
-      updatedAt: FieldValue.serverTimestamp(), // ✅ SAFE
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     await docRef.set(payload);

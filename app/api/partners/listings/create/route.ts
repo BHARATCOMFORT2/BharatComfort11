@@ -5,36 +5,30 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
 
+/* ✅ SAFE AUTH HEADER READER */
 function getAuthHeader(req: Request) {
-  const h = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return h || "";
+  return req.headers.get("authorization") || "";
 }
 
 export async function POST(req: Request) {
   try {
-    /* ✅ AUTH HEADER */
+    /* ─────────────────────────────
+       ✅ 1️⃣ AUTH VERIFY
+    ───────────────────────────── */
     const authHeader = getAuthHeader(req);
-    if (!authHeader) {
+
+    if (!authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
-        { success: false, error: "Missing Authorization header" },
+        { success: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
       );
     }
 
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m) {
-      return NextResponse.json(
-        { success: false, error: "Malformed Authorization header" },
-        { status: 401 }
-      );
-    }
+    const idToken = authHeader.replace("Bearer ", "").trim();
 
-    const idToken = m[1];
     let decoded: any;
-
     try {
       decoded = await adminAuth.verifyIdToken(idToken, true);
     } catch {
@@ -46,7 +40,9 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    /* ✅ ✅ KYC ENFORCEMENT (MAIN SECURITY GUARD) */
+    /* ─────────────────────────────
+       ✅ 2️⃣ KYC ENFORCEMENT (CRITICAL)
+    ───────────────────────────── */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
     if (!partnerSnap.exists) {
@@ -69,8 +65,11 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ✅ REQUEST BODY */
+    /* ─────────────────────────────
+       ✅ 3️⃣ REQUEST BODY
+    ───────────────────────────── */
     const body = await req.json().catch(() => null);
+
     if (!body) {
       return NextResponse.json(
         { success: false, error: "Invalid JSON body" },
@@ -78,8 +77,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Minimal validation
     const { title, description, price, location, metadata } = body;
+
     if (!title || typeof title !== "string") {
       return NextResponse.json(
         { success: false, error: "title is required" },
@@ -87,20 +86,22 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ✅ CREATE LISTING */
+    /* ─────────────────────────────
+       ✅ 4️⃣ CREATE LISTING
+    ───────────────────────────── */
     const docRef = adminDb.collection("listings").doc();
 
     const payload = {
       id: docRef.id,
-      partnerUid: uid,
+      partnerId: uid,          // ✅ STANDARDIZED FIELD
       title,
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
       location: location || null,
       metadata: metadata || {},
       status: "active",
-      createdAt: new Date(),
-      updatedAt: new Date(),
+      createdAt: FieldValue.serverTimestamp(), // ✅ SAFE
+      updatedAt: FieldValue.serverTimestamp(), // ✅ SAFE
     };
 
     await docRef.set(payload);
@@ -111,9 +112,13 @@ export async function POST(req: Request) {
       listing: payload,
     });
   } catch (err: any) {
-    console.error("❌ create listing error:", err);
+    console.error("❌ CREATE LISTING ERROR:", err);
+
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal server error" },
+      {
+        success: false,
+        error: err?.message || "Internal server error",
+      },
       { status: 500 }
     );
   }

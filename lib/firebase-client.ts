@@ -12,8 +12,10 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID!,
 };
 
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+// ✅ SINGLE APP INSTANCE — NO BYPASS, NO CONDITION
+const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
+// ✅ SINGLETON EXPORTS
 export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);

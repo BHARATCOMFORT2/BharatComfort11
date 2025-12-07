@@ -1,8 +1,7 @@
-// app/api/admin/partners/pending/route.ts
 // ✅ Lists all partners with kycStatus = UNDER_REVIEW
 // ✅ Reads KYC from partners/{uid}.kyc (NOT subcollection)
-// ✅ Admin only
-// ✅ Matches your current production KYC structure
+// ✅ Admin only (verified via Firestore users/{uid}.role)
+// ✅ Firestore index safe
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,9 +13,9 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -----------------------------------
-    // 1) Auth: Admin session verification
-    // -----------------------------------
+    /* -----------------------------------
+       1️⃣ Admin Session Verification
+    ----------------------------------- */
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -43,7 +42,9 @@ export async function GET(req: Request) {
       );
     }
 
-    // ✅ Double-confirm admin from users collection
+    /* -----------------------------------
+       2️⃣ Verify Admin from Firestore
+    ----------------------------------- */
     const adminUserSnap = await adminDb
       .collection("users")
       .doc(decoded.uid)
@@ -58,29 +59,42 @@ export async function GET(req: Request) {
       );
     }
 
-    // -----------------------------------
-    // 2) Fetch all partners with UNDER_REVIEW KYC
-    // -----------------------------------
-    const partnersSnap = await adminDb
-      .collection("partners")
-      .where("kycStatus", "==", "UNDER_REVIEW")
-      .orderBy("kycSubmittedAt", "desc")
-      .get();
+    /* -----------------------------------
+       3️⃣ Fetch UNDER_REVIEW Partners
+       ✅ Index-safe fallback for missing kycSubmittedAt
+    ----------------------------------- */
+    let partnersSnap;
+    try {
+      partnersSnap = await adminDb
+        .collection("partners")
+        .where("kycStatus", "==", "UNDER_REVIEW")
+        .orderBy("kycSubmittedAt", "desc")
+        .get();
+    } catch {
+      // ✅ Fallback if some docs don't have kycSubmittedAt
+      partnersSnap = await adminDb
+        .collection("partners")
+        .where("kycStatus", "==", "UNDER_REVIEW")
+        .get();
+    }
 
     const pendingList: any[] = [];
 
     for (const partnerDoc of partnersSnap.docs) {
       const partnerId = partnerDoc.id;
-      const partnerData = partnerDoc.data();
+      const partnerData = partnerDoc.data() || {};
 
       pendingList.push({
         partnerId,
+
         partner: {
           name: partnerData.name || null,
           email: partnerData.email || null,
           phone: partnerData.phone || null,
           businessName: partnerData.businessName || null,
+          status: partnerData.status || "PENDING_KYC",
         },
+
         kyc: partnerData.kyc || null,
         kycStatus: partnerData.kycStatus || "UNDER_REVIEW",
         submittedAt: partnerData.kycSubmittedAt || null,

@@ -7,9 +7,7 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 function getAuthHeader(req: Request) {
-  return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
+  return req.headers.get("authorization") || "";
 }
 
 export async function POST(req: Request) {
@@ -35,7 +33,7 @@ export async function POST(req: Request) {
     if (!listingId || !startDate || !endDate)
       return NextResponse.json({ error: "Missing params" }, { status: 400 });
 
-    // Verify listing ownership
+    // ✅ Verify listing ownership (🔥 FIXED FIELD NAME)
     const listingSnap = await adminDb
       .collection("listings")
       .doc(listingId)
@@ -44,7 +42,7 @@ export async function POST(req: Request) {
     if (!listingSnap.exists)
       return NextResponse.json({ error: "Listing not found" }, { status: 404 });
 
-    if (listingSnap.data()?.partnerUid !== decoded.uid)
+    if (listingSnap.data()?.partnerId !== decoded.uid)
       return NextResponse.json({ error: "Not your listing" }, { status: 403 });
 
     const col = adminDb
@@ -64,7 +62,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true, id: docRef.id });
   } catch (err: any) {
-    console.error(err);
+    console.error("❌ Availability create error:", err);
     return NextResponse.json(
       { error: err?.message || "Internal error" },
       { status: 500 }

@@ -4,7 +4,6 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Create & Verify Firebase Session Cookie
 export async function POST(req: Request) {
   try {
     const { adminAuth } = getFirebaseAdmin();
@@ -17,8 +16,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Create SESSION COOKIE (THIS WAS MISSING IN YOUR PROJECT)
-    const expiresIn = 5 * 24 * 60 * 60 * 1000; // 5 days
+    // ✅ SESSION COOKIE CREATE — THIS IS THE REAL FIX
+    const expiresIn = 5 * 24 * 60 * 60 * 1000;
     const sessionCookie = await adminAuth.createSessionCookie(token, {
       expiresIn,
     });
@@ -28,7 +27,6 @@ export async function POST(req: Request) {
       message: "Session created",
     });
 
-    // ✅ THIS COOKIE IS THE KEY FOR ALL ADMIN & PARTNER APIs
     res.cookies.set("__session", sessionCookie, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -50,7 +48,6 @@ export async function POST(req: Request) {
   }
 }
 
-// ✅ Optional: Check session validity
 export async function GET(req: Request) {
   try {
     const { adminAuth } = getFirebaseAdmin();

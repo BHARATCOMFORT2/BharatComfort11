@@ -11,15 +11,32 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
  * Multipart FormData:
  * - file: File
  * - docType: "aadhaar" | "gst" | "pan" | string
+ * - token?: Firebase ID token (optional, fallback if no cookie)
+ * - partnerId?: string (ignored on server, uid from auth is source of truth)
  */
 export async function POST(req: Request) {
   try {
-    // ✅ storage ALREADY A BUCKET
+    // ✅ storage ALREADY A BUCKET (as per your setup)
     const { adminAuth, adminDb, admin, storage } = getFirebaseAdmin();
-    const bucket = storage; // ✅✅✅ FINAL FIX
+    const bucket = storage;
 
     // -----------------------------------
-    // 1) Auth: Session Cookie OR Token Header
+    // 1) Parse FormData (for token etc.)
+    // -----------------------------------
+    const formData = await req.formData();
+
+    const file = formData.get("file") as File | null;
+    const docTypeRaw = formData.get("docType");
+    const tokenField = formData.get("token");
+    // const partnerIdField = formData.get("partnerId"); // ❌ ignore, we trust auth.uid
+
+    const docType =
+      typeof docTypeRaw === "string"
+        ? docTypeRaw.toLowerCase()
+        : "document";
+
+    // -----------------------------------
+    // 2) Auth: Session Cookie OR Bearer OR token in form
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
@@ -29,23 +46,31 @@ export async function POST(req: Request) {
         .find((c) => c.startsWith("__session="))
         ?.split("=")[1] || "";
 
-    const authHeader = req.headers.get("authorization");
-    const bearerToken = authHeader?.startsWith("Bearer ")
-      ? authHeader.split("Bearer ")[1]
-      : null;
+    const authHeader = req.headers.get("authorization") || "";
+    const bearerToken = authHeader.startsWith("Bearer ")
+      ? authHeader.substring(7)
+      : "";
+
+    const idTokenFromForm =
+      typeof tokenField === "string" ? tokenField : "";
 
     let decoded: any = null;
 
+    // 1️⃣ Try session cookie
     if (sessionCookie) {
       decoded = await adminAuth
         .verifySessionCookie(sessionCookie, true)
         .catch(() => null);
     }
 
+    // 2️⃣ Try Authorization: Bearer <idToken>
     if (!decoded && bearerToken) {
-      decoded = await adminAuth
-        .verifyIdToken(bearerToken)
-        .catch(() => null);
+      decoded = await adminAuth.verifyIdToken(bearerToken).catch(() => null);
+    }
+
+    // 3️⃣ Try token field from form-data (from your KYC page)
+    if (!decoded && idTokenFromForm) {
+      decoded = await adminAuth.verifyIdToken(idTokenFromForm).catch(() => null);
     }
 
     if (!decoded) {
@@ -58,18 +83,8 @@ export async function POST(req: Request) {
     const uid = decoded.uid;
 
     // -----------------------------------
-    // 2) Parse FormData
+    // 3) Validate File
     // -----------------------------------
-    const formData = await req.formData();
-
-    const file = formData.get("file") as File | null;
-    const docTypeRaw = formData.get("docType");
-
-    const docType =
-      typeof docTypeRaw === "string"
-        ? docTypeRaw.toLowerCase()
-        : "document";
-
     if (!file) {
       return NextResponse.json(
         { success: false, error: "No file uploaded" },
@@ -77,9 +92,6 @@ export async function POST(req: Request) {
       );
     }
 
-    // -----------------------------------
-    // 3) Validate File
-    // -----------------------------------
     const allowedTypes = [
       "image/jpeg",
       "image/png",
@@ -104,12 +116,16 @@ export async function POST(req: Request) {
     }
 
     // -----------------------------------
-    // 4) Upload to Firebase Storage ✅ FIXED
+    // 4) Upload to Firebase Storage
     // -----------------------------------
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const ext = file.name.split(".").pop();
-    const filePath = `kyc/${uid}/${docType}-${Date.now()}.${ext}`;
+    const ext = file.name.includes(".")
+      ? file.name.split(".").pop()
+      : "bin";
+
+    const safeDocType = docType.replace(/[^a-z0-9_-]/gi, "");
+    const filePath = `kyc/${uid}/${safeDocType || "document"}-${Date.now()}.${ext}`;
 
     const fileRef = bucket.file(filePath);
 
@@ -119,14 +135,15 @@ export async function POST(req: Request) {
       },
     });
 
+    // default is private, but keeping explicit:
     await fileRef.makePrivate();
 
     // -----------------------------------
-    // 5) Save Document Reference
+    // 5) Save Document Reference (Audit)
     // -----------------------------------
     await adminDb.collection("kycUploads").add({
       uid,
-      docType,
+      docType: safeDocType || "document",
       filePath,
       contentType: file.type,
       size: file.size,
@@ -139,7 +156,7 @@ export async function POST(req: Request) {
       message: "File uploaded successfully",
     });
   } catch (err: any) {
-    console.error("✅ KYC Upload Final Error:", err);
+    console.error("✅ KYC Upload Error:", err);
     return NextResponse.json(
       { success: false, error: err.message || "Internal server error" },
       { status: 500 }

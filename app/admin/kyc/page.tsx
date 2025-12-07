@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
-import { getAuth } from "firebase/auth";
 
 export default function AdminKYCReviewPage() {
   const router = useRouter();
@@ -15,12 +14,12 @@ export default function AdminKYCReviewPage() {
   const [remark, setRemark] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  /* ✅ LOAD PENDING KYC */
+  /* ✅ LOAD PENDING KYC — FROM CORRECT ADMIN API */
   async function loadPending() {
     try {
       setLoading(true);
 
-      const res = await fetch("/api/admin/partners/pending", {
+      const res = await fetch("/api/admin/partners/kyc/list?status=UNDER_REVIEW", {
         credentials: "include",
       });
 
@@ -30,7 +29,7 @@ export default function AdminKYCReviewPage() {
         throw new Error(data?.error || "Failed to load pending KYCs");
       }
 
-      setPending(data.pending || []);
+      setPending(data.data || []);
     } catch (err: any) {
       console.error(err);
       toast.error(err.message || "Failed to load KYC list");
@@ -43,7 +42,7 @@ export default function AdminKYCReviewPage() {
     loadPending();
   }, []);
 
-  /* ✅ ✅ ✅ FINAL FIX — APPROVE / REJECT WITH BEARER TOKEN */
+  /* ✅ ✅ ✅ FINAL FIX — APPROVE / REJECT USING SINGLE CORRECT API */
   async function handleDecision(type: "approve" | "reject") {
     if (!selected) return;
 
@@ -54,45 +53,24 @@ export default function AdminKYCReviewPage() {
     setActionLoading(true);
 
     try {
-      const auth = getAuth();
-      const user = auth.currentUser;
-
-      if (!user) {
-        toast.error("Admin not logged in");
-        return;
-      }
-
-      const token = await user.getIdToken(); // ✅ MOST IMPORTANT FIX
-
-      const endpoint =
-        type === "approve"
-          ? "/api/admin/partners/kyc/approve"
-          : "/api/admin/partners/reject";
-
-      const body =
-        type === "approve"
-          ? {
-              partnerUid: selected.partnerId,
-              kycId: selected.kyc?.id,
-            }
-          : {
-              partnerId: selected.partnerId,
-              reason: remark,
-            };
-
-      const res = await fetch(endpoint, {
+      const res = await fetch("/api/admin/partners/kyc", {
         method: "POST",
+        credentials: "include", // ✅ COOKIE-BASED ADMIN AUTH
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`, // ✅ FINAL FIX
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          partnerUid: selected.partnerId || selected.uid,
+          kycId: selected.kycId || selected.kyc?.id || null,
+          action: type,
+          reason: remark || "",
+        }),
       });
 
       const data = await res.json();
 
       if (!res.ok || !data?.success) {
-        throw new Error(data?.error || "Action failed");
+        throw new Error(data?.error || "KYC update failed");
       }
 
       toast.success(
@@ -125,7 +103,7 @@ export default function AdminKYCReviewPage() {
           <div className="grid md:grid-cols-2 gap-4">
             {pending.map((p) => (
               <div
-                key={p.partnerId}
+                key={p.partnerId || p.uid}
                 className="border rounded-lg p-4 hover:shadow cursor-pointer"
                 onClick={() => setSelected(p)}
               >

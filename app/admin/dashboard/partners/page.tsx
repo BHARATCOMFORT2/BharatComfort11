@@ -1,79 +1,110 @@
-// app/admin/dashboard/partners/page.tsx
 "use client";
 
 import { useEffect, useState } from "react";
-import { auth, db } from "@/lib/firebase";
-import { collection, onSnapshot, orderBy, query, updateDoc, doc } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { getIdToken } from "firebase/auth";
+import toast from "react-hot-toast";
 
 type Partner = {
-  id: string;
-  name?: string;
-  businessName?: string;
-  email?: string;
-  phone?: string;
-  status?: "pending" | "approved" | "rejected";
-  createdAt?: any;
+  partnerId: string;
+  partner?: {
+    name?: string;
+    businessName?: string;
+    email?: string;
+  };
+  status?: string;
 };
 
 export default function AdminPartnersPage() {
   const [partners, setPartners] = useState<Partner[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
 
-  useEffect(() => {
-    const q = query(collection(db, "partners"), orderBy("createdAt", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const list: Partner[] = snap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-      })) as any;
-      setPartners(list);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
-
-  const handleApproval = async (id: string, action: "approve" | "reject") => {
+  /* ✅ LOAD PARTNERS FROM ADMIN API */
+  async function loadPartners() {
     try {
-      const user = auth.currentUser;
-      if (!user) return alert("Admin not authenticated.");
-      const token = await getIdToken(user, true);
+      setLoading(true);
 
-      const res = await fetch(`/api/admin/partners/approve`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ partnerId: id, action }),
+      const res = await fetch("/api/admin/partners/list", {
+        credentials: "include",
       });
 
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || "Failed to update partner");
+      const data = await res.json();
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Failed to load partners");
       }
-      alert(`Partner ${action}d successfully.`);
+
+      setPartners(data.data || []);
     } catch (err: any) {
       console.error(err);
-      alert(err.message || "Action failed");
+      toast.error(err.message || "Failed to load partners");
+    } finally {
+      setLoading(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    loadPartners();
+  }, []);
+
+  /* ✅ APPROVE / REJECT VIA ADMIN API ONLY */
+  async function handleApproval(
+    partnerId: string,
+    action: "approve" | "reject"
+  ) {
+    if (!confirm(`Are you sure you want to ${action} this partner?`)) return;
+
+    try {
+      setActionLoading(partnerId);
+
+      const res = await fetch("/api/admin/partners/kyc", {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          partnerUid: partnerId,
+          action,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || "Action failed");
+      }
+
+      toast.success(`Partner ${action}d successfully`);
+      loadPartners();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(err.message || "Action failed");
+    } finally {
+      setActionLoading(null);
+    }
+  }
 
   return (
     <DashboardLayout title="Admin • Manage Partners">
       <div className="rounded-2xl bg-white p-6 shadow">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-gray-800">Partner Accounts</h2>
+          <h2 className="text-xl font-semibold text-gray-800">
+            Partner Accounts
+          </h2>
           <span className="text-sm text-gray-500">
             Total: {partners.length}
           </span>
         </div>
 
         {loading ? (
-          <p className="text-center text-gray-500 py-12">Loading partners…</p>
+          <p className="text-center text-gray-500 py-12">
+            Loading partners…
+          </p>
         ) : partners.length === 0 ? (
-          <p className="text-center text-gray-500 py-12">No partners found.</p>
+          <p className="text-center text-gray-500 py-12">
+            No partners found.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="min-w-full border border-gray-200 rounded-lg overflow-hidden">
@@ -88,34 +119,38 @@ export default function AdminPartnersPage() {
               </thead>
               <tbody className="divide-y">
                 {partners.map((p) => (
-                  <tr key={p.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3">{p.name || "—"}</td>
-                    <td className="px-4 py-3">{p.businessName || "—"}</td>
-                    <td className="px-4 py-3 text-gray-600">{p.email || "—"}</td>
+                  <tr key={p.partnerId} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
-                      <span
-                        className={`rounded-full px-3 py-1 text-xs font-medium ${
-                          p.status === "approved"
-                            ? "bg-green-100 text-green-700"
-                            : p.status === "rejected"
-                            ? "bg-red-100 text-red-700"
-                            : "bg-yellow-100 text-yellow-700"
-                        }`}
-                      >
-                        {p.status || "pending"}
+                      {p.partner?.name || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.partner?.businessName || "—"}
+                    </td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {p.partner?.email || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
+                        {p.status || "PENDING"}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right space-x-2">
-                      {p.status === "pending" && (
+                      {p.status === "PENDING_KYC" && (
                         <>
                           <button
-                            onClick={() => handleApproval(p.id, "approve")}
+                            onClick={() =>
+                              handleApproval(p.partnerId, "approve")
+                            }
+                            disabled={actionLoading === p.partnerId}
                             className="rounded-lg bg-green-600 px-3 py-1 text-xs text-white hover:bg-green-700"
                           >
                             Approve
                           </button>
                           <button
-                            onClick={() => handleApproval(p.id, "reject")}
+                            onClick={() =>
+                              handleApproval(p.partnerId, "reject")
+                            }
+                            disabled={actionLoading === p.partnerId}
                             className="rounded-lg bg-red-600 px-3 py-1 text-xs text-white hover:bg-red-700"
                           >
                             Reject

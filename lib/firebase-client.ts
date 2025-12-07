@@ -1,5 +1,4 @@
 // lib/firebase-client.ts
-
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -16,19 +15,14 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// ✅ AUTH (always ON)
 export const auth = getAuth(app);
-
-// ✅ STORAGE (always ON)
 export const storage = getStorage(app);
 
-// ✅ FIRESTORE — ADMIN ROUTES PAR HARD OFF
+// ✅ Firestore only for NON-admin
 let firestoreInstance: any = null;
 
 if (typeof window !== "undefined") {
   const path = window.location.pathname || "";
-
-  // 🛑 Admin area me Firestore bilkul band
   if (!path.startsWith("/admin")) {
     firestoreInstance = getFirestore(app);
   } else {
@@ -36,5 +30,4 @@ if (typeof window !== "undefined") {
   }
 }
 
-// 👉 Admin pages par `db === null` rahega
 export const db = firestoreInstance;

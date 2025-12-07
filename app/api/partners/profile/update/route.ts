@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  *   bank?: object;
  * }
  *
- * Auth: Session cookie (__session)
+ * Auth: Session cookie (__session | session | firebase_session)
  */
 
 export async function POST(req: Request) {
@@ -24,14 +24,20 @@ export async function POST(req: Request) {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
     // -----------------------------------
-    // 1) Verify Session Cookie
+    // 1️⃣ Verify Session Cookie (ALL VARIANTS)
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
+
     const sessionCookie =
       cookieHeader
         .split(";")
         .map((c) => c.trim())
-        .find((c) => c.startsWith("__session="))
+        .find(
+          (c) =>
+            c.startsWith("__session=") ||
+            c.startsWith("session=") ||
+            c.startsWith("firebase_session=")
+        )
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
@@ -55,11 +61,11 @@ export async function POST(req: Request) {
     const uid = decoded.uid;
 
     // -----------------------------------
-    // 2) Parse Body
+    // 2️⃣ Parse Body (safe)
     // -----------------------------------
     const body = await req.json().catch(() => ({}));
 
-    const { businessName, phone, address, bank } = body;
+    const { businessName, phone, address, bank } = body || {};
 
     if (!businessName && !phone && !address && !bank) {
       return NextResponse.json(
@@ -69,37 +75,47 @@ export async function POST(req: Request) {
     }
 
     // -----------------------------------
-    // 3) Prepare Update Payload
+    // 3️⃣ Prepare Safe Update Payload
     // -----------------------------------
     const updateData: any = {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    if (businessName) updateData.businessName = businessName;
-    if (phone) updateData.phone = phone;
-    if (address) updateData.address = address;
-    if (bank) updateData.bank = bank;
+    if (typeof businessName === "string" && businessName.trim()) {
+      updateData.businessName = businessName.trim();
+    }
+
+    if (typeof phone === "string" && phone.trim()) {
+      updateData.phone = phone.trim();
+    }
+
+    if (typeof address === "object" && address) {
+      updateData.address = address;
+    }
+
+    if (typeof bank === "object" && bank) {
+      updateData.bank = bank;
+    }
 
     // -----------------------------------
-    // 4) Update Partner Document
+    // 4️⃣ Update Partner Document
     // -----------------------------------
     const partnerRef = adminDb.collection("partners").doc(uid);
-
     await partnerRef.set(updateData, { merge: true });
 
     return NextResponse.json({
       ok: true,
       success: true,
-      message: "Profile updated successfully",
+      message: "✅ Partner profile updated successfully",
     });
   } catch (err: any) {
-    console.error("Partner Profile Update Error:", err);
+    console.error("❌ Partner Profile Update Error:", err);
 
     return NextResponse.json(
       {
         ok: false,
         success: false,
-        error: err.message || "Internal server error",
+        error: err?.message || "Internal server error",
       },
       { status: 500 }
     );

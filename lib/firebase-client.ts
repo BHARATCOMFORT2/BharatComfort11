@@ -14,39 +14,6 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// ✅ AUTH + STORAGE normal
 export const auth = getAuth(app);
+export const db = getFirestore(app);
 export const storage = getStorage(app);
-
-/**
- * 🛑🔥 HARD FIRESTORE BYPASS
- * Koi network call nahi
- * Koi Listen RPC nahi
- * Koi Permission error nahi
- */
-const fireStoreBypass = new Proxy(
-  {},
-  {
-    get() {
-      return () => {
-        console.warn("🛑 Firestore bypass active — call ignored");
-        return Promise.resolve(null);
-      };
-    },
-  }
-);
-
-let firestoreInstance: any = fireStoreBypass;
-
-if (typeof window !== "undefined") {
-  const path = window.location.pathname || "";
-
-  // ✅ Sirf NON-admin areas me real Firestore allow
-  if (!path.startsWith("/admin")) {
-    firestoreInstance = getFirestore(app);
-  } else {
-    console.warn("🚫 Firestore completely bypassed on admin routes");
-  }
-}
-
-export const db = firestoreInstance;

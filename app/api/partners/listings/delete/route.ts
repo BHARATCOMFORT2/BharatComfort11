@@ -7,10 +7,7 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 function getAuthHeader(req: Request) {
-  const h = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return h || "";
+  return req.headers.get("authorization") || "";
 }
 
 export async function POST(req: Request) {
@@ -43,7 +40,7 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    /* ✅ ✅ KYC ENFORCEMENT */
+    /* ✅ KYC ENFORCEMENT */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
     if (!partnerSnap.exists) {
@@ -55,12 +52,18 @@ export async function POST(req: Request) {
 
     const partner = partnerSnap.data();
 
-    if (partner?.kycStatus !== "APPROVED") {
+    const kycStatus =
+      partner?.kycStatus ||
+      partner?.kyc?.status ||
+      partner?.kyc?.kycStatus ||
+      "NOT_STARTED";
+
+    if (kycStatus !== "APPROVED") {
       return NextResponse.json(
         {
           success: false,
           error: "KYC not approved. You cannot delete listings yet.",
-          kycStatus: partner?.kycStatus || "NOT_STARTED",
+          kycStatus,
         },
         { status: 403 }
       );
@@ -74,9 +77,10 @@ export async function POST(req: Request) {
         { status: 400 }
       );
 
-    /* ✅ OWNERSHIP CHECK */
+    /* ✅ OWNERSHIP CHECK (🔥 FIXED FIELD) */
     const ref = adminDb.collection("listings").doc(body.id);
     const snap = await ref.get();
+
     if (!snap.exists)
       return NextResponse.json(
         { success: false, error: "Listing not found" },
@@ -84,7 +88,9 @@ export async function POST(req: Request) {
       );
 
     const docData = snap.data() || {};
-    if (docData.partnerUid !== uid)
+
+    // ✅ ✅ FIXED HERE:
+    if (docData.partnerId !== uid)
       return NextResponse.json(
         { success: false, error: "Not authorized to delete this listing" },
         { status: 403 }
@@ -96,9 +102,6 @@ export async function POST(req: Request) {
       deletedAt: new Date(),
       updatedAt: new Date(),
     });
-
-    // 🔁 If you ever want hard delete:
-    // await ref.delete();
 
     return NextResponse.json({
       success: true,

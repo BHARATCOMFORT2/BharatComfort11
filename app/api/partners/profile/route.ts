@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * ✅ GET /api/partners/profile
  *
- * - Uses Firebase session cookie (__session) for auth
+ * - Uses Firebase session cookie (__session / session / firebase_session) for auth
  * - Returns merged user + partner data
  * - Normalizes kycStatus
  *
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
  *   success: true,
  *   uid: string,
  *   user: { ...userDoc, uid },
- *   partner: { ...partnerDoc, uid },
+ *   partner: { ...partnerDoc, uid, kycStatus },
  *   kycStatus: "NOT_STARTED" | "UNDER_REVIEW" | "APPROVED" | "REJECTED",
  *   latestKyc: partner.kyc || null
  * }
@@ -28,7 +28,9 @@ export const dynamic = "force-dynamic";
  *   ok: false,
  *   success: false,
  *   uid,
- *   exists: false
+ *   exists: false,
+ *   user,
+ *   partner: null
  * }
  */
 
@@ -40,11 +42,17 @@ export async function GET(req: Request) {
     // 1) Extract session cookie
     // -----------------------------------
     const cookieHeader = req.headers.get("cookie") || "";
+
     const sessionCookie =
       cookieHeader
         .split(";")
         .map((c) => c.trim())
-        .find((c) => c.startsWith("__session="))
+        .find(
+          (c) =>
+            c.startsWith("__session=") ||
+            c.startsWith("session=") ||
+            c.startsWith("firebase_session=")
+        )
         ?.split("=")[1] || "";
 
     if (!sessionCookie) {
@@ -78,7 +86,10 @@ export async function GET(req: Request) {
       partnerRef.get(),
     ]);
 
-    const userData = userSnap.exists ? { uid, ...(userSnap.data() || {}) } : null;
+    const userData = userSnap.exists
+      ? { uid, ...(userSnap.data() || {}) }
+      : null;
+
     const partnerDataRaw = partnerSnap.exists
       ? { uid, ...(partnerSnap.data() || {}) }
       : null;
@@ -104,6 +115,7 @@ export async function GET(req: Request) {
     // 4) Normalize kycStatus
     // -----------------------------------
     const partner = partnerDataRaw || {};
+
     const rawKycStatus =
       (partner.kycStatus as string | undefined) ||
       (partner.kyc?.status as string | undefined) ||
@@ -113,7 +125,6 @@ export async function GET(req: Request) {
       (raw || "NOT_STARTED").toString().toUpperCase();
 
     const kycStatus = normalizeKyc(rawKycStatus);
-
     const latestKyc = partner.kyc || null;
 
     // -----------------------------------
@@ -141,7 +152,7 @@ export async function GET(req: Request) {
       {
         ok: false,
         success: false,
-        error: err.message || "Internal server error",
+        error: err?.message || "Internal server error",
       },
       { status: 500 }
     );

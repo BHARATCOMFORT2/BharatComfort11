@@ -15,7 +15,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     2️⃣ SKIP STATIC / PUBLIC FILES
+     2️⃣ SKIP STATIC FILES ONLY (NOT API)
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/_next") ||
@@ -26,7 +26,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     3️⃣ UNIVERSAL API FIX — INJECT __session
+     ✅ 3️⃣ UNIVERSAL API FIX — INJECT __session ✅✅✅
   ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     const sessionCookie =
@@ -119,10 +119,10 @@ export function middleware(request: NextRequest) {
 }
 
 /* ---------------------------------------------------
-   ✅ 7️⃣ MATCHER
+   ✅ 7️⃣ MATCHER — ✅ API INCLUDED NOW ✅
 ----------------------------------------------------*/
 export const config = {
   matcher: [
-    "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|api|auth|.*\\..*).*)",
+    "/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)",
   ],
 };

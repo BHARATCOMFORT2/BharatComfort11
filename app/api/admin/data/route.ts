@@ -10,7 +10,10 @@ export async function GET(req: Request) {
 
     const authHeader = req.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
-      return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401 }
+      );
     }
 
     const token = authHeader.replace("Bearer ", "");
@@ -18,23 +21,33 @@ export async function GET(req: Request) {
 
     const userSnap = await adminDb.collection("users").doc(decoded.uid).get();
     if (!userSnap.exists || userSnap.data()?.role !== "admin") {
-      return NextResponse.json({ success: false, error: "Admin only" }, { status: 403 });
+      return NextResponse.json(
+        { success: false, error: "Admin only" },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(req.url);
     const type = searchParams.get("type");
 
     if (!type) {
-      return NextResponse.json({ success: false, error: "Missing type" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, error: "Missing type" },
+        { status: 400 }
+      );
     }
 
-    const snap = await adminDb.collection(type).orderBy("createdAt", "desc").limit(100).get();
+    // ✅ SAFE QUERY (NO orderBy CRASH)
+    const snap = await adminDb.collection(type).limit(100).get();
 
     const data = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     return NextResponse.json({ success: true, data });
   } catch (err: any) {
     console.error("ADMIN DATA LOAD ERROR:", err);
-    return NextResponse.json({ success: false, error: err.message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: err.message },
+      { status: 500 }
+    );
   }
 }

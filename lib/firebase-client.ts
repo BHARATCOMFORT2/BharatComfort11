@@ -1,3 +1,5 @@
+// lib/firebase-client.ts
+
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
@@ -14,11 +16,25 @@ const firebaseConfig = {
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-// ✅ AUTH
+// ✅ AUTH (always ON)
 export const auth = getAuth(app);
 
-// ✅ FIRESTORE
-export const db = getFirestore(app);
-
-// ✅ STORAGE (🔥 THIS FIXES YOUR ERROR)
+// ✅ STORAGE (always ON)
 export const storage = getStorage(app);
+
+// ✅ FIRESTORE — ADMIN ROUTES PAR HARD OFF
+let firestoreInstance: any = null;
+
+if (typeof window !== "undefined") {
+  const path = window.location.pathname || "";
+
+  // 🛑 Admin area me Firestore bilkul band
+  if (!path.startsWith("/admin")) {
+    firestoreInstance = getFirestore(app);
+  } else {
+    console.warn("🚫 Firestore disabled on admin routes");
+  }
+}
+
+// 👉 Admin pages par `db === null` rahega
+export const db = firestoreInstance;

@@ -1,5 +1,3 @@
-// app/api/admin/partners/list/route.ts
-
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
@@ -10,9 +8,9 @@ export async function GET(req: Request) {
   try {
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // --------------------------------
-    // 1) Extract Firebase session cookie
-    // --------------------------------
+    /* --------------------------------
+       1️⃣ Extract Firebase Session Cookie
+    -------------------------------- */
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -23,35 +21,42 @@ export async function GET(req: Request) {
 
     if (!sessionCookie) {
       return NextResponse.json(
-        { error: "Not authenticated" },
+        { success: false, error: "Not authenticated" },
         { status: 401 }
       );
     }
 
-    // --------------------------------
-    // 2) Verify admin session
-    // --------------------------------
+    /* --------------------------------
+       2️⃣ Verify Session Cookie
+    -------------------------------- */
     const decoded = await adminAuth
       .verifySessionCookie(sessionCookie, true)
       .catch(() => null);
 
-    if (!decoded) {
+    if (!decoded?.uid) {
       return NextResponse.json(
-        { error: "Invalid or expired session" },
+        { success: false, error: "Invalid or expired session" },
         { status: 401 }
       );
     }
 
-    if (!decoded.admin) {
+    const adminUid = decoded.uid;
+
+    /* --------------------------------
+       3️⃣ Verify Admin from Firestore
+    -------------------------------- */
+    const adminSnap = await adminDb.collection("users").doc(adminUid).get();
+
+    if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
-        { error: "Admin access required" },
+        { success: false, error: "Admin access required" },
         { status: 403 }
       );
     }
 
-    // --------------------------------
-    // 3) Filters (status, kycStatus)
-    // --------------------------------
+    /* --------------------------------
+       4️⃣ Filters (status, kycStatus)
+    -------------------------------- */
     const url = new URL(req.url);
     const statusFilter = url.searchParams.get("status");
     const kycFilter = url.searchParams.get("kycStatus");
@@ -66,16 +71,18 @@ export async function GET(req: Request) {
       q = q.where("kycStatus", "==", kycFilter);
     }
 
-    // --------------------------------
-    // 4) Safe ordering
-    // --------------------------------
-    // Prefer createdAt, else updatedAt
-    q = q.orderBy("createdAt", "desc");
+    /* --------------------------------
+       5️⃣ SAFE Ordering
+       ✅ Order by updatedAt first
+       ✅ If missing, UI fallback will handle
+    -------------------------------- */
+    q = q.orderBy("updatedAt", "desc");
 
     const snap = await q.get();
 
     const partners = snap.docs.map((doc) => {
-      const data = doc.data();
+      const data = doc.data() || {};
+
       return {
         partnerId: doc.id,
         name: data.name || null,
@@ -84,6 +91,8 @@ export async function GET(req: Request) {
         businessName: data.businessName || null,
         status: data.status || "UNKNOWN",
         kycStatus: data.kycStatus || "NOT_STARTED",
+        approved: data.approved || false,
+
         createdAt: data.createdAt || null,
         updatedAt: data.updatedAt || null,
       };
@@ -97,7 +106,7 @@ export async function GET(req: Request) {
   } catch (err: any) {
     console.error("🔥 Admin partner list error:", err);
     return NextResponse.json(
-      { error: err.message || "Internal server error" },
+      { success: false, error: err.message || "Internal server error" },
       { status: 500 }
     );
   }

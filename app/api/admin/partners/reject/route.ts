@@ -1,22 +1,26 @@
-// app/api/admin/partners/reject/route.ts
-
-import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+import { NextResponse } from "next/server";
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { FieldValue } from "firebase-admin/firestore";
+
 /**
- * ✅ Admin: Reject Partner KYC (Aligned with New KYC System)
- * Body: { partnerId: string; reason: string }
+ * ✅ ADMIN: REJECT PARTNER KYC (NEW SYSTEM ALIGNED)
+ * Body:
+ * {
+ *   partnerUid: string,
+ *   kycId: string,
+ *   reason: string
+ * }
  */
 export async function POST(req: Request) {
   try {
-    const { adminAuth, adminDb, admin } = getFirebaseAdmin();
+    const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // -----------------------------------
-    // 1) Verify Admin Session
-    // -----------------------------------
+    /* -----------------------------------
+       1️⃣ Verify Admin via SESSION COOKIE
+    ----------------------------------- */
     const cookieHeader = req.headers.get("cookie") || "";
     const sessionCookie =
       cookieHeader
@@ -43,12 +47,10 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ Confirm admin from Firestore
-    const adminSnap = await adminDb
-      .collection("users")
-      .doc(decoded.uid)
-      .get();
+    const adminUid = decoded.uid;
 
+    // ✅ Enforce admin from users collection
+    const adminSnap = await adminDb.collection("users").doc(adminUid).get();
     if (!adminSnap.exists || adminSnap.data()?.role !== "admin") {
       return NextResponse.json(
         { success: false, error: "Admin access required" },
@@ -56,24 +58,25 @@ export async function POST(req: Request) {
       );
     }
 
-    // -----------------------------------
-    // 2) Parse Request Body
-    // -----------------------------------
+    /* -----------------------------------
+       2️⃣ Parse Body
+    ----------------------------------- */
     const body = await req.json().catch(() => ({}));
-    const partnerId = body?.partnerId;
+    const partnerUid = body?.partnerUid;
+    const kycId = body?.kycId;
     const reason = body?.reason;
 
-    if (!partnerId || !reason) {
+    if (!partnerUid || !kycId || !reason) {
       return NextResponse.json(
-        { success: false, error: "partnerId and reason are required" },
+        { success: false, error: "partnerUid, kycId and reason are required" },
         { status: 400 }
       );
     }
 
-    // -----------------------------------
-    // 3) Fetch Partner Document
-    // -----------------------------------
-    const partnerRef = adminDb.collection("partners").doc(partnerId);
+    /* -----------------------------------
+       3️⃣ Load Partner + KYC Doc
+    ----------------------------------- */
+    const partnerRef = adminDb.collection("partners").doc(partnerUid);
     const partnerSnap = await partnerRef.get();
 
     if (!partnerSnap.exists) {
@@ -83,32 +86,49 @@ export async function POST(req: Request) {
       );
     }
 
+    const kycRef = partnerRef.collection("kycDocs").doc(kycId);
+    const kycSnap = await kycRef.get();
+
+    if (!kycSnap.exists) {
+      return NextResponse.json(
+        { success: false, error: "KYC record not found" },
+        { status: 404 }
+      );
+    }
+
     const partner = partnerSnap.data() || {};
-    const partnerUid = partner.uid || partnerId;
+    const currentStatus = String(partner.kycStatus || "").toUpperCase();
 
-    const currentKycStatus = String(partner.kycStatus || "").toUpperCase();
-
-    // ✅ Block invalid transitions
-    if (currentKycStatus === "REJECTED") {
+    // ✅ Strict rejection rules
+    if (currentStatus === "REJECTED") {
       return NextResponse.json(
         { success: false, error: "Partner already rejected" },
         { status: 409 }
       );
     }
 
-    if (currentKycStatus === "APPROVED") {
+    if (currentStatus === "APPROVED") {
       return NextResponse.json(
         { success: false, error: "Approved partner cannot be rejected" },
         { status: 400 }
       );
     }
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
-    const adminUid = decoded.uid;
+    const now = FieldValue.serverTimestamp();
 
-    // -----------------------------------
-    // 4) Update Partner Document (REJECT)
-    // -----------------------------------
+    /* -----------------------------------
+       4️⃣ Update KYC DOC (SOURCE OF TRUTH)
+    ----------------------------------- */
+    await kycRef.update({
+      status: "REJECTED",
+      reviewedAt: now,
+      reviewedBy: adminUid,
+      rejectedReason: reason,
+    });
+
+    /* -----------------------------------
+       5️⃣ Update PARTNER ROOT DOC
+    ----------------------------------- */
     await partnerRef.update({
       kycStatus: "REJECTED",
       status: "REJECTED",
@@ -122,17 +142,34 @@ export async function POST(req: Request) {
       updatedAt: now,
     });
 
-    // -----------------------------------
-    // 5) Audit Log
-    // -----------------------------------
+    /* -----------------------------------
+       6️⃣ Audit Log
+    ----------------------------------- */
     await adminDb.collection("partnerApprovals").add({
-      partnerId,
       partnerUid,
-      adminId: adminUid,
+      kycId,
+      adminUid,
       action: "REJECT",
       reason,
       createdAt: now,
     });
+
+    /* -----------------------------------
+       7️⃣ Partner Notification (Optional)
+    ----------------------------------- */
+    try {
+      await adminDb.collection("notifications").add({
+        userId: partnerUid,
+        type: "kyc",
+        title: "KYC Rejected",
+        body: `Your KYC was rejected. Reason: ${reason}`,
+        createdAt: now,
+        read: false,
+        meta: { kycId, status: "REJECTED" },
+      });
+    } catch (notifErr) {
+      console.warn("Notification create failed:", notifErr);
+    }
 
     return NextResponse.json({
       success: true,

@@ -7,8 +7,7 @@ import {
   signOut as firebaseSignOut,
   getIdToken,
 } from "firebase/auth";
-import { auth, db } from "@/lib/firebase-client";
-import { doc, getDoc } from "firebase/firestore";
+import { auth } from "@/lib/firebase-client";
 
 export interface AppUser {
   uid: string;
@@ -38,88 +37,32 @@ export function useAuth() {
       }
 
       try {
-        // ✅ 1️⃣ USERS FIRST (ADMIN CHECK HIGHEST PRIORITY)
-        const userSnap = await getDoc(doc(db, "users", user.uid));
-        if (userSnap.exists()) {
-          const userData = userSnap.data();
-
-          // ✅ IF ADMIN FOUND → RETURN IMMEDIATELY
-          if (userData.role === "admin" || userData.role === "superadmin") {
-            setProfile({
-              uid: user.uid,
-              email: user.email,
-              displayName: user.displayName,
-              role: userData.role,
-              ...userData,
-            });
-
-            const token = await getIdToken(user, true);
-            await fetch("/api/session", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ token }),
-            });
-
-            setLoading(false);
-            return;
-          }
-        }
-
-        // ✅ 2️⃣ STAFF
-        const staffSnap = await getDoc(doc(db, "staff", user.uid));
-        if (staffSnap.exists()) {
-          const staffData = staffSnap.data();
-          setProfile({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            role: "staff",
-            ...staffData,
-          });
-
-          setLoading(false);
-          return;
-        }
-
-        // ✅ 3️⃣ PARTNER
-        const partnerSnap = await getDoc(doc(db, "partners", user.uid));
-        if (partnerSnap.exists()) {
-          const partnerData = partnerSnap.data();
-          setProfile({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            role: "partner",
-            ...partnerData,
-          });
-
-          setLoading(false);
-          return;
-        }
-
-        // ✅ 4️⃣ NORMAL USER FALLBACK
-        if (userSnap.exists()) {
-          setProfile({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            role: userSnap.data().role || "user",
-            ...userSnap.data(),
-          });
-        } else {
-          setProfile({
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            role: "user",
-          });
-        }
-
+        // ✅ GET ID TOKEN
         const token = await getIdToken(user, true);
+
+        // ✅ SEND TOKEN TO SERVER (SESSION SET)
         await fetch("/api/session", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),
+        });
+
+        // ✅ FETCH USER PROFILE FROM SERVER (ADMIN SDK)
+        const res = await fetch("/api/auth/me", {
+          credentials: "include",
+        });
+
+        const data = await res.json();
+
+        if (!res.ok || !data?.success || !data.user) {
+          throw new Error("Failed to load profile");
+        }
+
+        setProfile({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName,
+          ...data.user, // role, status, etc from server
         });
       } catch (err) {
         console.error("Auth profile fetch error:", err);

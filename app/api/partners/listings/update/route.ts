@@ -7,10 +7,7 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 function getAuthHeader(req: Request) {
-  const h = (req as any).headers?.get
-    ? (req as any).headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return h || "";
+  return req.headers.get("authorization") || "";
 }
 
 export async function POST(req: Request) {
@@ -43,7 +40,7 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    /* ✅ ✅ KYC ENFORCEMENT */
+    /* ✅ KYC ENFORCEMENT */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
     if (!partnerSnap.exists) {
@@ -55,12 +52,18 @@ export async function POST(req: Request) {
 
     const partner = partnerSnap.data();
 
-    if (partner?.kycStatus !== "APPROVED") {
+    const kycStatus =
+      partner?.kycStatus ||
+      partner?.kyc?.status ||
+      partner?.kyc?.kycStatus ||
+      "NOT_STARTED";
+
+    if (kycStatus !== "APPROVED") {
       return NextResponse.json(
         {
           success: false,
           error: "KYC not approved. You cannot update listings yet.",
-          kycStatus: partner?.kycStatus || "NOT_STARTED",
+          kycStatus,
         },
         { status: 403 }
       );
@@ -75,15 +78,17 @@ export async function POST(req: Request) {
       );
 
     const { id, title, description, price, location, metadata, status } = body;
+
     if (!id)
       return NextResponse.json(
         { success: false, error: "Listing id is required" },
         { status: 400 }
       );
 
-    /* ✅ OWNERSHIP CHECK */
+    /* ✅ OWNERSHIP CHECK (🔥 FIXED FIELD) */
     const ref = adminDb.collection("listings").doc(id);
     const snap = await ref.get();
+
     if (!snap.exists)
       return NextResponse.json(
         { success: false, error: "Listing not found" },
@@ -91,7 +96,9 @@ export async function POST(req: Request) {
       );
 
     const docData = snap.data() || {};
-    if (docData.partnerUid !== uid) {
+
+    // ✅ ✅ ✅ FINAL FIX HERE
+    if (docData.partnerId !== uid) {
       return NextResponse.json(
         { success: false, error: "Not authorized to update this listing" },
         { status: 403 }
@@ -100,6 +107,7 @@ export async function POST(req: Request) {
 
     /* ✅ SAFE UPDATE */
     const update: any = { updatedAt: new Date() };
+
     if (title !== undefined) update.title = title;
     if (description !== undefined) update.description = description;
     if (price !== undefined)

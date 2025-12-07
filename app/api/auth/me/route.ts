@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
@@ -19,7 +21,7 @@ export async function GET(req: Request) {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     const uid = decoded.uid;
 
-    // ✅ USERS
+    // ✅ USERS COLLECTION CHECK
     const userSnap = await adminDb.collection("users").doc(uid).get();
     if (userSnap.exists) {
       return NextResponse.json({
@@ -28,7 +30,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // ✅ STAFF
+    // ✅ STAFF COLLECTION CHECK
     const staffSnap = await adminDb.collection("staff").doc(uid).get();
     if (staffSnap.exists) {
       return NextResponse.json({
@@ -37,7 +39,7 @@ export async function GET(req: Request) {
       });
     }
 
-    // ✅ PARTNER
+    // ✅ PARTNER COLLECTION CHECK
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
     if (partnerSnap.exists) {
       return NextResponse.json({
@@ -46,6 +48,7 @@ export async function GET(req: Request) {
       });
     }
 
+    // ✅ DEFAULT USER FALLBACK
     return NextResponse.json({
       success: true,
       user: { role: "user" },

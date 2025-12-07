@@ -8,21 +8,18 @@ import { adminAuth, adminStorage } from "@/lib/firebaseadmin";
    Safe Header Reader
 --------------------------------------------- */
 function getAuthHeader(req: Request) {
-  const h = (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
-  return h || "";
+  return req.headers.get("authorization") || "";
 }
 
 /* ---------------------------------------------
-   ✅ PARTNER LISTING IMAGE UPLOAD API (FINAL REAL FIX)
+   ✅ ✅ PARTNER LISTING IMAGE UPLOAD (FINAL FIXED)
 --------------------------------------------- */
 export async function POST(req: Request) {
   try {
-    /* ✅ 1️⃣ AUTH TOKEN VERIFY */
+    /* ✅ 1️⃣ AUTH VERIFY */
     const authHeader = getAuthHeader(req);
 
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (!authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { success: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
@@ -43,7 +40,7 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    /* ✅ 2️⃣ READ FILE */
+    /* ✅ 2️⃣ FILE READ */
     const form = await req.formData();
     const file = form.get("file") as File | null;
 
@@ -57,27 +54,27 @@ export async function POST(req: Request) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    /* ✅ 3️⃣ SAFE STORAGE PATH */
+    /* ✅ 3️⃣ STORAGE PATH */
     const filename = `${Date.now()}-${file.name.replace(/\s+/g, "_")}`;
     const path = `listings/${uid}/${filename}`;
 
-    /* ✅ 4️⃣ STORAGE BUCKET */
+    /* ✅ ✅ ✅ 4️⃣ REAL BUCKET (NO FAKE appspot) */
     const bucket = adminStorage.bucket();
     const fileRef = bucket.file(path);
 
-    /* ✅ ✅ ✅ FINAL CORE FIX HERE */
     await fileRef.save(buffer, {
       contentType: file.type || "application/octet-stream",
-      resumable: false,          // ✅ public: true HATA DIYA
+      public: true,
+      gzip: true,
+      metadata: {
+        firebaseStorageDownloadTokens: uuidv4(),
+      },
     });
-
-    // ✅ FILE KO PUBLIC BANAO (YAHI ASLI FIX HAI)
-    await fileRef.makePublic();
 
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
 
     return NextResponse.json({
-      success: true,          // ✅ Frontend yahi expect karta hai
+      success: true,
       url: publicUrl,
       path,
     });
@@ -88,4 +85,15 @@ export async function POST(req: Request) {
       { status: 500 }
     );
   }
+}
+
+/* ---------------------------------------------
+   Public download token
+--------------------------------------------- */
+function uuidv4() {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0,
+      v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }

@@ -55,6 +55,14 @@ export async function GET(req: Request) {
 
     const uid = decoded.uid;
 
+    // ✅✅✅ PARTNER ONLY ACCESS (SECURITY FIX)
+    if (decoded.role && decoded.role !== "partner") {
+      return NextResponse.json(
+        { ok: false, success: false, error: "Access denied" },
+        { status: 403 }
+      );
+    }
+
     // -----------------------------------
     // 2) Fetch Partner Doc
     // -----------------------------------
@@ -75,15 +83,18 @@ export async function GET(req: Request) {
     const partner = partnerSnap.data() || {};
 
     // -----------------------------------
-    // 3) Normalize KYC Status
+    // 3) Normalize KYC Status ✅ FINAL SAFE NORMALIZER
     // -----------------------------------
     const rawStatus =
       (partner.kycStatus as string | undefined) ||
       (partner.kyc?.status as string | undefined) ||
       "NOT_STARTED";
 
-    const normalize = (s?: string) =>
-      (s || "NOT_STARTED").toUpperCase();
+    const normalize = (s?: string) => {
+      const v = (s || "NOT_STARTED").toUpperCase();
+      if (v === "PENDING") return "UNDER_REVIEW"; // ✅ CRITICAL FIX
+      return v;
+    };
 
     const kycStatus = normalize(rawStatus);
 

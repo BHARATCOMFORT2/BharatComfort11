@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
+import { getAuth } from "firebase/auth";
 
 export default function AdminKYCReviewPage() {
   const router = useRouter();
@@ -14,7 +15,7 @@ export default function AdminKYCReviewPage() {
   const [remark, setRemark] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
 
-  // ✅ Load pending KYCs (SERVER API ONLY)
+  /* ✅ LOAD PENDING KYC */
   async function loadPending() {
     try {
       setLoading(true);
@@ -42,7 +43,7 @@ export default function AdminKYCReviewPage() {
     loadPending();
   }, []);
 
-  // ✅ Approve / Reject Handler (SECURE)
+  /* ✅ ✅ ✅ FINAL FIX — APPROVE / REJECT WITH BEARER TOKEN */
   async function handleDecision(type: "approve" | "reject") {
     if (!selected) return;
 
@@ -53,20 +54,38 @@ export default function AdminKYCReviewPage() {
     setActionLoading(true);
 
     try {
+      const auth = getAuth();
+      const user = auth.currentUser;
+
+      if (!user) {
+        toast.error("Admin not logged in");
+        return;
+      }
+
+      const token = await user.getIdToken(); // ✅ MOST IMPORTANT FIX
+
       const endpoint =
         type === "approve"
-          ? "/api/admin/partners/approve"
+          ? "/api/admin/partners/kyc/approve"
           : "/api/admin/partners/reject";
 
       const body =
         type === "approve"
-          ? { partnerId: selected.partnerId }
-          : { partnerId: selected.partnerId, reason: remark };
+          ? {
+              partnerUid: selected.partnerId,
+              kycId: selected.kyc?.id,
+            }
+          : {
+              partnerId: selected.partnerId,
+              reason: remark,
+            };
 
       const res = await fetch(endpoint, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`, // ✅ FINAL FIX
+        },
         body: JSON.stringify(body),
       });
 
@@ -114,12 +133,6 @@ export default function AdminKYCReviewPage() {
                   {p.partner?.businessName || p.partner?.name}
                 </h3>
                 <p className="text-sm text-gray-500">{p.partner?.email}</p>
-                <p className="text-xs mt-1 text-gray-400">
-                  Submitted:{" "}
-                  {p.submittedAt?.toDate
-                    ? p.submittedAt.toDate().toLocaleString()
-                    : "—"}
-                </p>
 
                 <span className="inline-block mt-2 text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded">
                   UNDER REVIEW
@@ -130,7 +143,7 @@ export default function AdminKYCReviewPage() {
         )}
       </div>
 
-      {/* ✅ Review Modal */}
+      {/* ✅ REVIEW MODAL */}
       {selected && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-[95%] max-w-lg shadow-xl relative">
@@ -151,7 +164,6 @@ export default function AdminKYCReviewPage() {
               {selected.partner?.email} | {selected.partner?.phone}
             </p>
 
-            {/* ✅ KYC INFO */}
             <div className="space-y-2 mb-5 text-sm">
               <p>
                 <b>Aadhaar:</b> {selected.kyc?.aadhaarLast4 || "—"}
@@ -160,7 +172,6 @@ export default function AdminKYCReviewPage() {
                 <b>GST:</b> {selected.kyc?.gstNumber || "—"}
               </p>
 
-              {/* ✅ Documents Preview */}
               {Array.isArray(selected.kyc?.documents) &&
                 selected.kyc.documents.map((doc: any, i: number) => (
                   <a
@@ -176,7 +187,6 @@ export default function AdminKYCReviewPage() {
                 ))}
             </div>
 
-            {/* ✅ Reject Reason */}
             <label className="block text-sm font-medium mb-1">
               Admin Remark (required for rejection)
             </label>
@@ -185,7 +195,7 @@ export default function AdminKYCReviewPage() {
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
               className="w-full border rounded-lg p-2 mb-4"
-              placeholder="Enter rejection reason if rejecting"
+              placeholder="Enter rejection reason"
             />
 
             <div className="flex justify-end gap-3">

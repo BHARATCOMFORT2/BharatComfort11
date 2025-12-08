@@ -54,18 +54,16 @@ export async function POST(req: Request) {
       },
     });
 
-    /* ---------------- ✅ SIGNED URL (PRODUCTION SAFE) ---------------- */
+    /* ---------------- ✅ ✅ ✅ DIRECT PUBLIC URL (NO SIGNED URL) ---------------- */
 
-    const [signedUrl] = await storageFile.getSignedUrl({
-      action: "read",
-      expires: "03-01-2500", // long-term read access
-    });
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
 
     return NextResponse.json({
-      ok: true,              // ✅ CLIENT EXPECTS `ok`
-      url: signedUrl,        // ✅ PUBLICLY ACCESSIBLE
+      ok: true,         // ✅ frontend expects `ok`
+      url: publicUrl,   // ✅ DIRECT IMAGE URL
       path,
     });
+
   } catch (err: any) {
     console.error("❌ FINAL UPLOAD ERROR:", err);
 

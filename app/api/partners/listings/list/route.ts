@@ -6,32 +6,20 @@ import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 export async function GET(req: Request) {
   try {
-    /* ─────────────────────────────
-       ✅ 1️⃣ AUTH VERIFY
-    ───────────────────────────── */
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
-      return NextResponse.json(
-        { ok: false, error: "Missing or invalid Authorization header" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Missing token" }, { status: 401 });
     }
 
     const token = authHeader.replace("Bearer ", "").trim();
     const decoded = await adminAuth.verifyIdToken(token, true);
     const uid = decoded.uid;
 
-    /* ─────────────────────────────
-       ✅ 2️⃣ PAGINATION (SAFE)
-    ───────────────────────────── */
     const url = new URL(req.url);
-    const limit = Math.min(Number(url.searchParams.get("limit") || "20"), 50);
+    const limit = Math.min(Number(url.searchParams.get("limit") || 20), 50);
 
-    /* ─────────────────────────────
-       ✅ 3️⃣ STABLE FIRESTORE QUERY
-       ❌ offset REMOVED (ROOT CAUSE)
-    ───────────────────────────── */
+    // 🔥🔥🔥 OFFSET REMOVED (THIS WAS CAUSING 500)
     const snap = await adminDb
       .collection("listings")
       .where("partnerId", "==", uid)
@@ -41,19 +29,18 @@ export async function GET(req: Request) {
 
     const listings = snap.docs.map((d) => ({
       id: d.id,
-      ...(d.data() || {}),
+      ...d.data(),
     }));
 
     return NextResponse.json({
       ok: true,
-      limit,
-      total: listings.length,
       listings,
+      total: listings.length,
     });
   } catch (err: any) {
-    console.error("❌ list listings error:", err);
+    console.error("❌ LISTINGS FETCH ERROR:", err);
     return NextResponse.json(
-      { ok: false, error: err?.message || "Internal server error" },
+      { error: err?.message || "Internal Server Error" },
       { status: 500 }
     );
   }

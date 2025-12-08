@@ -6,8 +6,7 @@ import { adminAuth, adminStorage } from "@/lib/firebaseadmin";
 
 export async function POST(req: Request) {
   try {
-    /* ---------------- AUTH ---------------- */
-
+    /* ✅ AUTH */
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -21,8 +20,7 @@ export async function POST(req: Request) {
     const decoded = await adminAuth.verifyIdToken(idToken, true);
     const uid = decoded.uid;
 
-    /* ---------------- FILE READ ---------------- */
-
+    /* ✅ FILE READ */
     const form = await req.formData();
     const file = form.get("file") as File | null;
 
@@ -35,8 +33,7 @@ export async function POST(req: Request) {
 
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    /* ---------------- STORAGE PATH ---------------- */
-
+    /* ✅ SAFE STORAGE PATH */
     const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
     const filename = `${Date.now()}-${safeName}`;
     const path = `listings/${uid}/${filename}`;
@@ -44,8 +41,7 @@ export async function POST(req: Request) {
     const bucket = adminStorage.bucket();
     const storageFile = bucket.file(path);
 
-    /* ---------------- UPLOAD ---------------- */
-
+    /* ✅ UPLOAD */
     await storageFile.save(buffer, {
       resumable: false,
       contentType: file.type || "image/jpeg",
@@ -54,13 +50,15 @@ export async function POST(req: Request) {
       },
     });
 
-    /* ---------------- ✅ ✅ ✅ DIRECT PUBLIC URL (NO SIGNED URL) ---------------- */
+    /* ✅ ✅ ✅ MAKE FILE PUBLIC (🔥 MAIN FIX) */
+    await storageFile.makePublic();
 
+    /* ✅ ✅ ✅ PUBLICLY ACCESSIBLE IMAGE URL */
     const publicUrl = `https://storage.googleapis.com/${bucket.name}/${path}`;
 
     return NextResponse.json({
-      ok: true,         // ✅ frontend expects `ok`
-      url: publicUrl,   // ✅ DIRECT IMAGE URL
+      ok: true,
+      url: publicUrl,   // ✅ NOW IT WILL ACTUALLY OPEN
       path,
     });
 

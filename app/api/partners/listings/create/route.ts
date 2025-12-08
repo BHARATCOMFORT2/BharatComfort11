@@ -14,7 +14,7 @@ export async function POST(req: Request) {
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
-        { ok: false, error: "Missing or invalid Authorization header" },
+        { success: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
       );
     }
@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       decoded = await adminAuth.verifyIdToken(idToken, true);
     } catch {
       return NextResponse.json(
-        { ok: false, error: "Invalid or expired token" },
+        { success: false, error: "Invalid or expired token" },
         { status: 401 }
       );
     }
@@ -40,7 +40,7 @@ export async function POST(req: Request) {
 
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        { ok: false, error: "Partner profile not found" },
+        { success: false, error: "Partner profile not found" },
         { status: 403 }
       );
     }
@@ -56,7 +56,7 @@ export async function POST(req: Request) {
     if (kycStatus !== "APPROVED") {
       return NextResponse.json(
         {
-          ok: false,
+          success: false,
           error: "KYC not approved. You cannot create listings yet.",
           kycStatus,
         },
@@ -71,7 +71,7 @@ export async function POST(req: Request) {
 
     if (!body) {
       return NextResponse.json(
-        { ok: false, error: "Invalid JSON body" },
+        { success: false, error: "Invalid JSON body" },
         { status: 400 }
       );
     }
@@ -80,23 +80,23 @@ export async function POST(req: Request) {
 
     if (!title || typeof title !== "string") {
       return NextResponse.json(
-        { ok: false, error: "title is required" },
+        { success: false, error: "title is required" },
         { status: 400 }
       );
     }
 
     /* ─────────────────────────────
-       ✅ 4️⃣ CREATE LISTING
+       ✅ 4️⃣ CREATE LISTING (FINAL)
     ───────────────────────────── */
     const docRef = adminDb.collection("listings").doc();
 
     const payload = {
       id: docRef.id,
-      partnerId: uid,             // ✅ standard
+      partnerId: uid,                      // ✅ STANDARD FIELD
       title: title.trim(),
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
-      location: location || "",  // ✅ NEVER null
+      location: location || "",           // ✅ NEVER NULL
       metadata: metadata || {},
       status: "active",
       createdAt: FieldValue.serverTimestamp(),
@@ -106,7 +106,7 @@ export async function POST(req: Request) {
     await docRef.set(payload);
 
     return NextResponse.json({
-      ok: true,                   // ✅ STANDARDIZED
+      success: true,                      // ✅ FRONTEND MATCH
       listingId: docRef.id,
       listing: payload,
     });
@@ -115,7 +115,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        ok: false,                // ✅ STANDARDIZED
+        success: false,                  // ✅ FRONTEND MATCH
         error: err?.message || "Internal server error",
       },
       { status: 500 }

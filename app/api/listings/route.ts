@@ -2,36 +2,55 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
-import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 export async function GET(req: Request) {
   try {
-    const { adminAuth, adminDb } = getFirebaseAdmin();
+    /* ───────────── AUTH (OPTIONAL) ───────────── */
+    const authHeader = req.headers.get("authorization");
+    let uid: string | null = null;
+    let role: string | null = null;
 
-    const cookieHeader = req.headers.get("cookie") || "";
-    const sessionCookie =
-      cookieHeader
-        .split(";")
-        .map((c) => c.trim())
-        .find((c) => c.startsWith("__session="))
-        ?.split("=")[1] || "";
-
-    let decoded: any = null;
-    if (sessionCookie) {
-      decoded = await adminAuth.verifySessionCookie(sessionCookie, true).catch(() => null);
+    // ✅ Token optional hai (guest ke liye)
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      const token = authHeader.replace("Bearer ", "").trim();
+      try {
+        const decoded: any = await adminAuth.verifyIdToken(token, true);
+        uid = decoded.uid;
+        role = decoded.role || decoded.customClaims?.role || "user";
+      } catch {
+        uid = null;
+        role = null;
+      }
     }
 
-    let role: "admin" | "partner" | "user" = "user";
-    if (decoded?.admin === true) role = "admin";
-    else if (decoded?.partner === true) role = "partner";
+    /* ───────────── PAGINATION ───────────── */
+    const url = new URL(req.url);
+    const limit = Math.min(Number(url.searchParams.get("limit") || "20"), 50);
+    const page = Math.max(Number(url.searchParams.get("page") || "1"), 1);
+    const offset = (page - 1) * limit;
 
-    let queryRef = adminDb.collection("listings");
+    /* ───────────── BASE QUERY ───────────── */
+    let query: FirebaseFirestore.Query = adminDb
+      .collection("listings")
+      .orderBy("createdAt", "desc");
 
-    if (role === "partner" && decoded?.uid) {
-      queryRef = queryRef.where("partnerUid", "==", decoded.uid);
+    /* ─────────────────────────────────────
+       ✅ ✅ ✅ ROLE BASED FILTER (FINAL FIX)
+    ───────────────────────────────────── */
+
+    // ✅ PARTNER → ONLY OWN LISTINGS
+    if (role === "partner" && uid) {
+      query = query.where("partnerId", "==", uid);
     }
 
-    const snap = await queryRef.get();
+    // ✅ USER / GUEST → ONLY ACTIVE
+    else {
+      query = query.where("status", "==", "active");
+    }
+
+    /* ───────────── FETCH ───────────── */
+    const snap = await query.offset(offset).limit(limit).get();
 
     const listings = snap.docs.map((d) => ({
       id: d.id,
@@ -39,15 +58,17 @@ export async function GET(req: Request) {
     }));
 
     return NextResponse.json({
-      success: true,
-      role,
-      count: listings.length,
-      firestoreProject: adminDb.app.options.projectId,
+      ok: true,
+      role: role || "guest",
+      page,
+      limit,
+      total: listings.length,
       listings,
     });
   } catch (err: any) {
+    console.error("❌ unified listings error:", err);
     return NextResponse.json(
-      { success: false, error: err.message || "Internal server error" },
+      { ok: false, error: err?.message || "Internal server error" },
       { status: 500 }
     );
   }

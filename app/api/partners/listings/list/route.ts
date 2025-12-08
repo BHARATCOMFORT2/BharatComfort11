@@ -1,57 +1,43 @@
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// app/api/partners/listings/list/route.ts
-
 import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
-function getAuthHeader(req: Request) {
-  return req.headers.get("authorization") || "";
-}
-
 export async function GET(req: Request) {
   try {
-    /* ✅ AUTH */
-    const authHeader = getAuthHeader(req);
-    if (!authHeader)
-      return NextResponse.json(
-        { error: "Missing Authorization header" },
-        { status: 401 }
-      );
+    /* ─────────────────────────────
+       ✅ 1️⃣ AUTH VERIFY
+    ───────────────────────────── */
+    const authHeader = req.headers.get("authorization");
 
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: "Malformed Authorization header" },
-        { status: 401 }
-      );
-
-    let decoded: any;
-    try {
-      decoded = await adminAuth.verifyIdToken(m[1], true);
-    } catch {
-      return NextResponse.json(
-        { error: "Invalid token" },
+        { ok: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
       );
     }
 
+    const token = authHeader.replace("Bearer ", "").trim();
+    const decoded = await adminAuth.verifyIdToken(token, true);
     const uid = decoded.uid;
 
-    /* ✅ PAGINATION */
+    /* ─────────────────────────────
+       ✅ 2️⃣ PAGINATION (SAFE)
+    ───────────────────────────── */
     const url = new URL(req.url);
-    const limit = Math.min(Number(url.searchParams.get("limit") || "20"), 100);
-    const page = Math.max(Number(url.searchParams.get("page") || "1"), 1);
-    const offset = (page - 1) * limit;
+    const limit = Math.min(Number(url.searchParams.get("limit") || "20"), 50);
 
-    /* ✅ ✅ ✅ FIXED QUERY FIELD */
-    const collectionRef = adminDb
+    /* ─────────────────────────────
+       ✅ 3️⃣ STABLE FIRESTORE QUERY
+       ❌ offset REMOVED (ROOT CAUSE)
+    ───────────────────────────── */
+    const snap = await adminDb
       .collection("listings")
-      .where("partnerId", "==", uid)          // ✅ FIXED
-      .orderBy("createdAt", "desc");
-
-    const snap = await collectionRef.offset(offset).limit(limit).get();
+      .where("partnerId", "==", uid)
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
 
     const listings = snap.docs.map((d) => ({
       id: d.id,
@@ -60,7 +46,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      page,
       limit,
       total: listings.length,
       listings,
@@ -68,7 +53,7 @@ export async function GET(req: Request) {
   } catch (err: any) {
     console.error("❌ list listings error:", err);
     return NextResponse.json(
-      { error: err?.message || "Internal server error" },
+      { ok: false, error: err?.message || "Internal server error" },
       { status: 500 }
     );
   }

@@ -38,7 +38,7 @@ type ImageItem =
 
 export default function PartnerListingsManager() {
   const [listings, setListings] = useState<Listing[]>([]);
-  const [page, setPage] = useState(1);
+  const [page] = useState(1);
   const [busy, setBusy] = useState(false);
   const [loadBusy, setLoadBusy] = useState(false);
 
@@ -58,12 +58,12 @@ export default function PartnerListingsManager() {
 
   const MAX_IMAGES = 10;
 
-  /* -------------------- Load Listings -------------------- */
+  /* -------------------- AUTH + LOAD -------------------- */
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
       if (!u) return;
-      await u.getIdToken(); // ensure session cookie
+      await u.getIdToken();
       loadListings(1);
     });
     return () => unsub();
@@ -72,18 +72,13 @@ export default function PartnerListingsManager() {
   async function loadListings(pageNum = 1) {
     try {
       setLoadBusy(true);
-
       const res = await apiFetch(
         `/api/partners/listings/list?page=${pageNum}&limit=20`
       );
       const j = await res.json();
 
       if (j.ok) {
-        if (pageNum === 1) setListings(j.listings || []);
-        else setListings((s) => [...s, ...(j.listings || [])]);
-        setPage(pageNum);
-      } else {
-        console.warn("Listings load failed:", j);
+        setListings(j.listings || []);
       }
     } catch (err) {
       console.error("loadListings error:", err);
@@ -92,21 +87,83 @@ export default function PartnerListingsManager() {
     }
   }
 
-  /* -------------------- Reset Form -------------------- */
+  /* -------------------- FILE HANDLING -------------------- */
 
-  function resetForm() {
-    setEditId(null);
-    setForm({
-      title: "",
-      description: "",
-      location: "",
-      price: "",
-      allowPayAtHotel: false,
+  function handleFilesSelected(filesList: FileList) {
+    const files = Array.from(filesList);
+
+    if (images.length + files.length > MAX_IMAGES) {
+      alert(`Maximum ${MAX_IMAGES} images allowed`);
+      return;
+    }
+
+    const newItems: ImageItem[] = files.map((f) => ({
+      file: f,
+      objectUrl: URL.createObjectURL(f),
+      isExisting: false,
+      isPrimary: false,
+    }));
+
+    setImages((prev) => {
+      const merged = [...prev, ...newItems];
+      if (!merged.some((x) => x.isPrimary)) merged[0].isPrimary = true;
+      return merged;
     });
-    setImages([]);
   }
 
-  /* -------------------- Upload Helpers -------------------- */
+  function removeImage(index: number) {
+    const it = images[index];
+    if (!it) return;
+
+    if (!it.isExisting && (it as any).objectUrl) {
+      URL.revokeObjectURL((it as any).objectUrl);
+    }
+
+    setImages((prev) => {
+      const arr = [...prev];
+      arr.splice(index, 1);
+      if (!arr.some((x) => x.isPrimary) && arr.length > 0)
+        arr[0].isPrimary = true;
+      return arr;
+    });
+  }
+
+  function setPrimary(index: number) {
+    setImages((prev) =>
+      prev.map((it, i) => ({ ...it, isPrimary: i === index }))
+    );
+  }
+
+  /* -------------------- DRAG & DROP -------------------- */
+
+  function onDragStart(e: any, idx: number) {
+    dragIndexRef.current = idx;
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function onDragOver(e: any, idx: number) {
+    e.preventDefault();
+    dropIndexRef.current = idx;
+  }
+
+  function onDrop(e: any) {
+    e.preventDefault();
+    const from = dragIndexRef.current;
+    const to = dropIndexRef.current;
+    if (from == null || to == null || from === to) return;
+
+    setImages((prev) => {
+      const arr = [...prev];
+      const [item] = arr.splice(from, 1);
+      arr.splice(to, 0, item);
+      return arr;
+    });
+
+    dragIndexRef.current = null;
+    dropIndexRef.current = null;
+  }
+
+  /* -------------------- UPLOAD -------------------- */
 
   async function uploadFile(file: File) {
     const fd = new FormData();
@@ -118,12 +175,13 @@ export default function PartnerListingsManager() {
     });
 
     const j = await res.json();
-    if (!j.ok) throw new Error(j.error || "Upload failed");
+    if (!j.ok) throw new Error(j.error || "Image upload failed");
     return j.url as string;
   }
 
   async function prepareImageUploadPayload(items: ImageItem[]) {
     const result: string[] = [];
+
     for (const it of items) {
       if (it.isExisting) {
         result.push(it.url);
@@ -136,14 +194,20 @@ export default function PartnerListingsManager() {
     return result;
   }
 
-  /* -------------------- Create / Update -------------------- */
+  /* -------------------- CREATE / UPDATE -------------------- */
 
   async function handleCreateOrUpdate() {
     if (!form.title.trim()) return alert("Enter title");
 
     setBusy(true);
     try {
-      const urls = await prepareImageUploadPayload(images);
+      let urls = await prepareImageUploadPayload(images);
+
+      const primaryIndex = images.findIndex((i) => i.isPrimary);
+      if (primaryIndex > 0) {
+        const p = urls.splice(primaryIndex, 1)[0];
+        urls.unshift(p);
+      }
 
       const payload = {
         title: form.title,
@@ -155,7 +219,6 @@ export default function PartnerListingsManager() {
       };
 
       if (editId) {
-        // ✅✅✅ FIX HERE (Content-Type Added)
         const res = await apiFetch("/api/partners/listings/update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -166,7 +229,6 @@ export default function PartnerListingsManager() {
         if (!j.success) throw new Error(j.error || "Update failed");
         alert("✅ Listing updated");
       } else {
-        // ✅✅✅ FIX HERE (Content-Type Added)
         const res = await apiFetch("/api/partners/listings/create", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -174,13 +236,12 @@ export default function PartnerListingsManager() {
         });
 
         const j = await res.json();
-        if (!j.ok && !j.success)
-          throw new Error(j.error || "Create failed");
+        if (!j.success) throw new Error(j.error || "Create failed");
         alert("✅ Listing created");
       }
 
-      loadListings(1);
       resetForm();
+      loadListings(1);
     } catch (err: any) {
       console.error(err);
       alert(err.message || "Save failed");
@@ -189,14 +250,13 @@ export default function PartnerListingsManager() {
     }
   }
 
-  /* -------------------- Delete -------------------- */
+  /* -------------------- DELETE -------------------- */
 
   async function handleDelete(id?: string) {
     if (!id || !confirm("Delete this listing?")) return;
 
     setBusy(true);
     try {
-      // ✅✅✅ FIX HERE (Content-Type Added)
       const res = await apiFetch("/api/partners/listings/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -216,8 +276,11 @@ export default function PartnerListingsManager() {
     }
   }
 
+  /* -------------------- EDIT -------------------- */
+
   function startEdit(l: Listing) {
     setEditId(l.id || null);
+
     setForm({
       title: l.title || "",
       description: l.description || "",
@@ -237,10 +300,23 @@ export default function PartnerListingsManager() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function resetForm() {
+    setEditId(null);
+    setForm({
+      title: "",
+      description: "",
+      location: "",
+      price: "",
+      allowPayAtHotel: false,
+    });
+    setImages([]);
+  }
+
   /* -------------------- UI -------------------- */
 
   return (
     <div className="space-y-8">
+      {/* FORM */}
       <div className="bg-white p-6 rounded-xl shadow space-y-4 border">
         <h2 className="text-xl font-semibold">
           {editId ? "Edit Listing" : "Add New Listing"}
@@ -275,13 +351,61 @@ export default function PartnerListingsManager() {
           onChange={(e) => setForm({ ...form, description: e.target.value })}
         />
 
-        <label>
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) =>
+            e.target.files && handleFilesSelected(e.target.files)
+          }
+        />
+
+        {/* PREVIEW GRID */}
+        {images.length > 0 && (
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {images.map((it, idx) => (
+              <div
+                key={idx}
+                draggable
+                onDragStart={(e) => onDragStart(e, idx)}
+                onDragOver={(e) => onDragOver(e, idx)}
+                onDrop={onDrop}
+                className="relative border rounded overflow-hidden"
+              >
+                <img
+                  src={it.isExisting ? it.url : (it as any).objectUrl}
+                  className="w-full h-24 object-cover"
+                />
+
+                <button
+                  onClick={() => setPrimary(idx)}
+                  className={`absolute left-1 top-1 text-xs px-2 py-1 rounded ${
+                    it.isPrimary ? "bg-yellow-400" : "bg-white"
+                  }`}
+                >
+                  ★
+                </button>
+
+                <button
+                  onClick={() => removeImage(idx)}
+                  className="absolute right-1 top-1 bg-red-600 text-white text-xs px-2 py-1 rounded"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <label className="flex items-center gap-2 mt-2">
           <input
-            type="file"
-            multiple
-            accept="image/*"
-            onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
+            type="checkbox"
+            checked={form.allowPayAtHotel}
+            onChange={(e) =>
+              setForm({ ...form, allowPayAtHotel: e.target.checked })
+            }
           />
+          Pay at Hotel
         </label>
 
         <Button onClick={handleCreateOrUpdate} disabled={busy}>
@@ -293,6 +417,7 @@ export default function PartnerListingsManager() {
         </Button>
       </div>
 
+      {/* LISTINGS */}
       <div className="bg-white p-6 rounded-xl shadow border">
         <h2 className="text-xl font-semibold mb-4">Your Listings</h2>
 

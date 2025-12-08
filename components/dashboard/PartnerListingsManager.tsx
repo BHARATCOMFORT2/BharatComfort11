@@ -103,50 +103,10 @@ export default function PartnerListingsManager() {
       price: "",
       allowPayAtHotel: false,
     });
-
-    images.forEach((it) => {
-      if (!it.isExisting && (it as any).objectUrl) {
-        URL.revokeObjectURL((it as any).objectUrl);
-      }
-    });
     setImages([]);
   }
 
-  /* -------------------- Image Helpers -------------------- */
-
-  async function compressImage(file: File, maxWidth = 1600, quality = 0.8) {
-    if (!file.type.startsWith("image/")) return file;
-
-    const imgBitmap = await createImageBitmap(file);
-    const ratio = imgBitmap.width / imgBitmap.height;
-    const width = Math.min(maxWidth, imgBitmap.width);
-    const height = Math.round(width / ratio);
-
-    const canvas = document.createElement("canvas");
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return file;
-
-    ctx.drawImage(imgBitmap, 0, 0, width, height);
-
-    return await new Promise<File>((resolve) => {
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) return resolve(file);
-          resolve(
-            new File(
-              [blob],
-              file.name.replace(/\.[^.]+$/, ".jpg"),
-              { type: "image/jpeg" }
-            )
-          );
-        },
-        "image/jpeg",
-        quality
-      );
-    });
-  }
+  /* -------------------- Upload Helpers -------------------- */
 
   async function uploadFile(file: File) {
     const fd = new FormData();
@@ -169,91 +129,11 @@ export default function PartnerListingsManager() {
         result.push(it.url);
       } else {
         const file = (it as any).file as File;
-        const compressed = await compressImage(file);
-        const url = await uploadFile(compressed);
+        const url = await uploadFile(file);
         result.push(url);
       }
     }
     return result;
-  }
-
-  /* -------------------- Drag & Drop -------------------- */
-
-  function onDragStart(e: React.DragEvent, idx: number) {
-    dragIndexRef.current = idx;
-    e.dataTransfer.effectAllowed = "move";
-  }
-
-  function onDragOver(e: React.DragEvent, idx: number) {
-    e.preventDefault();
-    dropIndexRef.current = idx;
-    e.dataTransfer.dropEffect = "move";
-  }
-
-  function onDrop(e: React.DragEvent) {
-    e.preventDefault();
-    const from = dragIndexRef.current;
-    const to = dropIndexRef.current;
-    if (from == null || to == null || from === to) return;
-
-    setImages((prev) => {
-      const arr = [...prev];
-      const [item] = arr.splice(from, 1);
-      arr.splice(to, 0, item);
-      return arr;
-    });
-
-    dragIndexRef.current = null;
-    dropIndexRef.current = null;
-  }
-
-  /* -------------------- File Selection -------------------- */
-
-  function handleFilesSelected(filesList: FileList | null) {
-    if (!filesList) return;
-
-    const files = Array.from(filesList);
-    if (images.length + files.length > MAX_IMAGES) {
-      alert(`Max ${MAX_IMAGES} images allowed`);
-      return;
-    }
-
-    const newItems: ImageItem[] = files.map((f) => ({
-      file: f,
-      objectUrl: URL.createObjectURL(f),
-      isExisting: false,
-    }));
-
-    setImages((prev) => [...prev, ...newItems]);
-  }
-
-  function handleDropFiles(e: React.DragEvent) {
-    e.preventDefault();
-    handleFilesSelected(e.dataTransfer.files);
-  }
-
-  function setPrimary(index: number) {
-    setImages((prev) =>
-      prev.map((it, i) => ({ ...it, isPrimary: i === index }))
-    );
-  }
-
-  function removeImage(index: number) {
-    const it = images[index];
-    if (!it) return;
-
-    if (!it.isExisting && (it as any).objectUrl) {
-      URL.revokeObjectURL((it as any).objectUrl);
-    }
-
-    setImages((prev) => {
-      const arr = [...prev];
-      arr.splice(index, 1);
-      if (!arr.some((x) => x.isPrimary) && arr.length > 0) {
-        arr[0].isPrimary = true;
-      }
-      return arr;
-    });
   }
 
   /* -------------------- Create / Update -------------------- */
@@ -265,12 +145,6 @@ export default function PartnerListingsManager() {
     try {
       const urls = await prepareImageUploadPayload(images);
 
-      const primaryIndex = images.findIndex((i) => i.isPrimary);
-      if (primaryIndex >= 0) {
-        const u = urls.splice(primaryIndex, 1)[0];
-        urls.unshift(u);
-      }
-
       const payload = {
         title: form.title,
         description: form.description,
@@ -281,23 +155,28 @@ export default function PartnerListingsManager() {
       };
 
       if (editId) {
+        // ✅✅✅ FIX HERE (Content-Type Added)
         const res = await apiFetch("/api/partners/listings/update", {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ id: editId, ...payload }),
         });
 
         const j = await res.json();
         if (!j.success) throw new Error(j.error || "Update failed");
-        alert("Listing updated");
+        alert("✅ Listing updated");
       } else {
+        // ✅✅✅ FIX HERE (Content-Type Added)
         const res = await apiFetch("/api/partners/listings/create", {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
 
         const j = await res.json();
-        if (!j.success) throw new Error(j.error || "Create failed");
-        alert("Listing created");
+        if (!j.ok && !j.success)
+          throw new Error(j.error || "Create failed");
+        alert("✅ Listing created");
       }
 
       loadListings(1);
@@ -310,20 +189,24 @@ export default function PartnerListingsManager() {
     }
   }
 
+  /* -------------------- Delete -------------------- */
+
   async function handleDelete(id?: string) {
     if (!id || !confirm("Delete this listing?")) return;
 
     setBusy(true);
     try {
+      // ✅✅✅ FIX HERE (Content-Type Added)
       const res = await apiFetch("/api/partners/listings/delete", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id }),
       });
 
       const j = await res.json();
       if (!j.success) throw new Error(j.error || "Delete failed");
 
-      alert("Listing deleted");
+      alert("✅ Listing deleted");
       loadListings(1);
     } catch (err: any) {
       console.error(err);
@@ -397,7 +280,7 @@ export default function PartnerListingsManager() {
             type="file"
             multiple
             accept="image/*"
-            onChange={(e) => handleFilesSelected(e.target.files)}
+            onChange={(e) => e.target.files && handleFilesSelected(e.target.files)}
           />
         </label>
 

@@ -13,24 +13,22 @@ type Listing = {
   description?: string;
   location?: string;
   price?: number;
-  images?: string[];
+  images?: string[]; // ✅ STORAGE PATHS
   allowPayAtHotel?: boolean;
 };
 
 type ImageItem =
   | {
       id?: string;
-      url: string;
+      url: string;            // ✅ STORAGE PATH
       isExisting: true;
-      file?: File;
       isPrimary?: boolean;
     }
   | {
       id?: string;
       file: File;
-      objectUrl?: string;
+      objectUrl: string;     // ✅ LOCAL PREVIEW
       isExisting: false;
-      url?: string;
       isPrimary?: boolean;
     };
 
@@ -38,7 +36,6 @@ type ImageItem =
 
 export default function PartnerListingsManager() {
   const [listings, setListings] = useState<Listing[]>([]);
-  const [page] = useState(1);
   const [busy, setBusy] = useState(false);
   const [loadBusy, setLoadBusy] = useState(false);
 
@@ -64,22 +61,17 @@ export default function PartnerListingsManager() {
     const unsub = auth.onAuthStateChanged(async (u) => {
       if (!u) return;
       await u.getIdToken();
-      loadListings(1);
+      loadListings();
     });
     return () => unsub();
   }, []);
 
-  async function loadListings(pageNum = 1) {
+  async function loadListings() {
     try {
       setLoadBusy(true);
-      const res = await apiFetch(
-        `/api/partners/listings/list?page=${pageNum}&limit=20`
-      );
+      const res = await apiFetch(`/api/partners/listings/list?page=1&limit=50`);
       const j = await res.json();
-
-      if (j.ok) {
-        setListings(j.listings || []);
-      }
+      if (j.ok) setListings(j.listings || []);
     } catch (err) {
       console.error("loadListings error:", err);
     } finally {
@@ -87,7 +79,7 @@ export default function PartnerListingsManager() {
     }
   }
 
-  /* -------------------- FILE HANDLING -------------------- */
+  /* -------------------- FILE SELECTION -------------------- */
 
   function handleFilesSelected(filesList: FileList) {
     const files = Array.from(filesList);
@@ -115,9 +107,7 @@ export default function PartnerListingsManager() {
     const it = images[index];
     if (!it) return;
 
-    if (!it.isExisting && (it as any).objectUrl) {
-      URL.revokeObjectURL((it as any).objectUrl);
-    }
+    if (!it.isExisting) URL.revokeObjectURL(it.objectUrl);
 
     setImages((prev) => {
       const arr = [...prev];
@@ -163,7 +153,7 @@ export default function PartnerListingsManager() {
     dropIndexRef.current = null;
   }
 
-  /* -------------------- UPLOAD -------------------- */
+  /* -------------------- UPLOAD (STORAGE PATH ONLY) -------------------- */
 
   async function uploadFile(file: File) {
     const fd = new FormData();
@@ -176,7 +166,8 @@ export default function PartnerListingsManager() {
 
     const j = await res.json();
     if (!j.ok) throw new Error(j.error || "Image upload failed");
-    return j.url as string;
+
+    return j.path as string; // ✅ STORAGE PATH ONLY
   }
 
   async function prepareImageUploadPayload(items: ImageItem[]) {
@@ -186,9 +177,8 @@ export default function PartnerListingsManager() {
       if (it.isExisting) {
         result.push(it.url);
       } else {
-        const file = (it as any).file as File;
-        const url = await uploadFile(file);
-        result.push(url);
+        const path = await uploadFile(it.file);
+        result.push(path);
       }
     }
     return result;
@@ -201,12 +191,12 @@ export default function PartnerListingsManager() {
 
     setBusy(true);
     try {
-      let urls = await prepareImageUploadPayload(images);
+      let paths = await prepareImageUploadPayload(images);
 
       const primaryIndex = images.findIndex((i) => i.isPrimary);
       if (primaryIndex > 0) {
-        const p = urls.splice(primaryIndex, 1)[0];
-        urls.unshift(p);
+        const p = paths.splice(primaryIndex, 1)[0];
+        paths.unshift(p);
       }
 
       const payload = {
@@ -214,7 +204,7 @@ export default function PartnerListingsManager() {
         description: form.description,
         location: form.location,
         price: Number(form.price || 0),
-        images: urls,
+        images: paths,
         allowPayAtHotel: form.allowPayAtHotel,
       };
 
@@ -241,7 +231,7 @@ export default function PartnerListingsManager() {
       }
 
       resetForm();
-      loadListings(1);
+      loadListings();
     } catch (err: any) {
       console.error(err);
       alert(err.message || "Save failed");
@@ -267,7 +257,7 @@ export default function PartnerListingsManager() {
       if (!j.success) throw new Error(j.error || "Delete failed");
 
       alert("✅ Listing deleted");
-      loadListings(1);
+      loadListings();
     } catch (err: any) {
       console.error(err);
       alert(err.message);
@@ -286,12 +276,12 @@ export default function PartnerListingsManager() {
       description: l.description || "",
       location: l.location || "",
       price: (l.price || 0).toString(),
-      allowPayAtHotel: l.allowPayAtHotel || false,
+      allowPayAtHotel: !!l.allowPayAtHotel,
     });
 
-    const exImages: ImageItem[] = (l.images || []).map((url, idx) => ({
+    const exImages: ImageItem[] = (l.images || []).map((path, idx) => ({
       id: `${idx}`,
-      url,
+      url: path,
       isExisting: true,
       isPrimary: idx === 0,
     }));
@@ -301,6 +291,10 @@ export default function PartnerListingsManager() {
   }
 
   function resetForm() {
+    images.forEach((x) => {
+      if (!x.isExisting) URL.revokeObjectURL(x.objectUrl);
+    });
+
     setEditId(null);
     setForm({
       title: "",
@@ -360,7 +354,7 @@ export default function PartnerListingsManager() {
           }
         />
 
-        {/* PREVIEW GRID */}
+        {/* PREVIEW */}
         {images.length > 0 && (
           <div className="grid grid-cols-3 gap-3 mt-4">
             {images.map((it, idx) => (
@@ -373,7 +367,11 @@ export default function PartnerListingsManager() {
                 className="relative border rounded overflow-hidden"
               >
                 <img
-                  src={it.isExisting ? it.url : (it as any).objectUrl}
+                  src={
+                    it.isExisting
+                      ? `/api/image?path=${it.url}`
+                      : it.objectUrl
+                  }
                   className="w-full h-24 object-cover"
                 />
 

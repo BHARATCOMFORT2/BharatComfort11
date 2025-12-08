@@ -7,11 +7,8 @@ import { FieldValue } from "firebase-admin/firestore";
 
 export async function POST(req: Request) {
   try {
-    /* ─────────────────────────────
-       ✅ 1️⃣ AUTH VERIFY
-    ───────────────────────────── */
+    /* ✅ 1️⃣ AUTH */
     const authHeader = req.headers.get("authorization");
-
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { success: false, error: "Missing or invalid Authorization header" },
@@ -20,22 +17,10 @@ export async function POST(req: Request) {
     }
 
     const idToken = authHeader.replace("Bearer ", "").trim();
-
-    let decoded: any;
-    try {
-      decoded = await adminAuth.verifyIdToken(idToken, true);
-    } catch {
-      return NextResponse.json(
-        { success: false, error: "Invalid or expired token" },
-        { status: 401 }
-      );
-    }
-
+    const decoded = await adminAuth.verifyIdToken(idToken, true);
     const uid = decoded.uid;
 
-    /* ─────────────────────────────
-       ✅ 2️⃣ KYC ENFORCEMENT
-    ───────────────────────────── */
+    /* ✅ 2️⃣ KYC CHECK */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
     if (!partnerSnap.exists) {
@@ -46,7 +31,6 @@ export async function POST(req: Request) {
     }
 
     const partner = partnerSnap.data();
-
     const kycStatus =
       partner?.kycStatus ||
       partner?.kyc?.status ||
@@ -64,11 +48,8 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ─────────────────────────────
-       ✅ 3️⃣ REQUEST BODY
-    ───────────────────────────── */
+    /* ✅ 3️⃣ BODY */
     const body = await req.json().catch(() => null);
-
     if (!body) {
       return NextResponse.json(
         { success: false, error: "Invalid JSON body" },
@@ -76,7 +57,15 @@ export async function POST(req: Request) {
       );
     }
 
-    const { title, description, price, location, metadata } = body;
+    const {
+      title,
+      description,
+      price,
+      location,
+      images,              // ✅ ✅ ✅ FIX
+      allowPayAtHotel,     // ✅ ✅ ✅ FIX
+      metadata,
+    } = body;
 
     if (!title || typeof title !== "string") {
       return NextResponse.json(
@@ -85,18 +74,18 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ─────────────────────────────
-       ✅ 4️⃣ CREATE LISTING (FINAL)
-    ───────────────────────────── */
+    /* ✅ 4️⃣ CREATE LISTING */
     const docRef = adminDb.collection("listings").doc();
 
     const payload = {
       id: docRef.id,
-      partnerId: uid,                      // ✅ STANDARD FIELD
+      partnerId: uid,
       title: title.trim(),
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
-      location: location || "",           // ✅ NEVER NULL
+      location: location || "",
+      images: Array.isArray(images) ? images : [],   // ✅ ✅ ✅ IMAGE SAVE
+      allowPayAtHotel: !!allowPayAtHotel,            // ✅ ✅ ✅ PAY AT HOTEL SAVE
       metadata: metadata || {},
       status: "active",
       createdAt: FieldValue.serverTimestamp(),
@@ -106,7 +95,7 @@ export async function POST(req: Request) {
     await docRef.set(payload);
 
     return NextResponse.json({
-      success: true,                      // ✅ FRONTEND MATCH
+      success: true,
       listingId: docRef.id,
       listing: payload,
     });
@@ -115,7 +104,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        success: false,                  // ✅ FRONTEND MATCH
+        success: false,
         error: err?.message || "Internal server error",
       },
       { status: 500 }

@@ -1,4 +1,3 @@
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -6,21 +5,16 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
 
-/* ✅ SAFE AUTH HEADER READER */
-function getAuthHeader(req: Request) {
-  return req.headers.get("authorization") || "";
-}
-
 export async function POST(req: Request) {
   try {
     /* ─────────────────────────────
        ✅ 1️⃣ AUTH VERIFY
     ───────────────────────────── */
-    const authHeader = getAuthHeader(req);
+    const authHeader = req.headers.get("authorization");
 
-    if (!authHeader.startsWith("Bearer ")) {
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
-        { success: false, error: "Missing or invalid Authorization header" },
+        { ok: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
       );
     }
@@ -32,7 +26,7 @@ export async function POST(req: Request) {
       decoded = await adminAuth.verifyIdToken(idToken, true);
     } catch {
       return NextResponse.json(
-        { success: false, error: "Invalid or expired token" },
+        { ok: false, error: "Invalid or expired token" },
         { status: 401 }
       );
     }
@@ -40,20 +34,19 @@ export async function POST(req: Request) {
     const uid = decoded.uid;
 
     /* ─────────────────────────────
-       ✅ 2️⃣ KYC ENFORCEMENT (🔥 FIXED)
+       ✅ 2️⃣ KYC ENFORCEMENT
     ───────────────────────────── */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
     if (!partnerSnap.exists) {
       return NextResponse.json(
-        { success: false, error: "Partner profile not found" },
+        { ok: false, error: "Partner profile not found" },
         { status: 403 }
       );
     }
 
     const partner = partnerSnap.data();
 
-    // ✅ ✅ UNIVERSAL KYC STATUS FETCH
     const kycStatus =
       partner?.kycStatus ||
       partner?.kyc?.status ||
@@ -63,7 +56,7 @@ export async function POST(req: Request) {
     if (kycStatus !== "APPROVED") {
       return NextResponse.json(
         {
-          success: false,
+          ok: false,
           error: "KYC not approved. You cannot create listings yet.",
           kycStatus,
         },
@@ -78,7 +71,7 @@ export async function POST(req: Request) {
 
     if (!body) {
       return NextResponse.json(
-        { success: false, error: "Invalid JSON body" },
+        { ok: false, error: "Invalid JSON body" },
         { status: 400 }
       );
     }
@@ -87,7 +80,7 @@ export async function POST(req: Request) {
 
     if (!title || typeof title !== "string") {
       return NextResponse.json(
-        { success: false, error: "title is required" },
+        { ok: false, error: "title is required" },
         { status: 400 }
       );
     }
@@ -99,11 +92,11 @@ export async function POST(req: Request) {
 
     const payload = {
       id: docRef.id,
-      partnerId: uid, // ✅ STANDARDIZED FIELD
-      title,
+      partnerId: uid,             // ✅ standard
+      title: title.trim(),
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
-      location: location || null,
+      location: location || "",  // ✅ NEVER null
       metadata: metadata || {},
       status: "active",
       createdAt: FieldValue.serverTimestamp(),
@@ -113,7 +106,7 @@ export async function POST(req: Request) {
     await docRef.set(payload);
 
     return NextResponse.json({
-      success: true,
+      ok: true,                   // ✅ STANDARDIZED
       listingId: docRef.id,
       listing: payload,
     });
@@ -122,7 +115,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json(
       {
-        success: false,
+        ok: false,                // ✅ STANDARDIZED
         error: err?.message || "Internal server error",
       },
       { status: 500 }

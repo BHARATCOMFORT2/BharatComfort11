@@ -22,9 +22,12 @@ import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
 import { demoListings } from "@/lib/demo-listings";
 
-const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
-  ssr: false,
-});
+const ListingMap = nextDynamic(
+  () => import("@/components/listings/ListingMap"),
+  {
+    ssr: false,
+  }
+);
 
 export const dynamic = "force-dynamic";
 
@@ -70,37 +73,86 @@ export default function ListingsPage() {
     return () => clearTimeout(timer);
   }, [filters]);
 
-  /* 🔁 Load Listings (✅ ONLY ACTIVE LISTINGS) */
+  /* 🔍 Client-side filters (demo + firestore both par apply) */
+  const applyClientFilters = useCallback(
+    (items: any[]) => {
+      const f = debouncedFilters;
+      const search = f.search.trim().toLowerCase();
+      const locSearch = f.location.trim().toLowerCase();
+
+      return items.filter((item) => {
+        const title = (item.title || item.name || "").toString();
+        const placeLocation = (item.location || "").toString();
+        const price = Number(item.price || 0);
+        const rating = Number(item.rating || 0);
+
+        // search (title + location contains)
+        if (
+          search &&
+          !title.toLowerCase().includes(search) &&
+          !placeLocation.toLowerCase().includes(search)
+        ) {
+          return false;
+        }
+
+        // location text filter
+        if (
+          locSearch &&
+          !placeLocation.toLowerCase().includes(locSearch)
+        ) {
+          return false;
+        }
+
+        // category exact match
+        if (f.category !== "all" && item.category !== f.category) {
+          return false;
+        }
+
+        // price range
+        if (price < f.minPrice || price > f.maxPrice) {
+          return false;
+        }
+
+        // rating minimum
+        if (f.rating && rating < f.rating) {
+          return false;
+        }
+
+        // Pay at Hotel
+        if (f.onlyPayAtHotel && !item.allowPayAtHotel) {
+          return false;
+        }
+
+        return true;
+      });
+    },
+    [debouncedFilters]
+  );
+
+  /* 🔁 Load Listings (sirf ACTIVE from Firestore; baaki filter client-side) */
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
       setLoading(true);
 
       try {
+        // RESET: lastDoc + hasMore reset, listings ko clear karenge baad me
         if (reset) {
-          setListings(demoListings || []);
           setLastDoc(null);
           setHasMore(true);
         }
 
         const colRef = collection(db, "listings");
-        const conditions: any[] = [];
 
-        // ✅ ✅ ✅ CRITICAL FIX — ONLY ACTIVE LISTINGS
-        conditions.push(where("status", "==", "active"));
-
-        if (filters.category !== "all")
-          conditions.push(where("category", "==", filters.category));
-        if (filters.minPrice > 0)
-          conditions.push(where("price", ">=", filters.minPrice));
-        if (filters.maxPrice < 10000)
-          conditions.push(where("price", "<=", filters.maxPrice));
-        if (filters.onlyPayAtHotel)
-          conditions.push(where("allowPayAtHotel", "==", true));
+        // 🔴 Firestore pe sirf `status == active` + orderBy
+        // baaki filters safe client-side apply honge
+        const baseConditions: any[] = [
+          where("status", "==", "active"),
+        ];
 
         let q = query(
           colRef,
-          ...conditions,
+          ...baseConditions,
           orderBy("createdAt", "desc"),
           limit(9)
         );
@@ -108,7 +160,7 @@ export default function ListingsPage() {
         if (!reset && lastDoc) {
           q = query(
             colRef,
-            ...conditions,
+            ...baseConditions,
             orderBy("createdAt", "desc"),
             startAfter(lastDoc),
             limit(9)
@@ -117,11 +169,13 @@ export default function ListingsPage() {
 
         const snap = await getDocs(q);
 
+        let newListings: any[] = [];
+
         if (!snap.empty) {
-          const newListings = snap.docs.map((doc) => {
+          newListings = snap.docs.map((doc) => {
             const data = doc.data() as any;
 
-            const images =
+            const rawImages =
               Array.isArray(data.images) && data.images.length > 0
                 ? data.images
                 : [
@@ -129,22 +183,38 @@ export default function ListingsPage() {
                       "https://via.placeholder.com/400x300?text=No+Image",
                   ];
 
+            const images = rawImages.map((url: string) =>
+              url || "https://via.placeholder.com/400x300?text=No+Image"
+            );
+
+            const title = data.title || data.name || "Untitled stay";
+
             return {
               id: doc.id,
               ...data,
+              title,
+              location: data.location || "",
               images,
               isDemo: false,
             };
           });
 
-          setListings((prev) =>
-            reset ? [...demoListings, ...newListings] : [...prev, ...newListings]
-          );
+          // 🔍 Firestore se aayi list par bhi client filters apply
+          newListings = applyClientFilters(newListings);
 
           setLastDoc(snap.docs[snap.docs.length - 1]);
           setHasMore(snap.docs.length === 9);
         } else {
           setHasMore(false);
+        }
+
+        if (reset) {
+          // Demo listings + nayi Firestore listings, dono par filters
+          const filteredDemo = applyClientFilters(demoListings || []);
+          setListings([...filteredDemo, ...newListings]);
+        } else {
+          // Infinite scroll: purane + naye (naye pe filter already laga hua hai)
+          setListings((prev) => [...prev, ...newListings]);
         }
       } catch (err) {
         console.error("❌ Error loading listings:", err);
@@ -152,7 +222,7 @@ export default function ListingsPage() {
         setLoading(false);
       }
     },
-    [filters, lastDoc, hasMore, loading]
+    [applyClientFilters, lastDoc, hasMore, loading]
   );
 
   /* 🔄 Infinite Scroll */
@@ -161,22 +231,24 @@ export default function ListingsPage() {
 
     observer.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading)
+        if (entries[0].isIntersecting && hasMore && !loading) {
           loadListings(false);
+        }
       },
       { threshold: 1 }
     );
 
-    if (loadMoreRef.current)
+    if (loadMoreRef.current) {
       observer.current.observe(loadMoreRef.current);
+    }
+
     return () => observer.current?.disconnect();
   }, [loadListings, hasMore, loading]);
 
   /* 🔍 Reload on Filter Change */
   useEffect(() => {
-    setLastDoc(null);
-    setHasMore(true);
     loadListings(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedFilters]);
 
   /* 💳 Handle Booking */
@@ -197,7 +269,9 @@ export default function ListingsPage() {
 
       const mode =
         listing.allowPayAtHotel &&
-        confirm("Would you like to Pay at Hotel instead of paying online?")
+        confirm(
+          "Would you like to Pay at Hotel instead of paying online?"
+        )
           ? "pay_at_hotel"
           : "razorpay";
 
@@ -247,6 +321,7 @@ export default function ListingsPage() {
     const [current, setCurrent] = useState(0);
 
     useEffect(() => {
+      if (!listing.images || listing.images.length === 0) return;
       const timer = setInterval(
         () => setCurrent((prev) => (prev + 1) % listing.images.length),
         2500
@@ -254,14 +329,22 @@ export default function ListingsPage() {
       return () => clearInterval(timer);
     }, [listing.images]);
 
+    const safeImages =
+      Array.isArray(listing.images) && listing.images.length > 0
+        ? listing.images
+        : [
+            "https://via.placeholder.com/400x300?text=No+Image",
+          ];
+
     return (
-      <div className="border rounded-xl shadow bg-white overflow-hidden">
+      <div className="border rounded-xl shadow bg-white overflow-hidden hover:shadow-xl transition-all">
         <div className="relative w-full h-52 overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.img
-              key={listing.images[current]}
-              src={listing.images[current]}
+              key={safeImages[current]}
+              src={safeImages[current]}
               loading="lazy"
+              alt={listing.title}
               className="absolute inset-0 w-full h-full object-cover"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -271,31 +354,46 @@ export default function ListingsPage() {
         </div>
 
         <div className="p-4 space-y-2">
-          <h3 className="text-lg font-semibold">{listing.title}</h3>
-          <p className="text-gray-600 text-sm">{listing.location}</p>
+          <h3 className="text-lg font-semibold">
+            {listing.title}
+          </h3>
+          <p className="text-gray-600 text-sm">
+            {listing.location}
+          </p>
 
           {listing.allowPayAtHotel && (
-            <p className="text-green-600 text-xs">🏨 Pay at Hotel Available</p>
+            <p className="text-green-600 text-xs">
+              🏨 Pay at Hotel Available
+            </p>
           )}
 
           <div className="flex justify-between items-center">
-            <span className="text-blue-600 font-bold">₹{listing.price}</span>
+            <span className="text-blue-600 font-bold">
+              ₹{listing.price}
+            </span>
             <span className="text-yellow-600 text-sm">
               ⭐ {listing.rating || 4.2}
             </span>
           </div>
 
+          {/* Demo badge */}
+          {listing.isDemo && (
+            <p className="text-xs text-red-500 font-semibold">
+              DEMO LISTING — BOOKING DISABLED
+            </p>
+          )}
+
           <div className="flex gap-2 mt-4">
             <Button
               onClick={() => router.push(`/listing/${listing.id}`)}
-              className="flex-1 bg-gray-200"
+              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800"
             >
               Visit
             </Button>
 
             <Button
               onClick={() => handleBookNow(listing)}
-              className="flex-1 bg-yellow-600 text-white"
+              className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
             >
               Book Now
             </Button>
@@ -308,6 +406,16 @@ export default function ListingsPage() {
   /* 🖼️ UI */
   return (
     <div className="p-6 space-y-8">
+      <header className="flex items-center justify-between flex-wrap gap-2">
+        <h1 className="text-2xl font-semibold text-gray-800">
+          Available Listings
+        </h1>
+        <span className="text-sm text-gray-500">
+          Showing {listings.length} place
+          {listings.length !== 1 ? "s" : ""}
+        </span>
+      </header>
+
       <ListingFilters
         filters={filters}
         setFilters={setFilters}
@@ -322,16 +430,28 @@ export default function ListingsPage() {
         ))}
       </div>
 
-      <div ref={loadMoreRef} className="py-8 text-center">
-        {loading
-          ? "Loading..."
+      <div
+        ref={loadMoreRef}
+        className="py-8 text-center text-gray-500"
+      >
+        {!loading && listings.length === 0
+          ? "No listings found."
+          : loading
+          ? "Loading more listings..."
           : hasMore
-          ? "Scroll to load more"
-          : "✅ All listings loaded"}
+          ? "Scroll down to load more"
+          : "🎉 You've reached the end"}
       </div>
 
       {listings.length > 0 && (
-        <ListingMap listings={listings} />
+        <section className="pt-8">
+          <h2 className="text-xl font-semibold mb-4 text-gray-800">
+            Explore on Map
+          </h2>
+          <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
+            <ListingMap listings={listings} />
+          </div>
+        </section>
       )}
 
       <LoginModal

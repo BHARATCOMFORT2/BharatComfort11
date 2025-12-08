@@ -6,6 +6,7 @@ import { auth } from "@/lib/firebase-client";
 import { onAuthStateChanged } from "firebase/auth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import PartnerListingsManager from "@/components/dashboard/PartnerListingsManager";
+import { apiFetch } from "@/lib/apiFetch"; // ✅ NEW
 import {
   LineChart,
   Line,
@@ -77,7 +78,7 @@ export default function PartnerDashboard() {
       setLoading(true);
 
       try {
-        // 1) profile — use cookie-based session (credentials: include)
+        // 1) profile — abhi bhi cookie-based session (credentials: include)
         const pRes = await fetch("/api/partners/profile", {
           credentials: "include",
         });
@@ -138,10 +139,8 @@ export default function PartnerDashboard() {
           setProfile(normalized);
         }
 
-        // 2) bookings (first page) — use cookies for session
-        const bookingsRes = await fetch("/api/partners/bookings?limit=10", {
-          credentials: "include",
-        });
+        // 2) bookings (first page) — 🔁 NOW via apiFetch (Bearer token)
+        const bookingsRes = await apiFetch("/api/partners/bookings?limit=10");
         const bookingsJson = await bookingsRes.json().catch(() => null);
 
         if (bookingsJson?.ok) {
@@ -162,10 +161,8 @@ export default function PartnerDashboard() {
           }));
         }
 
-        // 3) finance (override / enrich earnings)
-        const financeRes = await fetch("/api/partners/finance", {
-          credentials: "include",
-        });
+        // 3) finance (override / enrich earnings) — 🔁 apiFetch
+        const financeRes = await apiFetch("/api/partners/finance");
         const fin = await financeRes.json().catch(() => null);
         if (fin?.ok && mounted) {
           setStats((s) => ({
@@ -174,11 +171,11 @@ export default function PartnerDashboard() {
           }));
         }
 
-        // 4) listings count (for stats.card)
+        // 4) listings count (for stats.card) — 🔁 apiFetch + /listings/list
         try {
-          const listingsRes = await fetch("/api/partners/listings?limit=1", {
-            credentials: "include",
-          });
+          const listingsRes = await apiFetch(
+            "/api/partners/listings/list?limit=1"
+          );
           const listingsJson = await listingsRes.json().catch(() => null);
           if (listingsJson?.ok && mounted) {
             const totalFromApi =
@@ -190,17 +187,16 @@ export default function PartnerDashboard() {
 
             setStats((s) => ({
               ...s,
-              listings: typeof totalFromApi === "number" ? totalFromApi : s.listings,
+              listings:
+                typeof totalFromApi === "number" ? totalFromApi : s.listings,
             }));
           }
         } catch (e) {
           console.error("Failed to load listings stats", e);
         }
 
-        // 5) insights (last 7 days)
-        const insightsRes = await fetch("/api/partners/insights?days=7", {
-          credentials: "include",
-        });
+        // 5) insights (last 7 days) — 🔁 apiFetch
+        const insightsRes = await apiFetch("/api/partners/insights?days=7");
         const ins = await insightsRes.json().catch(() => null);
 
         if (!mounted) return;
@@ -246,11 +242,9 @@ export default function PartnerDashboard() {
     setBusy(true);
     try {
       const nextPage = bookingsPage + 1;
-      const res = await fetch(
-        `/api/partners/bookings?limit=10&page=${nextPage}`,
-        {
-          credentials: "include",
-        }
+      // 🔁 BOOKINGS LOAD MORE NOW via apiFetch
+      const res = await apiFetch(
+        `/api/partners/bookings?limit=10&page=${nextPage}`
       );
       const j = await res.json().catch(() => null);
       if (j?.ok) {
@@ -270,6 +264,7 @@ export default function PartnerDashboard() {
 
   const refetchProfile = async () => {
     try {
+      // profile abhi bhi cookie-based session par hi
       const p = await fetch("/api/partners/profile", {
         credentials: "include",
       });

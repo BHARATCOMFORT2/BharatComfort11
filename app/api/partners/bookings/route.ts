@@ -1,5 +1,3 @@
-// app/api/partners/bookings/route.ts
-
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -21,34 +19,22 @@ export async function GET(req: Request) {
 
     const token = authHeader.replace("Bearer ", "").trim();
 
-    let decoded: any;
-    try {
-      decoded = await adminAuth.verifyIdToken(token, true);
-    } catch (err) {
-      console.error("❌ Token verify failed:", err);
-      return NextResponse.json(
-        { error: "Invalid or expired token" },
-        { status: 401 }
-      );
-    }
-
+    const decoded = await adminAuth.verifyIdToken(token, true);
     const uid = decoded.uid;
 
-    /* ---------------- PAGINATION ---------------- */
+    /* ---------------- PAGINATION (SAFE VERSION) ---------------- */
 
     const url = new URL(req.url);
     const limit = Math.min(Number(url.searchParams.get("limit") || "10"), 50);
-    const page = Math.max(Number(url.searchParams.get("page") || "1"), 1);
-    const offset = (page - 1) * limit;
 
-    /* ---------------- ✅ FIXED FIRESTORE QUERY ---------------- */
-
-    const collectionRef = adminDb
+    /* ---------------- ✅ STABLE FIRESTORE QUERY ---------------- */
+    // ❌ offset REMOVED (root cause of 500)
+    const snap = await adminDb
       .collection("bookings")
-      .where("partnerId", "==", uid)   // ✅ FIXED FIELD NAME
-      .orderBy("createdAt", "desc");
-
-    const snap = await collectionRef.offset(offset).limit(limit).get();
+      .where("partnerId", "==", uid)      // ✅ correct field
+      .orderBy("createdAt", "desc")
+      .limit(limit)
+      .get();
 
     const data = snap.docs.map((d) => ({
       id: d.id,
@@ -57,7 +43,6 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       ok: true,
-      page,
       limit,
       count: data.length,
       bookings: data,

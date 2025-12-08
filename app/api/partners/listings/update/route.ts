@@ -12,6 +12,7 @@ export async function POST(req: Request) {
   try {
     /* ✅ AUTH */
     const authHeader = getAuthHeader(req);
+
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { success: false, error: "Missing or invalid Authorization header" },
@@ -25,6 +26,7 @@ export async function POST(req: Request) {
 
     /* ✅ BODY */
     const body = await req.json().catch(() => null);
+
     if (!body || !body.id) {
       return NextResponse.json(
         { success: false, error: "Listing id is required" },
@@ -32,7 +34,17 @@ export async function POST(req: Request) {
       );
     }
 
-    const { id, title, description, price, location, metadata, status } = body;
+    const {
+      id,
+      title,
+      description,
+      price,
+      location,
+      images,            // ✅ ✅ ✅ IMAGE SUPPORT ADDED
+      allowPayAtHotel,  // ✅ ✅ ✅ PAY AT HOTEL SUPPORT
+      metadata,
+      status,
+    } = body;
 
     const ref = adminDb.collection("listings").doc(id);
     const snap = await ref.get();
@@ -46,7 +58,7 @@ export async function POST(req: Request) {
 
     const docData = snap.data() || {};
 
-    /* ✅ ✅ ✅ FINAL OPTION-B OWNERSHIP CHECK */
+    /* ✅ ✅ ✅ OWNERSHIP CHECK */
     const ownerId =
       docData.partnerId ||
       docData?.metadata?.partnerId ||
@@ -59,14 +71,27 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ✅ SAFE UPDATE */
-    const update: any = { updatedAt: new Date() };
+    /* ✅ SAFE UPDATE BUILD */
+    const update: any = {
+      updatedAt: new Date(),
+    };
 
     if (title !== undefined) update.title = title;
     if (description !== undefined) update.description = description;
     if (price !== undefined)
       update.price = typeof price === "number" ? price : Number(price) || 0;
     if (location !== undefined) update.location = location;
+
+    // ✅ ✅ ✅ IMAGE UPDATE SAFE
+    if (Array.isArray(images)) {
+      update.images = images;
+    }
+
+    // ✅ ✅ ✅ PAY AT HOTEL SAFE
+    if (allowPayAtHotel !== undefined) {
+      update.allowPayAtHotel = !!allowPayAtHotel;
+    }
+
     if (metadata !== undefined) update.metadata = metadata;
     if (status !== undefined) update.status = status;
 
@@ -78,8 +103,12 @@ export async function POST(req: Request) {
     });
   } catch (err: any) {
     console.error("❌ update listing error:", err);
+
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal server error" },
+      {
+        success: false,
+        error: err?.message || "Internal server error",
+      },
       { status: 500 }
     );
   }

@@ -15,7 +15,7 @@ export async function GET(req: Request) {
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: "Missing or invalid Authorization header" },
+        { ok: false, error: "Missing or invalid Authorization header" },
         { status: 401 }
       );
     }
@@ -27,43 +27,65 @@ export async function GET(req: Request) {
       decoded = await adminAuth.verifyIdToken(idToken, true);
     } catch {
       return NextResponse.json(
-        { error: "Invalid or expired token" },
+        { ok: false, error: "Invalid or expired token" },
         { status: 401 }
       );
     }
 
     const uid = decoded.uid;
 
-    /* ✅ PAGINATION */
+    /* ✅ PAGINATION PARAMS */
     const url = new URL(req.url);
     const limit = Math.min(Number(url.searchParams.get("limit") || "20"), 100);
     const page = Math.max(Number(url.searchParams.get("page") || "1"), 1);
     const offset = (page - 1) * limit;
 
-    /* ✅ ✅ ✅ ✅ FINAL FIX HERE ✅ ✅ ✅ ✅ */
-    const collectionRef = adminDb
+    /* ✅ PARTNER LISTINGS – DONO FIELD SUPPORTED
+       - naya format:  partnerId
+       - purana format: metadata.partnerId
+    */
+
+    const snap1 = await adminDb
       .collection("listings")
-      .where("metadata.partnerId", "==", uid)   // ✅ OPTION B FIX
-      .orderBy("createdAt", "desc");
+      .where("partnerId", "==", uid)
+      .get();
 
-    const snap = await collectionRef.offset(offset).limit(limit).get();
+    const snap2 = await adminDb
+      .collection("listings")
+      .where("metadata.partnerId", "==", uid)
+      .get();
 
-    const listings = snap.docs.map((d) => ({
-      id: d.id,
-      ...(d.data() || {}),
-    }));
+    // merge + dedupe
+    const map = new Map<string, any>();
+    for (const d of snap1.docs) {
+      map.set(d.id, { id: d.id, ...(d.data() || {}) });
+    }
+    for (const d of snap2.docs) {
+      map.set(d.id, { id: d.id, ...(d.data() || {}) });
+    }
+
+    // array banake createdAt ke hisaab se sort (newest first)
+    const all = Array.from(map.values()).sort((a, b) => {
+      const toMillis = (ts: any) =>
+        ts?.toMillis?.() ??
+        (typeof ts?._seconds === "number" ? ts._seconds * 1000 : 0);
+
+      return toMillis(b.createdAt) - toMillis(a.createdAt);
+    });
+
+    const pageItems = all.slice(offset, offset + limit);
 
     return NextResponse.json({
       ok: true,
       page,
       limit,
-      total: listings.length,
-      listings,
+      total: all.length,
+      listings: pageItems,
     });
   } catch (err: any) {
     console.error("❌ list listings error:", err);
     return NextResponse.json(
-      { error: err?.message || "Internal server error" },
+      { ok: false, error: err?.message || "Internal server error" },
       { status: 500 }
     );
   }

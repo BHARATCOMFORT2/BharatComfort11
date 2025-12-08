@@ -9,6 +9,7 @@ export async function POST(req: Request) {
   try {
     /* ✅ 1️⃣ AUTH */
     const authHeader = req.headers.get("authorization");
+
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
       return NextResponse.json(
         { success: false, error: "Missing or invalid Authorization header" },
@@ -50,6 +51,7 @@ export async function POST(req: Request) {
 
     /* ✅ 3️⃣ BODY */
     const body = await req.json().catch(() => null);
+
     if (!body) {
       return NextResponse.json(
         { success: false, error: "Invalid JSON body" },
@@ -62,8 +64,8 @@ export async function POST(req: Request) {
       description,
       price,
       location,
-      images,              // ✅ ✅ ✅ FIX
-      allowPayAtHotel,     // ✅ ✅ ✅ FIX
+      images,
+      allowPayAtHotel,
       metadata,
     } = body;
 
@@ -74,7 +76,12 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ✅ 4️⃣ CREATE LISTING */
+    /* ✅ 4️⃣ SANITIZE IMAGES */
+    const safeImages = Array.isArray(images)
+      ? images.filter((u: any) => typeof u === "string" && u.startsWith("http"))
+      : [];
+
+    /* ✅ 5️⃣ CREATE LISTING */
     const docRef = adminDb.collection("listings").doc();
 
     const payload = {
@@ -84,8 +91,8 @@ export async function POST(req: Request) {
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
       location: location || "",
-      images: Array.isArray(images) ? images : [],   // ✅ ✅ ✅ IMAGE SAVE
-      allowPayAtHotel: !!allowPayAtHotel,            // ✅ ✅ ✅ PAY AT HOTEL SAVE
+      images: safeImages,                     // ✅ IMAGE FIX
+      allowPayAtHotel: !!allowPayAtHotel,    // ✅ PAY AT HOTEL FIX
       metadata: metadata || {},
       status: "active",
       createdAt: FieldValue.serverTimestamp(),

@@ -20,8 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
-
-// ✅ DEMO IMPORT
 import { demoListings } from "@/lib/demo-listings";
 
 const ListingMap = nextDynamic(() => import("@/components/listings/ListingMap"), {
@@ -72,20 +70,24 @@ export default function ListingsPage() {
     return () => clearTimeout(timer);
   }, [filters]);
 
-  /* 🔁 Load Listings */
+  /* 🔁 Load Listings (✅ ONLY ACTIVE LISTINGS) */
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
       setLoading(true);
 
       try {
-        // ✅ RESET PAR DEMO LISTINGS PRELOAD
-        if (reset && demoListings.length) {
-          setListings(demoListings);
+        if (reset) {
+          setListings(demoListings || []);
+          setLastDoc(null);
+          setHasMore(true);
         }
 
         const colRef = collection(db, "listings");
         const conditions: any[] = [];
+
+        // ✅ ✅ ✅ CRITICAL FIX — ONLY ACTIVE LISTINGS
+        conditions.push(where("status", "==", "active"));
 
         if (filters.category !== "all")
           conditions.push(where("category", "==", filters.category));
@@ -118,6 +120,7 @@ export default function ListingsPage() {
         if (!snap.empty) {
           const newListings = snap.docs.map((doc) => {
             const data = doc.data() as any;
+
             const images =
               Array.isArray(data.images) && data.images.length > 0
                 ? data.images
@@ -130,7 +133,7 @@ export default function ListingsPage() {
               id: doc.id,
               ...data,
               images,
-              isDemo: false, // ✅ REAL LISTINGS FLAG
+              isDemo: false,
             };
           });
 
@@ -158,12 +161,14 @@ export default function ListingsPage() {
 
     observer.current = new IntersectionObserver(
       (entries) => {
-        if (entries[0].isIntersecting && hasMore && !loading) loadListings(false);
+        if (entries[0].isIntersecting && hasMore && !loading)
+          loadListings(false);
       },
       { threshold: 1 }
     );
 
-    if (loadMoreRef.current) observer.current.observe(loadMoreRef.current);
+    if (loadMoreRef.current)
+      observer.current.observe(loadMoreRef.current);
     return () => observer.current?.disconnect();
   }, [loadListings, hasMore, loading]);
 
@@ -176,7 +181,6 @@ export default function ListingsPage() {
 
   /* 💳 Handle Booking */
   const handleBookNow = async (listing: any) => {
-    // ✅ DEMO BOOKING BLOCK
     if (listing.isDemo) {
       toast.error("Demo listing — booking disabled");
       return;
@@ -190,6 +194,7 @@ export default function ListingsPage() {
 
     try {
       const token = await getFirebaseIdToken();
+
       const mode =
         listing.allowPayAtHotel &&
         confirm("Would you like to Pay at Hotel instead of paying online?")
@@ -222,7 +227,7 @@ export default function ListingsPage() {
         await openRazorpayCheckout({
           amount: razorpayOrder.amount,
           orderId: razorpayOrder.id,
-          name: listing.name,
+          name: listing.title,
           email: user.email,
           phone: user.phoneNumber || "",
           onSuccess: () => toast.success("✅ Payment successful"),
@@ -250,64 +255,47 @@ export default function ListingsPage() {
     }, [listing.images]);
 
     return (
-      <div className="border rounded-xl shadow hover:shadow-xl bg-white overflow-hidden transition-all duration-300">
+      <div className="border rounded-xl shadow bg-white overflow-hidden">
         <div className="relative w-full h-52 overflow-hidden">
           <AnimatePresence mode="wait">
             <motion.img
               key={listing.images[current]}
               src={listing.images[current]}
-              alt={listing.name}
               loading="lazy"
+              className="absolute inset-0 w-full h-full object-cover"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.8 }}
-              className="absolute inset-0 w-full h-full object-cover"
             />
           </AnimatePresence>
         </div>
 
         <div className="p-4 space-y-2">
-          <h3 className="text-lg font-semibold text-gray-800 truncate">
-            {listing.name}
-          </h3>
-          <p className="text-gray-600 text-sm truncate">
-            {listing.location}
-          </p>
+          <h3 className="text-lg font-semibold">{listing.title}</h3>
+          <p className="text-gray-600 text-sm">{listing.location}</p>
 
           {listing.allowPayAtHotel && (
-            <p className="text-green-600 text-xs font-medium">
-              🏨 Pay at Hotel Available
-            </p>
+            <p className="text-green-600 text-xs">🏨 Pay at Hotel Available</p>
           )}
 
           <div className="flex justify-between items-center">
-            <span className="text-blue-600 font-bold">
-              ₹{listing.price}
-            </span>
+            <span className="text-blue-600 font-bold">₹{listing.price}</span>
             <span className="text-yellow-600 text-sm">
               ⭐ {listing.rating || 4.2}
             </span>
           </div>
 
-          {/* ✅ DEMO BADGE */}
-          {listing.isDemo && (
-            <p className="text-xs text-red-500 font-semibold">
-              DEMO LISTING — BOOKING DISABLED
-            </p>
-          )}
-
           <div className="flex gap-2 mt-4">
             <Button
               onClick={() => router.push(`/listing/${listing.id}`)}
-              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800"
+              className="flex-1 bg-gray-200"
             >
               Visit
             </Button>
 
             <Button
               onClick={() => handleBookNow(listing)}
-              className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"
+              className="flex-1 bg-yellow-600 text-white"
             >
               Book Now
             </Button>
@@ -317,19 +305,9 @@ export default function ListingsPage() {
     );
   };
 
-  /* 🖼️ Page UI */
+  /* 🖼️ UI */
   return (
     <div className="p-6 space-y-8">
-      <header className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-semibold text-gray-800">
-          Available Listings
-        </h1>
-        <span className="text-sm text-gray-500">
-          Showing {listings.length} place
-          {listings.length !== 1 ? "s" : ""}
-        </span>
-      </header>
-
       <ListingFilters
         filters={filters}
         setFilters={setFilters}
@@ -344,25 +322,16 @@ export default function ListingsPage() {
         ))}
       </div>
 
-      <div ref={loadMoreRef} className="py-8 text-center text-gray-500">
-        {!loading && listings.length === 0
-          ? "No listings found."
-          : loading
-          ? "Loading more listings..."
+      <div ref={loadMoreRef} className="py-8 text-center">
+        {loading
+          ? "Loading..."
           : hasMore
-          ? "Scroll down to load more"
-          : "🎉 You've reached the end"}
+          ? "Scroll to load more"
+          : "✅ All listings loaded"}
       </div>
 
       {listings.length > 0 && (
-        <section className="pt-8">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">
-            Explore on Map
-          </h2>
-          <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
-            <ListingMap listings={listings} />
-          </div>
-        </section>
+        <ListingMap listings={listings} />
       )}
 
       <LoginModal

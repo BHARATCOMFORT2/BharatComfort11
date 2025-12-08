@@ -7,22 +7,30 @@ export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
-    // ✅ SAME request ko proper partner list API par forward karo
     const url = new URL(req.url);
-
     const page = url.searchParams.get("page") || "1";
     const limit = url.searchParams.get("limit") || "20";
 
-    const target = new URL(
+    const authHeader = req.headers.get("authorization"); // ✅ HEADER COPY
+
+    const targetUrl = new URL(
       `/api/partners/listings/list?page=${page}&limit=${limit}`,
       url.origin
     );
 
-    return NextResponse.redirect(target);
-  } catch (err: any) {
-    console.error("partner listings redirect error:", err);
+    const res = await fetch(targetUrl.toString(), {
+      headers: {
+        Authorization: authHeader || "",
+      },
+    });
+
+    const data = await res.json();
+
+    return NextResponse.json(data, { status: res.status });
+  } catch (err) {
+    console.error("partner listings proxy error:", err);
     return NextResponse.json(
-      { error: "Partner listings redirect failed" },
+      { error: "Partner listings proxy failed" },
       { status: 500 }
     );
   }

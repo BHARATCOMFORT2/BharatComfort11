@@ -34,17 +34,13 @@ export async function GET(req: Request) {
 
     const uid = decoded.uid;
 
-    /* ✅ PAGINATION PARAMS */
+    /* ✅ PAGINATION */
     const url = new URL(req.url);
     const limit = Math.min(Number(url.searchParams.get("limit") || "20"), 100);
     const page = Math.max(Number(url.searchParams.get("page") || "1"), 1);
     const offset = (page - 1) * limit;
 
-    /* ✅ PARTNER LISTINGS – DONO FIELD SUPPORTED
-       - naya format:  partnerId
-       - purana format: metadata.partnerId
-    */
-
+    /* ✅ PARTNER LISTINGS – BOTH OLD & NEW FORMAT */
     const snap1 = await adminDb
       .collection("listings")
       .where("partnerId", "==", uid)
@@ -55,16 +51,24 @@ export async function GET(req: Request) {
       .where("metadata.partnerId", "==", uid)
       .get();
 
-    // merge + dedupe
+    /* ✅ MERGE + DE-DUPE */
     const map = new Map<string, any>();
+
     for (const d of snap1.docs) {
-      map.set(d.id, { id: d.id, ...(d.data() || {}) });
-    }
-    for (const d of snap2.docs) {
-      map.set(d.id, { id: d.id, ...(d.data() || {}) });
+      const data = d.data() || {};
+      if (data.status !== "deleted") {
+        map.set(d.id, { id: d.id, ...data });
+      }
     }
 
-    // array banake createdAt ke hisaab se sort (newest first)
+    for (const d of snap2.docs) {
+      const data = d.data() || {};
+      if (data.status !== "deleted") {
+        map.set(d.id, { id: d.id, ...data });
+      }
+    }
+
+    /* ✅ SORT BY CREATED DATE (DESC) */
     const all = Array.from(map.values()).sort((a, b) => {
       const toMillis = (ts: any) =>
         ts?.toMillis?.() ??

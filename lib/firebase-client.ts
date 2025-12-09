@@ -1,33 +1,46 @@
-import { initializeApp, getApps, getApp } from "firebase/app";
-import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+// lib/firebase-client.ts
+// ⚠️ Ye sirf CLIENT side par use hoga (React components, hooks, etc.)
 
-// ✅ HARD FAIL PROTECTION
-function getEnv(name: string) {
-  const v = process.env[name];
-  if (!v) {
-    console.error("❌ Missing env:", name);
-    return "";
-  }
-  return v;
-}
+import { initializeApp, getApps, getApp, FirebaseApp } from "firebase/app";
+import { getAuth, Auth } from "firebase/auth";
+import { getFirestore, Firestore } from "firebase/firestore";
+import { getStorage, FirebaseStorage } from "firebase/storage";
+
+// 👇 Yahi env vars Netlify/Vercel me hone chahiye
+// NEXT_PUBLIC_FIREBASE_API_KEY
+// NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+// NEXT_PUBLIC_FIREBASE_PROJECT_ID
+// NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+// NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+// NEXT_PUBLIC_FIREBASE_APP_ID
 
 const firebaseConfig = {
-  apiKey: getEnv("NEXT_PUBLIC_FIREBASE_API_KEY"),
-  authDomain: getEnv("NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN"),
-  projectId: getEnv("NEXT_PUBLIC_FIREBASE_PROJECT_ID"),
-  storageBucket: getEnv("NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET"), // ✅ tumhara: bharatcomfort-46bac.firebasestorage.app
-  messagingSenderId: getEnv("NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID"),
-  appId: getEnv("NEXT_PUBLIC_FIREBASE_APP_ID"),
+  apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
+  authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
+  projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
+  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId:
+    process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
-// ✅ SINGLETON APP
-const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+// ❗ Yahan koi custom getEnv / throw / "server-only" nahi hai
+// Bas normal Firebase init, taaki env issue par pura app crash na ho.
 
-// ✅ EXPORTS
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
+let app: FirebaseApp;
 
-export default app;
+if (!getApps().length) {
+  if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
+    console.error(
+      "🔥 Firebase client config missing. Check NEXT_PUBLIC_FIREBASE_* env vars."
+    );
+  }
+  app = initializeApp(firebaseConfig);
+} else {
+  app = getApp();
+}
+
+// ✅ SINGLETON EXPORTS – tum har jagah yehi use kar rahe ho: "@/lib/firebase-client"
+export const auth: Auth = getAuth(app);
+export const db: Firestore = getFirestore(app);
+export const storage: FirebaseStorage = getStorage(app);

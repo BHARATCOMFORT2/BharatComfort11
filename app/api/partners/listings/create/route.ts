@@ -76,9 +76,13 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ✅ 4️⃣ SANITIZE IMAGES */
+    /* ✅ 4️⃣ IMAGE SANITIZATION (🔥 MAIN FIX) */
     const safeImages = Array.isArray(images)
-      ? images.filter((u: any) => typeof u === "string" && u.startsWith("http"))
+      ? images.filter(
+          (u: any) =>
+            typeof u === "string" &&
+            (u.startsWith("http://") || u.startsWith("https://"))
+        )
       : [];
 
     /* ✅ 5️⃣ CREATE LISTING */
@@ -87,15 +91,19 @@ export async function POST(req: Request) {
     const payload = {
       id: docRef.id,
       partnerId: uid,
+
       title: title.trim(),
       description: description || "",
       price: typeof price === "number" ? price : Number(price) || 0,
       location: location || "",
-      images: safeImages,                     // ✅ IMAGE FIX
-      allowPayAtHotel: !!allowPayAtHotel,    // ✅ PAY AT HOTEL FIX
+
+      images: safeImages,                  // ✅ PUBLIC IMAGE URL ARRAY
+      allowPayAtHotel: !!allowPayAtHotel,
+
       metadata: metadata || {},
       status: "active",
-      createdAt: FieldValue.serverTimestamp(),
+
+      createdAt: FieldValue.serverTimestamp(), // ✅ NEW LISTINGS ON TOP
       updatedAt: FieldValue.serverTimestamp(),
     };
 

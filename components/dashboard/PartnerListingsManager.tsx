@@ -13,26 +13,24 @@ type Listing = {
   description?: string;
   location?: string;
   price?: number;
-  images?: string[]; // ✅ STORAGE PATHS
+  images?: string[]; // ✅ NOW FULL PUBLIC URLS
   allowPayAtHotel?: boolean;
 };
 
 type ImageItem =
   | {
       id?: string;
-      url: string;            // ✅ STORAGE PATH
+      url: string;        // ✅ PUBLIC IMAGE URL
       isExisting: true;
       isPrimary?: boolean;
     }
   | {
       id?: string;
       file: File;
-      objectUrl: string;     // ✅ LOCAL PREVIEW
+      objectUrl: string; // ✅ LOCAL PREVIEW
       isExisting: false;
       isPrimary?: boolean;
     };
-
-/* ------------------------------ COMPONENT ------------------------------ */
 
 export default function PartnerListingsManager() {
   const [listings, setListings] = useState<Listing[]>([]);
@@ -60,7 +58,7 @@ export default function PartnerListingsManager() {
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
       if (!u) return;
-      await u.getIdToken();
+      await u.getIdToken(true);
       loadListings();
     });
     return () => unsub();
@@ -153,7 +151,7 @@ export default function PartnerListingsManager() {
     dropIndexRef.current = null;
   }
 
-  /* -------------------- UPLOAD (STORAGE PATH ONLY) -------------------- */
+  /* -------------------- IMAGE UPLOAD (✅ RETURNS PUBLIC URL) -------------------- */
 
   async function uploadFile(file: File) {
     const fd = new FormData();
@@ -167,7 +165,7 @@ export default function PartnerListingsManager() {
     const j = await res.json();
     if (!j.ok) throw new Error(j.error || "Image upload failed");
 
-    return j.path as string; // ✅ STORAGE PATH ONLY
+    return j.url as string; // ✅ FULL PUBLIC IMAGE URL
   }
 
   async function prepareImageUploadPayload(items: ImageItem[]) {
@@ -177,8 +175,8 @@ export default function PartnerListingsManager() {
       if (it.isExisting) {
         result.push(it.url);
       } else {
-        const path = await uploadFile(it.file);
-        result.push(path);
+        const url = await uploadFile(it.file);
+        result.push(url);
       }
     }
     return result;
@@ -191,12 +189,12 @@ export default function PartnerListingsManager() {
 
     setBusy(true);
     try {
-      let paths = await prepareImageUploadPayload(images);
+      let urls = await prepareImageUploadPayload(images);
 
       const primaryIndex = images.findIndex((i) => i.isPrimary);
       if (primaryIndex > 0) {
-        const p = paths.splice(primaryIndex, 1)[0];
-        paths.unshift(p);
+        const p = urls.splice(primaryIndex, 1)[0];
+        urls.unshift(p);
       }
 
       const payload = {
@@ -204,7 +202,7 @@ export default function PartnerListingsManager() {
         description: form.description,
         location: form.location,
         price: Number(form.price || 0),
-        images: paths,
+        images: urls,
         allowPayAtHotel: form.allowPayAtHotel,
       };
 
@@ -279,9 +277,9 @@ export default function PartnerListingsManager() {
       allowPayAtHotel: !!l.allowPayAtHotel,
     });
 
-    const exImages: ImageItem[] = (l.images || []).map((path, idx) => ({
+    const exImages: ImageItem[] = (l.images || []).map((url, idx) => ({
       id: `${idx}`,
-      url: path,
+      url,
       isExisting: true,
       isPrimary: idx === 0,
     }));
@@ -342,7 +340,9 @@ export default function PartnerListingsManager() {
           placeholder="Description"
           className="border p-2 w-full rounded"
           value={form.description}
-          onChange={(e) => setForm({ ...form, description: e.target.value })}
+          onChange={(e) =>
+            setForm({ ...form, description: e.target.value })
+          }
         />
 
         <input
@@ -354,7 +354,7 @@ export default function PartnerListingsManager() {
           }
         />
 
-        {/* PREVIEW */}
+        {/* PREVIEW GRID */}
         {images.length > 0 && (
           <div className="grid grid-cols-3 gap-3 mt-4">
             {images.map((it, idx) => (
@@ -367,11 +367,7 @@ export default function PartnerListingsManager() {
                 className="relative border rounded overflow-hidden"
               >
                 <img
-                  src={
-                    it.isExisting
-                      ? `/api/image?path=${it.url}`
-                      : it.objectUrl
-                  }
+                  src={it.isExisting ? it.url : it.objectUrl}
                   className="w-full h-24 object-cover"
                 />
 
@@ -407,11 +403,7 @@ export default function PartnerListingsManager() {
         </label>
 
         <Button onClick={handleCreateOrUpdate} disabled={busy}>
-          {busy
-            ? "Saving..."
-            : editId
-            ? "Update Listing"
-            : "Create Listing"}
+          {busy ? "Saving..." : editId ? "Update Listing" : "Create Listing"}
         </Button>
       </div>
 

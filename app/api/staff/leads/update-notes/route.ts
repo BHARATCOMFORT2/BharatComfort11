@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-import admin from "firebase-admin"; // ✅ ✅ ✅ VERY IMPORTANT FIX
+import admin from "firebase-admin";
 
 // ✅ Auth header helper
 function getAuthHeader(req: Request) {
@@ -16,18 +16,20 @@ export async function POST(req: Request) {
   try {
     // ✅ TOKEN VERIFY
     const authHeader = getAuthHeader(req);
-    if (!authHeader)
+    if (!authHeader) {
       return NextResponse.json(
         { success: false, message: "Missing Authorization" },
         { status: 401 }
       );
+    }
 
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
+    if (!m) {
       return NextResponse.json(
         { success: false, message: "Bad Authorization header" },
         { status: 401 }
       );
+    }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
@@ -43,12 +45,16 @@ export async function POST(req: Request) {
 
     const staffId = decoded.uid;
 
+    // ✅ BODY READ
     const body = await req.json();
-    const { leadId, text } = body || {};
+    const { leadId, text, note } = body || {};
 
-    if (!leadId || !text) {
+    // ✅ text OR note dono accept
+    const cleanText = (text ?? note ?? "").toString().trim();
+
+    if (!leadId || !cleanText) {
       return NextResponse.json(
-        { success: false, message: "leadId and text are required" },
+        { success: false, message: "leadId and note/text are required" },
         { status: 400 }
       );
     }
@@ -97,21 +103,22 @@ export async function POST(req: Request) {
       );
     }
 
-    const cleanText = String(text).trim();
+    // ✅ NOTE OBJECT
+    const now = new Date();
 
     const noteData = {
       text: cleanText,
       addedBy: staffId,
-      createdAt: new Date(),
+      createdAt: now,
     };
 
-    // ✅ ✅ ✅ ✅ ✅ FINAL 100% WORKING FIX
+    // ✅ ✅ ✅ FINAL SAFE UPDATE
     await leadRef.update({
-      notes: admin.firestore.FieldValue.arrayUnion(noteData), // ✅ ✅ ✅ CORRECT
+      notes: admin.firestore.FieldValue.arrayUnion(noteData),
       partnerNotes: cleanText,
       lastRemark: cleanText,
       lastUpdatedBy: staffId,
-      updatedAt: new Date(),
+      updatedAt: now,
     });
 
     return NextResponse.json({
@@ -119,7 +126,7 @@ export async function POST(req: Request) {
       message: "✅ Lead note saved successfully",
     });
   } catch (error: any) {
-    console.error("Lead note update error:", error);
+    console.error("❌ Lead note update error:", error);
 
     return NextResponse.json(
       { success: false, message: "Failed to update lead note" },

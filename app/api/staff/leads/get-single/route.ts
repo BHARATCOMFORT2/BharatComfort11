@@ -4,11 +4,44 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Auth header helper
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization")
     : (req as any).headers?.authorization;
+}
+
+// ✅ Helper to safely convert Firestore Timestamp → ISO string
+function safeDate(val: any) {
+  try {
+    if (!val) return null;
+    if (typeof val === "string") return val;
+    if (val.toDate) return val.toDate().toISOString();
+    return new Date(val).toISOString();
+  } catch {
+    return null;
+  }
+}
+
+// ✅ Convert notes safely
+function safeNotes(notes: any[]) {
+  if (!Array.isArray(notes)) return [];
+  return notes.map((n) => ({
+    text: n?.text || "",
+    addedBy: n?.addedBy || null,
+    createdAt: safeDate(n?.createdAt),
+  }));
+}
+
+// ✅ Convert call logs safely
+function safeCallLogs(logs: any[]) {
+  if (!Array.isArray(logs)) return [];
+  return logs.map((c) => ({
+    phone: c?.phone || "",
+    outcome: c?.outcome || "",
+    note: c?.note || "",
+    calledBy: c?.calledBy || "",
+    createdAt: safeDate(c?.createdAt),
+  }));
 }
 
 export async function POST(req: Request) {
@@ -94,15 +127,12 @@ export async function POST(req: Request) {
     // ✅ VERIFY LEAD OWNERSHIP
     if (leadData?.assignedTo !== staffId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "You are not assigned to this lead",
-        },
+        { success: false, message: "You are not assigned to this lead" },
         { status: 403 }
       );
     }
 
-    // ✅ FINAL RESPONSE OBJECT
+    // ✅ ✅ ✅ FINAL SAFE RESPONSE
     const lead = {
       id: leadSnap.id,
 
@@ -122,15 +152,15 @@ export async function POST(req: Request) {
       adminNote: leadData?.adminNote || "",
       partnerNotes: leadData?.partnerNotes || "",
 
-      dueDate: leadData?.dueDate || null,
-      lastCalledAt: leadData?.lastCalledAt || null,
+      dueDate: safeDate(leadData?.dueDate),
+      lastCalledAt: safeDate(leadData?.lastCalledAt),
 
-      notes: leadData?.notes || [],       // ✅ FULL NOTES HISTORY
-      callLogs: leadData?.callLogs || [], // ✅ FULL CALL HISTORY
+      notes: safeNotes(leadData?.notes || []),       // ✅ SAFE NOTES
+      callLogs: safeCallLogs(leadData?.callLogs || []), // ✅ SAFE CALL LOGS
 
       assignedTo: leadData?.assignedTo || "",
-      createdAt: leadData?.createdAt || null,
-      updatedAt: leadData?.updatedAt || null,
+      createdAt: safeDate(leadData?.createdAt),
+      updatedAt: safeDate(leadData?.updatedAt),
       lastUpdatedBy: leadData?.lastUpdatedBy || null,
     };
 
@@ -139,7 +169,7 @@ export async function POST(req: Request) {
       lead,
     });
   } catch (error: any) {
-    console.error("Get single lead error:", error);
+    console.error("❌ Get single lead error:", error);
 
     return NextResponse.json(
       {

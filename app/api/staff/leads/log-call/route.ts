@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import admin from "firebase-admin";
 
 // ✅ Auth header helper
 function getAuthHeader(req: Request) {
@@ -99,20 +100,22 @@ export async function POST(req: Request) {
     }
 
     // ✅ CLEAN & PREPARE CALL LOG
+    const now = new Date();
+
     const callData = {
       phone: String(phone || "").trim() || null,
       outcome: String(outcome || "").trim() || null,
       note: String(note || "").trim() || null,
       calledBy: staffId,
-      createdAt: new Date(),
+      createdAt: now,
     };
 
-    // ✅ ✅ ✅ FINAL SAFE UPDATE (CALL HISTORY + TRACKING)
+    // ✅ ✅ ✅ FINAL SAFE UPDATE (FIXED arrayUnion + server timestamp)
     await leadRef.update({
-      callLogs: adminDb.constructor.FieldValue.arrayUnion(callData),
-      lastCalledAt: new Date(),
+      callLogs: admin.firestore.FieldValue.arrayUnion(callData), // ✅ FIXED
+      lastCalledAt: admin.firestore.FieldValue.serverTimestamp(), // ✅ BEST
       lastUpdatedBy: staffId,
-      updatedAt: new Date(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({
@@ -120,7 +123,7 @@ export async function POST(req: Request) {
       message: "✅ Lead call log saved successfully",
     });
   } catch (error: any) {
-    console.error("Lead call log error:", error);
+    console.error("❌ Lead call log error:", error);
 
     return NextResponse.json(
       {

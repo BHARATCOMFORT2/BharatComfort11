@@ -7,6 +7,7 @@ import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
+import TaskSidebar from "./components/TaskSidebar";
 
 /* ---------------------------------------
    TYPES
@@ -40,8 +41,6 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
-const DATE_RANGES = ["all", "today", "7days", "month", "custom"];
-
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
@@ -66,9 +65,11 @@ export default function TelecallerDashboardPage() {
 
   // ✅ FILTER STATES
   const [statusFilter, setStatusFilter] = useState("all");
-  const [dateRange, setDateRange] = useState("all");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+
+  // ✅ SIDEBAR RANGE STATE (PHASE 2)
+  const [taskRange, setTaskRange] = useState<
+    "today" | "yesterday" | "week" | "month"
+  >("today");
 
   /* ---------------------------------------
      ✅ STAFF AUTH + APPROVAL
@@ -133,7 +134,7 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ FETCH LEADS WITH FILTERS
+     ✅ FETCH LEADS FROM SIDEBAR RANGE
   ---------------------------------------- */
   useEffect(() => {
     if (!staffId || !token) return;
@@ -141,28 +142,22 @@ export default function TelecallerDashboardPage() {
     const fetchLeads = async () => {
       setLoadingLeads(true);
       try {
-        const res = await fetch("/api/staff/leads", {
+        const res = await fetch("/api/staff/leads/by-range", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({
-            staffId,
-            status: statusFilter !== "all" ? statusFilter : undefined,
-            range: dateRange !== "all" ? dateRange : undefined,
-            fromDate,
-            toDate,
-          }),
+          body: JSON.stringify({ range: taskRange }),
         });
 
         const data = await res.json();
 
         if (!res.ok || !data.success) {
-          throw new Error(data?.message || "Failed to fetch leads");
+          throw new Error(data?.message || "Failed to fetch tasks");
         }
 
-        let list: Lead[] = data.data || [];
+        let list: Lead[] = data.tasks || [];
         setLeads(list);
 
         const draft: Record<string, string> = {};
@@ -171,15 +166,15 @@ export default function TelecallerDashboardPage() {
         });
         setNotesDraft(draft);
       } catch (err: any) {
-        console.error("Telecaller leads fetch error:", err);
-        toast.error(err?.message || "Leads load nahi ho paaye");
+        console.error("Telecaller tasks fetch error:", err);
+        toast.error(err?.message || "Tasks load nahi ho paaye");
       } finally {
         setLoadingLeads(false);
       }
     };
 
     fetchLeads();
-  }, [staffId, token, statusFilter, dateRange, fromDate, toDate]);
+  }, [staffId, token, taskRange]);
 
   /* ---------------------------------------
      ✅ STATUS UPDATE
@@ -256,139 +251,134 @@ export default function TelecallerDashboardPage() {
   if (!staffId) return null;
 
   /* ---------------------------------------
-     ✅ FINAL UI WITH FILTERS
+     ✅ FINAL UI WITH SIDEBAR + FILTER + TABLE
   ---------------------------------------- */
   return (
     <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
-      
-      {/* ✅ FILTER BAR */}
-      <div className="bg-white mb-4 p-3 rounded shadow flex flex-wrap gap-3 items-center">
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border px-3 py-1 text-sm"
-        >
-          {STATUS_OPTIONS.map((st) => (
-            <option key={st} value={st}>
-              {st.toUpperCase()}
-            </option>
-          ))}
-        </select>
+      <div className="flex min-h-[70vh]">
 
-        <select
-          value={dateRange}
-          onChange={(e) => setDateRange(e.target.value)}
-          className="border px-3 py-1 text-sm"
-        >
-          {DATE_RANGES.map((dr) => (
-            <option key={dr} value={dr}>
-              {dr.toUpperCase()}
-            </option>
-          ))}
-        </select>
+        {/* ✅ TASK SIDEBAR (PHASE 2) */}
+        <div className="w-64 hidden md:block">
+          <TaskSidebar
+            token={token}
+            onRangeSelect={(range) => {
+              setTaskRange(range);
+            }}
+          />
+        </div>
 
-        {dateRange === "custom" && (
-          <>
-            <input
-              type="date"
-              className="border px-2 py-1 text-sm"
-              value={fromDate}
-              onChange={(e) => setFromDate(e.target.value)}
-            />
-            <input
-              type="date"
-              className="border px-2 py-1 text-sm"
-              value={toDate}
-              onChange={(e) => setToDate(e.target.value)}
-            />
-          </>
-        )}
-      </div>
+        {/* ✅ MAIN CONTENT */}
+        <div className="flex-1 p-4 space-y-4">
 
-      {/* ✅ LEADS TABLE */}
-      <div className="bg-white rounded-lg shadow overflow-x-auto">
-        {loadingLeads ? (
-          <div className="p-6 text-center text-sm text-gray-500">
-            Loading your tasks...
-          </div>
-        ) : leads.length === 0 ? (
-          <div className="p-6 text-center text-sm text-gray-500">
-            Koi matching lead nahi mili.
-          </div>
-        ) : (
-          <table className="min-w-full text-sm">
-            <thead className="bg-gray-100">
-              <tr>
-                <th className="p-3 text-left">Name</th>
-                <th className="p-3 text-left">Business</th>
-                <th className="p-3 text-left">Phone</th>
-                <th className="p-3 text-left">Address</th>
-                <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-left">Note</th>
-                <th className="p-3 text-left">Call</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {leads.map((lead) => (
-                <tr key={lead.id} className="border-t">
-                  <td className="p-3">
-                    {lead.name || lead.businessName || "-"}
-                  </td>
-                  <td className="p-3">{lead.businessName || "-"}</td>
-                  <td className="p-3">{lead.phone || "-"}</td>
-                  <td className="p-3">{lead.address || "-"}</td>
-
-                  <td className="p-3">
-                    <select
-                      className="border px-2 py-1 text-xs"
-                      value={lead.status}
-                      onChange={(e) =>
-                        updateStatus(lead.id, e.target.value)
-                      }
-                    >
-                      {STATUS_OPTIONS.filter(s => s !== "all").map((st) => (
-                        <option key={st} value={st}>
-                          {st}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
-
-                  <td className="p-3">
-                    <textarea
-                      className="border w-full p-1 text-xs"
-                      value={notesDraft[lead.id] || ""}
-                      onChange={(e) =>
-                        setNotesDraft((p) => ({
-                          ...p,
-                          [lead.id]: e.target.value,
-                        }))
-                      }
-                    />
-                    <button
-                      onClick={() => saveNote(lead.id)}
-                      className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
-                    >
-                      Save
-                    </button>
-                  </td>
-
-                  <td className="p-3">
-                    <button
-                      onClick={() =>
-                        window.open(`tel:${lead.phone || ""}`)
-                      }
-                      className="bg-green-600 text-white text-xs px-3 py-1 rounded"
-                    >
-                      📞 Call
-                    </button>
-                  </td>
-                </tr>
+          {/* ✅ STATUS FILTER BAR */}
+          <div className="bg-white p-3 rounded shadow flex gap-3 items-center">
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="border px-3 py-1 text-sm"
+            >
+              {STATUS_OPTIONS.map((st) => (
+                <option key={st} value={st}>
+                  {st.toUpperCase()}
+                </option>
               ))}
-            </tbody>
-          </table>
-        )}
+            </select>
+          </div>
+
+          {/* ✅ LEADS TABLE */}
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            {loadingLeads ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                Loading your tasks...
+              </div>
+            ) : leads.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                Koi matching lead nahi mili.
+              </div>
+            ) : (
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-3 text-left">Name</th>
+                    <th className="p-3 text-left">Business</th>
+                    <th className="p-3 text-left">Phone</th>
+                    <th className="p-3 text-left">Address</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-left">Note</th>
+                    <th className="p-3 text-left">Call</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {leads
+                    .filter(
+                      (lead) =>
+                        statusFilter === "all" ||
+                        lead.status === statusFilter
+                    )
+                    .map((lead) => (
+                      <tr key={lead.id} className="border-t">
+                        <td className="p-3">
+                          {lead.name || lead.businessName || "-"}
+                        </td>
+                        <td className="p-3">{lead.businessName || "-"}</td>
+                        <td className="p-3">{lead.phone || "-"}</td>
+                        <td className="p-3">{lead.address || "-"}</td>
+
+                        <td className="p-3">
+                          <select
+                            className="border px-2 py-1 text-xs"
+                            value={lead.status}
+                            onChange={(e) =>
+                              updateStatus(lead.id, e.target.value)
+                            }
+                          >
+                            {STATUS_OPTIONS.filter((s) => s !== "all").map(
+                              (st) => (
+                                <option key={st} value={st}>
+                                  {st}
+                                </option>
+                              )
+                            )}
+                          </select>
+                        </td>
+
+                        <td className="p-3">
+                          <textarea
+                            className="border w-full p-1 text-xs"
+                            value={notesDraft[lead.id] || ""}
+                            onChange={(e) =>
+                              setNotesDraft((p) => ({
+                                ...p,
+                                [lead.id]: e.target.value,
+                              }))
+                            }
+                          />
+                          <button
+                            onClick={() => saveNote(lead.id)}
+                            className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
+                          >
+                            Save
+                          </button>
+                        </td>
+
+                        <td className="p-3">
+                          <button
+                            onClick={() =>
+                              window.open(`tel:${lead.phone || ""}`)
+                            }
+                            className="bg-green-600 text-white text-xs px-3 py-1 rounded"
+                          >
+                            📞 Call
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
       </div>
     </DashboardLayout>
   );

@@ -66,13 +66,13 @@ export default function TelecallerDashboardPage() {
     role?: "staff";
   } | null>(null);
 
-  // ✅ PHASE 3 FILTER STATES
+  // ✅ FILTER STATES
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [callFilter, setCallFilter] = useState("all");
   const [followupFilter, setFollowupFilter] = useState("all");
 
-  // ✅ SIDEBAR RANGE (PHASE 1 + 2)
+  // ✅ My Tasks ke niche wala RANGE
   const [taskRange, setTaskRange] = useState<
     "today" | "yesterday" | "week" | "month"
   >("today");
@@ -136,7 +136,7 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ FETCH TASKS FROM SIDEBAR (PHASE 1)
+     ✅ FETCH TASKS (BY RANGE)
   ---------------------------------------- */
   useEffect(() => {
     if (!staffId || !token) return;
@@ -159,7 +159,7 @@ export default function TelecallerDashboardPage() {
           throw new Error(data?.message || "Failed to fetch tasks");
         }
 
-        let list: Lead[] = data.tasks || [];
+        const list: Lead[] = data.tasks || [];
         setLeads(list);
 
         const draft: Record<string, string> = {};
@@ -176,13 +176,12 @@ export default function TelecallerDashboardPage() {
   }, [staffId, token, taskRange]);
 
   /* ---------------------------------------
-     ✅ PHASE 3 FILTER LOGIC
+     ✅ FILTER LOGIC
   ---------------------------------------- */
   const filteredLeads = useMemo(() => {
     const now = new Date();
 
     return leads.filter((lead) => {
-      // 🔍 SEARCH
       if (
         search &&
         !(
@@ -190,34 +189,17 @@ export default function TelecallerDashboardPage() {
           lead.businessName?.toLowerCase().includes(search.toLowerCase()) ||
           lead.phone?.includes(search)
         )
-      ) {
-        return false;
-      }
+      ) return false;
 
-      // 📌 STATUS
-      if (statusFilter !== "all" && lead.status !== statusFilter) {
-        return false;
-      }
-
-      // 📞 CALL FILTER
+      if (statusFilter !== "all" && lead.status !== statusFilter) return false;
       if (callFilter === "called" && !lead.lastCalledAt) return false;
       if (callFilter === "not_called" && lead.lastCalledAt) return false;
 
-      // 📅 FOLLOW-UP FILTER
       if (followupFilter !== "all" && lead.followupDate) {
         const f = new Date(lead.followupDate);
-
-        if (followupFilter === "today") {
-          if (f.toDateString() !== now.toDateString()) return false;
-        }
-
-        if (followupFilter === "upcoming") {
-          if (f <= now) return false;
-        }
-
-        if (followupFilter === "overdue") {
-          if (f >= now) return false;
-        }
+        if (followupFilter === "today" && f.toDateString() !== now.toDateString()) return false;
+        if (followupFilter === "upcoming" && f <= now) return false;
+        if (followupFilter === "overdue" && f >= now) return false;
       }
 
       return true;
@@ -228,9 +210,8 @@ export default function TelecallerDashboardPage() {
      ✅ STATUS UPDATE
   ---------------------------------------- */
   const updateStatus = async (leadId: string, status: string) => {
-    setSavingLeadId(leadId);
     try {
-      const res = await fetch("/api/staff/leads/update-status", {
+      await fetch("/api/staff/leads/update-status", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -239,10 +220,6 @@ export default function TelecallerDashboardPage() {
         body: JSON.stringify({ leadId, status }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success)
-        throw new Error(data?.message || "Status update failed");
-
       setLeads((prev) =>
         prev.map((lead) =>
           lead.id === leadId ? { ...lead, status } : lead
@@ -250,10 +227,8 @@ export default function TelecallerDashboardPage() {
       );
 
       toast.success("Status updated ✅");
-    } catch (err: any) {
-      toast.error(err?.message || "Status update failed");
-    } finally {
-      setSavingLeadId(null);
+    } catch {
+      toast.error("Status update failed");
     }
   };
 
@@ -282,7 +257,7 @@ export default function TelecallerDashboardPage() {
   };
 
   /* ---------------------------------------
-     ✅ PHASE 4 HELPERS
+     ✅ WHATSAPP + EMAIL
   ---------------------------------------- */
   const openWhatsApp = (phone?: string, name?: string) => {
     if (!phone) return toast.error("Phone number nahi mila");
@@ -290,10 +265,7 @@ export default function TelecallerDashboardPage() {
     const cleanPhone = phone.replace(/\D/g, "");
     const message = `Hello ${name || ""},\n\nThis is ${staffProfile?.name || "Telecaller"} from BharatComfort.\nWe contacted you regarding your business listing.\nPlease tell a good time to connect.`;
 
-    const url = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
-      message
-    )}`;
-    window.open(url, "_blank");
+    window.location.href = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(message)}`;
   };
 
   const openEmail = (email?: string, name?: string) => {
@@ -302,11 +274,7 @@ export default function TelecallerDashboardPage() {
     const subject = "Regarding your Business Listing – BharatComfort";
     const body = `Hello ${name || ""},\n\nThis is ${staffProfile?.name || "Telecaller"} from BharatComfort.\nWe contacted you regarding your business listing.\nPlease let us know a suitable time to connect.\n\nThank you.`;
 
-    const url = `mailto:${email}?subject=${encodeURIComponent(
-      subject
-    )}&body=${encodeURIComponent(body)}`;
-
-    window.location.href = url;
+    window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   };
 
   /* ---------------------------------------
@@ -326,157 +294,115 @@ export default function TelecallerDashboardPage() {
 
   return (
     <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
-      <div className="flex min-h-[70vh]">
+      <div className="p-4 space-y-4">
 
-        {/* ✅ SIDEBAR */}
-        <div className="w-64 hidden md:block">
-          <TaskSidebar token={token} onRangeSelect={setTaskRange} />
+        {/* ✅ MY TASKS + TASK RANGE (AB YAHI HAI) */}
+        <div>
+          <h2 className="text-lg font-semibold mb-2">My Tasks</h2>
+          <div className="bg-white rounded shadow p-2">
+            <TaskSidebar token={token} onRangeSelect={setTaskRange} />
+          </div>
         </div>
 
-        {/* ✅ MAIN */}
-        <div className="flex-1 p-4 space-y-4">
+        {/* ✅ FILTER BAR */}
+        <div className="bg-white p-3 rounded shadow flex flex-wrap gap-3 items-center">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name / business / phone"
+            className="border px-3 py-1 text-sm w-64"
+          />
 
-          {/* ✅ FILTER BAR */}
-          <div className="bg-white p-3 rounded shadow flex flex-wrap gap-3 items-center">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name / business / phone"
-              className="border px-3 py-1 text-sm w-64"
-            />
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border px-3 py-1 text-sm">
+            {STATUS_OPTIONS.map((st) => (
+              <option key={st} value={st}>{st.toUpperCase()}</option>
+            ))}
+          </select>
 
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border px-3 py-1 text-sm">
-              {STATUS_OPTIONS.map((st) => (
-                <option key={st} value={st}>{st.toUpperCase()}</option>
-              ))}
-            </select>
+          <select value={callFilter} onChange={(e) => setCallFilter(e.target.value)} className="border px-3 py-1 text-sm">
+            {CALL_FILTERS.map((c) => (
+              <option key={c} value={c}>{c.replace("_"," ").toUpperCase()}</option>
+            ))}
+          </select>
 
-            <select value={callFilter} onChange={(e) => setCallFilter(e.target.value)} className="border px-3 py-1 text-sm">
-              {CALL_FILTERS.map((c) => (
-                <option key={c} value={c}>{c.replace("_"," ").toUpperCase()}</option>
-              ))}
-            </select>
+          <select value={followupFilter} onChange={(e) => setFollowupFilter(e.target.value)} className="border px-3 py-1 text-sm">
+            {FOLLOWUP_FILTERS.map((f) => (
+              <option key={f} value={f}>{f.toUpperCase()}</option>
+            ))}
+          </select>
+        </div>
 
-            <select value={followupFilter} onChange={(e) => setFollowupFilter(e.target.value)} className="border px-3 py-1 text-sm">
-              {FOLLOWUP_FILTERS.map((f) => (
-                <option key={f} value={f}>{f.toUpperCase()}</option>
-              ))}
-            </select>
-          </div>
+        {/* ✅ TABLE (unchanged logic) */}
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          {loadingLeads ? (
+            <div className="p-6 text-center text-sm text-gray-500">Loading your tasks...</div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-500">Koi matching lead nahi mili.</div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Name</th>
+                  <th className="p-3 text-left">Business</th>
+                  <th className="p-3 text-left">Phone</th>
+                  <th className="p-3 text-left">Address</th>
+                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Note</th>
+                  <th className="p-3 text-left">Actions</th>
+                </tr>
+              </thead>
 
-          {/* ✅ TABLE */}
-          <div className="bg-white rounded-lg shadow overflow-x-auto">
-            {loadingLeads ? (
-              <div className="p-6 text-center text-sm text-gray-500">
-                Loading your tasks...
-              </div>
-            ) : filteredLeads.length === 0 ? (
-              <div className="p-6 text-center text-sm text-gray-500">
-                Koi matching lead nahi mili.
-              </div>
-            ) : (
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="p-3 text-left">Name</th>
-                    <th className="p-3 text-left">Business</th>
-                    <th className="p-3 text-left">Phone</th>
-                    <th className="p-3 text-left">Address</th>
-                    <th className="p-3 text-left">Status</th>
-                    <th className="p-3 text-left">Note</th>
-                    <th className="p-3 text-left">Actions</th>
+              <tbody>
+                {filteredLeads.map((lead) => (
+                  <tr key={lead.id} className="border-t">
+                    <td className="p-3">{lead.name || lead.businessName || "-"}</td>
+                    <td className="p-3">{lead.businessName || "-"}</td>
+                    <td className="p-3">{lead.phone || "-"}</td>
+                    <td className="p-3">{lead.address || "-"}</td>
+
+                    <td className="p-3">
+                      <select
+                        className="border px-2 py-1 text-xs"
+                        value={lead.status}
+                        onChange={(e) => updateStatus(lead.id, e.target.value)}
+                      >
+                        {STATUS_OPTIONS.filter((s) => s !== "all").map((st) => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td className="p-3">
+                      <textarea
+                        className="border w-full p-1 text-xs"
+                        value={notesDraft[lead.id] || ""}
+                        onChange={(e) =>
+                          setNotesDraft((p) => ({
+                            ...p,
+                            [lead.id]: e.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        onClick={() => saveNote(lead.id)}
+                        className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
+                      >
+                        Save
+                      </button>
+                    </td>
+
+                    <td className="p-3 space-y-1">
+                      <button onClick={() => window.location.href = `tel:${lead.phone || ""}`} className="w-full bg-green-600 text-white text-xs px-3 py-1 rounded">📞 Call</button>
+                      <button onClick={() => openWhatsApp(lead.phone, lead.name || lead.businessName)} className="w-full bg-green-500 text-white text-xs px-3 py-1 rounded">🟢 WhatsApp</button>
+                      <button onClick={() => openEmail(lead.email, lead.name || lead.businessName)} className="w-full bg-blue-600 text-white text-xs px-3 py-1 rounded">📧 Email</button>
+                    </td>
                   </tr>
-                </thead>
-
-                <tbody>
-                  {filteredLeads.map((lead) => (
-                    <tr key={lead.id} className="border-t">
-                      <td className="p-3">
-                        {lead.name || lead.businessName || "-"}
-                      </td>
-                      <td className="p-3">{lead.businessName || "-"}</td>
-                      <td className="p-3">{lead.phone || "-"}</td>
-                      <td className="p-3">{lead.address || "-"}</td>
-
-                      <td className="p-3">
-                        <select
-                          className="border px-2 py-1 text-xs"
-                          value={lead.status}
-                          onChange={(e) =>
-                            updateStatus(lead.id, e.target.value)
-                          }
-                        >
-                          {STATUS_OPTIONS.filter((s) => s !== "all").map(
-                            (st) => (
-                              <option key={st} value={st}>
-                                {st}
-                              </option>
-                            )
-                          )}
-                        </select>
-                      </td>
-
-                      <td className="p-3">
-                        <textarea
-                          className="border w-full p-1 text-xs"
-                          value={notesDraft[lead.id] || ""}
-                          onChange={(e) =>
-                            setNotesDraft((p) => ({
-                              ...p,
-                              [lead.id]: e.target.value,
-                            }))
-                          }
-                        />
-                        <button
-                          onClick={() => saveNote(lead.id)}
-                          className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
-                        >
-                          Save
-                        </button>
-                      </td>
-
-                      {/* ✅ PHASE 4 ACTIONS */}
-                      <td className="p-3 space-y-1">
-                        <button
-                          onClick={() =>
-                            window.open(`tel:${lead.phone || ""}`)
-                          }
-                          className="w-full bg-green-600 text-white text-xs px-3 py-1 rounded"
-                        >
-                          📞 Call
-                        </button>
-
-                        <button
-                          onClick={() =>
-                            openWhatsApp(
-                              lead.phone,
-                              lead.name || lead.businessName
-                            )
-                          }
-                          className="w-full bg-green-500 text-white text-xs px-3 py-1 rounded"
-                        >
-                          🟢 WhatsApp
-                        </button>
-
-                        <button
-                          onClick={() =>
-                            openEmail(
-                              lead.email,
-                              lead.name || lead.businessName
-                            )
-                          }
-                          className="w-full bg-blue-600 text-white text-xs px-3 py-1 rounded"
-                        >
-                          📧 Email
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
+
       </div>
     </DashboardLayout>
   );

@@ -3,6 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import admin from "firebase-admin";
 
 // ✅ Allowed dropdown values (LOCKED)
 const ALLOWED_STATUS = [
@@ -26,18 +27,20 @@ export async function POST(req: Request) {
   try {
     // ✅ TOKEN VERIFY
     const authHeader = getAuthHeader(req);
-    if (!authHeader)
+    if (!authHeader) {
       return NextResponse.json(
         { success: false, message: "Missing Authorization" },
         { status: 401 }
       );
+    }
 
     const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
+    if (!m) {
       return NextResponse.json(
         { success: false, message: "Bad Authorization header" },
         { status: 401 }
       );
+    }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
@@ -51,32 +54,26 @@ export async function POST(req: Request) {
       );
     }
 
-    const staffId = decoded.uid; // ✅ REAL STAFF ID FROM TOKEN
+    const staffId = decoded.uid;
 
     const body = await req.json();
     const { leadId, status } = body || {};
 
     if (!leadId || !status) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "leadId and status are required",
-        },
+        { success: false, message: "leadId and status are required" },
         { status: 400 }
       );
     }
 
     if (!ALLOWED_STATUS.includes(status)) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Invalid status value",
-        },
+        { success: false, message: "Invalid status value" },
         { status: 400 }
       );
     }
 
-    // ✅ VERIFY STAFF (ROLE + STATUS + ACTIVE)
+    // ✅ VERIFY STAFF
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -95,10 +92,7 @@ export async function POST(req: Request) {
       staffData?.isActive !== true
     ) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "Unauthorized staff access",
-        },
+        { success: false, message: "Unauthorized staff access" },
         { status: 403 }
       );
     }
@@ -118,19 +112,16 @@ export async function POST(req: Request) {
 
     if (leadData?.assignedTo !== staffId) {
       return NextResponse.json(
-        {
-          success: false,
-          message: "You are not assigned to this lead",
-        },
+        { success: false, message: "You are not assigned to this lead" },
         { status: 403 }
       );
     }
 
-    // ✅ ✅ ✅ FINAL SAFE STATUS UPDATE (NO NOTES HERE)
+    // ✅ ✅ ✅ FINAL SAFE STATUS UPDATE (WITH SERVER TIMESTAMP)
     await leadRef.update({
       status,
-      updatedAt: new Date(),      // ✅ clean timestamp
-      lastUpdatedBy: staffId,     // ✅ admin tracking
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(), // ✅ BEST PRACTICE
+      lastUpdatedBy: staffId,
     });
 
     return NextResponse.json({
@@ -141,10 +132,7 @@ export async function POST(req: Request) {
     console.error("Lead status update error:", error);
 
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to update lead status",
-      },
+      { success: false, message: "Failed to update lead status" },
       { status: 500 }
     );
   }

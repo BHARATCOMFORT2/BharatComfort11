@@ -59,7 +59,6 @@ export default function TelecallerDashboardPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
-
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
   const [staffProfile, setStaffProfile] = useState<{
@@ -73,7 +72,7 @@ export default function TelecallerDashboardPage() {
   const [callFilter, setCallFilter] = useState("all");
   const [followupFilter, setFollowupFilter] = useState("all");
 
-  // ✅ SIDEBAR RANGE
+  // ✅ SIDEBAR RANGE (PHASE 1 + 2)
   const [taskRange, setTaskRange] = useState<
     "today" | "yesterday" | "week" | "month"
   >("today");
@@ -137,7 +136,7 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ FETCH TASKS FROM SIDEBAR
+     ✅ FETCH TASKS FROM SIDEBAR (PHASE 1)
   ---------------------------------------- */
   useEffect(() => {
     if (!staffId || !token) return;
@@ -164,9 +163,7 @@ export default function TelecallerDashboardPage() {
         setLeads(list);
 
         const draft: Record<string, string> = {};
-        list.forEach((lead) => {
-          draft[lead.id] = "";
-        });
+        list.forEach((lead) => (draft[lead.id] = ""));
         setNotesDraft(draft);
       } catch (err: any) {
         toast.error(err?.message || "Tasks load nahi ho paaye");
@@ -179,7 +176,7 @@ export default function TelecallerDashboardPage() {
   }, [staffId, token, taskRange]);
 
   /* ---------------------------------------
-     ✅ PHASE 3 FILTER LOGIC (CLIENT SIDE)
+     ✅ PHASE 3 FILTER LOGIC
   ---------------------------------------- */
   const filteredLeads = useMemo(() => {
     const now = new Date();
@@ -285,6 +282,34 @@ export default function TelecallerDashboardPage() {
   };
 
   /* ---------------------------------------
+     ✅ PHASE 4 HELPERS
+  ---------------------------------------- */
+  const openWhatsApp = (phone?: string, name?: string) => {
+    if (!phone) return toast.error("Phone number nahi mila");
+
+    const cleanPhone = phone.replace(/\D/g, "");
+    const message = `Hello ${name || ""},\n\nThis is ${staffProfile?.name || "Telecaller"} from BharatComfort.\nWe contacted you regarding your business listing.\nPlease tell a good time to connect.`;
+
+    const url = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
+      message
+    )}`;
+    window.open(url, "_blank");
+  };
+
+  const openEmail = (email?: string, name?: string) => {
+    if (!email) return toast.error("Email address nahi mila");
+
+    const subject = "Regarding your Business Listing – BharatComfort";
+    const body = `Hello ${name || ""},\n\nThis is ${staffProfile?.name || "Telecaller"} from BharatComfort.\nWe contacted you regarding your business listing.\nPlease let us know a suitable time to connect.\n\nThank you.`;
+
+    const url = `mailto:${email}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body)}`;
+
+    window.location.href = url;
+  };
+
+  /* ---------------------------------------
      ✅ UI
   ---------------------------------------- */
   if (loadingUser) {
@@ -303,15 +328,15 @@ export default function TelecallerDashboardPage() {
     <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
       <div className="flex min-h-[70vh]">
 
-        {/* ✅ TASK SIDEBAR */}
+        {/* ✅ SIDEBAR */}
         <div className="w-64 hidden md:block">
           <TaskSidebar token={token} onRangeSelect={setTaskRange} />
         </div>
 
-        {/* ✅ MAIN CONTENT */}
+        {/* ✅ MAIN */}
         <div className="flex-1 p-4 space-y-4">
 
-          {/* ✅ PHASE 3 FILTER BAR */}
+          {/* ✅ FILTER BAR */}
           <div className="bg-white p-3 rounded shadow flex flex-wrap gap-3 items-center">
             <input
               value={search}
@@ -339,11 +364,118 @@ export default function TelecallerDashboardPage() {
             </select>
           </div>
 
-          {/* ✅ LEADS TABLE (SAME AS PHASE 2, BASED ON filteredLeads) */}
-          {/* ⚠️ Table part same rahega, filteredLeads pe map hota rahega */}
-          
-          {/* ✅ (Table intentionally skipped here because tum already use kar rahe ho 
-              — isme sirf “leads” ke jagah “filteredLeads” use karna hoga.) */}
+          {/* ✅ TABLE */}
+          <div className="bg-white rounded-lg shadow overflow-x-auto">
+            {loadingLeads ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                Loading your tasks...
+              </div>
+            ) : filteredLeads.length === 0 ? (
+              <div className="p-6 text-center text-sm text-gray-500">
+                Koi matching lead nahi mili.
+              </div>
+            ) : (
+              <table className="min-w-full text-sm">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-3 text-left">Name</th>
+                    <th className="p-3 text-left">Business</th>
+                    <th className="p-3 text-left">Phone</th>
+                    <th className="p-3 text-left">Address</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-left">Note</th>
+                    <th className="p-3 text-left">Actions</th>
+                  </tr>
+                </thead>
+
+                <tbody>
+                  {filteredLeads.map((lead) => (
+                    <tr key={lead.id} className="border-t">
+                      <td className="p-3">
+                        {lead.name || lead.businessName || "-"}
+                      </td>
+                      <td className="p-3">{lead.businessName || "-"}</td>
+                      <td className="p-3">{lead.phone || "-"}</td>
+                      <td className="p-3">{lead.address || "-"}</td>
+
+                      <td className="p-3">
+                        <select
+                          className="border px-2 py-1 text-xs"
+                          value={lead.status}
+                          onChange={(e) =>
+                            updateStatus(lead.id, e.target.value)
+                          }
+                        >
+                          {STATUS_OPTIONS.filter((s) => s !== "all").map(
+                            (st) => (
+                              <option key={st} value={st}>
+                                {st}
+                              </option>
+                            )
+                          )}
+                        </select>
+                      </td>
+
+                      <td className="p-3">
+                        <textarea
+                          className="border w-full p-1 text-xs"
+                          value={notesDraft[lead.id] || ""}
+                          onChange={(e) =>
+                            setNotesDraft((p) => ({
+                              ...p,
+                              [lead.id]: e.target.value,
+                            }))
+                          }
+                        />
+                        <button
+                          onClick={() => saveNote(lead.id)}
+                          className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
+                        >
+                          Save
+                        </button>
+                      </td>
+
+                      {/* ✅ PHASE 4 ACTIONS */}
+                      <td className="p-3 space-y-1">
+                        <button
+                          onClick={() =>
+                            window.open(`tel:${lead.phone || ""}`)
+                          }
+                          className="w-full bg-green-600 text-white text-xs px-3 py-1 rounded"
+                        >
+                          📞 Call
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            openWhatsApp(
+                              lead.phone,
+                              lead.name || lead.businessName
+                            )
+                          }
+                          className="w-full bg-green-500 text-white text-xs px-3 py-1 rounded"
+                        >
+                          🟢 WhatsApp
+                        </button>
+
+                        <button
+                          onClick={() =>
+                            openEmail(
+                              lead.email,
+                              lead.name || lead.businessName
+                            )
+                          }
+                          className="w-full bg-blue-600 text-white text-xs px-3 py-1 rounded"
+                        >
+                          📧 Email
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </div>
     </DashboardLayout>

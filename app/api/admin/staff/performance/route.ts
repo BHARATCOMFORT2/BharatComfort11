@@ -16,15 +16,21 @@ export async function GET(req: Request) {
     --------------------------------*/
     const authHeader = getAuthHeader(req);
     if (!authHeader)
-      return NextResponse.json({ success: false, message: "Missing Authorization" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Missing Authorization" },
+        { status: 401 }
+      );
 
     const match = authHeader.match(/^Bearer (.+)$/);
     if (!match)
-      return NextResponse.json({ success: false, message: "Invalid Authorization header" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Invalid Authorization header" },
+        { status: 401 }
+      );
 
     const token = match[1];
-    const { auth: adminAuth, db } = getFirebaseAdmin();
 
+    const { auth: adminAuth, db } = getFirebaseAdmin();
     const decoded = await adminAuth.verifyIdToken(token, true);
     const adminId = decoded.uid;
 
@@ -34,8 +40,14 @@ export async function GET(req: Request) {
     const adminSnap = await db.collection("staff").doc(adminId).get();
     const adminData = adminSnap.data();
 
-    if (!adminSnap.exists || !["admin", "superadmin"].includes(adminData?.role)) {
-      return NextResponse.json({ success: false, message: "Admin access denied" }, { status: 403 });
+    if (
+      !adminSnap.exists ||
+      !["admin", "superadmin"].includes(adminData?.role)
+    ) {
+      return NextResponse.json(
+        { success: false, message: "Admin access denied" },
+        { status: 403 }
+      );
     }
 
     /* -------------------------------
@@ -46,10 +58,12 @@ export async function GET(req: Request) {
     const days = Number(searchParams.get("days") || 30);
 
     const now = new Date();
-    const fromDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const fromDate = new Date(
+      now.getTime() - days * 24 * 60 * 60 * 1000
+    );
 
     /* -------------------------------
-       4️⃣ FETCH ALL APPROVED TELECALLERS
+       4️⃣ FETCH APPROVED TELECALLERS
     --------------------------------*/
     const staffSnap = await db
       .collection("staff")
@@ -62,13 +76,12 @@ export async function GET(req: Request) {
 
     for (const staffDoc of staffSnap.docs) {
       const sid = staffDoc.id;
+      const staffData = staffDoc.data();
 
       if (staffId && staffId !== sid) continue;
 
-      const staffData = staffDoc.data();
-
       /* -------------------------------
-         5️⃣ FETCH LEADS FOR EACH TELECALLER
+         5️⃣ FETCH LEADS FOR STAFF
       --------------------------------*/
       const leadsSnap = await db
         .collection("leads")
@@ -80,12 +93,15 @@ export async function GET(req: Request) {
       let interested = 0;
       let followups = 0;
       let converted = 0;
-      let lastNote = "";
+
+      let totalCalls = 0;
+      let totalNotes = 0;
+
+      let latestActivity: Date | null = null;
 
       leadsSnap.forEach((doc) => {
         const lead = doc.data();
 
-        // UpdatedAt filter
         const updated = lead.updatedAt?.toDate?.();
         if (!updated) return;
         if (updated < fromDate) return;
@@ -99,9 +115,40 @@ export async function GET(req: Request) {
         if (status === "callback") followups++;
         if (status === "converted") converted++;
 
-        // Latest note priority
-        if (lead.lastRemark) lastNote = lead.lastRemark;
-        else if (!lastNote && lead.partnerNotes) lastNote = lead.partnerNotes;
+        /* -------------------------------
+           COUNT NOTES
+        --------------------------------*/
+        if (Array.isArray(lead.notes)) {
+          totalNotes += lead.notes.length;
+
+          lead.notes.forEach((n) => {
+            const t = n.createdAt?.toDate?.();
+            if (t && (!latestActivity || t > latestActivity)) {
+              latestActivity = t;
+            }
+          });
+        }
+
+        /* -------------------------------
+           COUNT CALL LOGS
+        --------------------------------*/
+        if (Array.isArray(lead.callLogs)) {
+          totalCalls += lead.callLogs.length;
+
+          lead.callLogs.forEach((c) => {
+            const t = c.createdAt?.toDate?.();
+            if (t && (!latestActivity || t > latestActivity)) {
+              latestActivity = t;
+            }
+          });
+        }
+
+        /* -------------------------------
+           STATUS UPDATE ACTIVITY
+        --------------------------------*/
+        if (updated && (!latestActivity || updated > latestActivity)) {
+          latestActivity = updated;
+        }
       });
 
       performance.push({
@@ -113,7 +160,11 @@ export async function GET(req: Request) {
         interested,
         followups,
         converted,
-        lastNote,
+        totalCalls,
+        totalNotes,
+        latestActivityAt: latestActivity
+          ? latestActivity.toISOString()
+          : null,
       });
     }
 

@@ -1,4 +1,3 @@
-// app/api/admin/staff/performance/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -7,59 +6,52 @@ import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 // Helper
 function getAuthHeader(req: Request) {
-  return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
+  return req.headers.get("authorization");
 }
 
-export async function POST(req: Request) {
+export async function GET(req: Request) {
   try {
     /* -------------------------------
-       ✅ ADMIN TOKEN VERIFY
+       1️⃣ ADMIN TOKEN VERIFY
     --------------------------------*/
     const authHeader = getAuthHeader(req);
     if (!authHeader)
       return NextResponse.json({ success: false, message: "Missing Authorization" }, { status: 401 });
 
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
+    const match = authHeader.match(/^Bearer (.+)$/);
+    if (!match)
       return NextResponse.json({ success: false, message: "Invalid Authorization header" }, { status: 401 });
 
-    const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifyIdToken(m[1], true);
+    const token = match[1];
+    const { auth: adminAuth, db } = getFirebaseAdmin();
+
+    const decoded = await adminAuth.verifyIdToken(token, true);
     const adminId = decoded.uid;
 
     /* -------------------------------
-       ✅ VERIFY ADMIN FROM STAFF COLLECTION
+       2️⃣ VERIFY ADMIN (staff collection)
     --------------------------------*/
-    const adminSnap = await adminDb.collection("staff").doc(adminId).get();
+    const adminSnap = await db.collection("staff").doc(adminId).get();
     const adminData = adminSnap.data();
 
-    if (
-      !adminSnap.exists ||
-      !["admin", "superadmin"].includes(adminData?.role)
-    ) {
-      return NextResponse.json(
-        { success: false, message: "Admin access denied" },
-        { status: 403 }
-      );
+    if (!adminSnap.exists || !["admin", "superadmin"].includes(adminData?.role)) {
+      return NextResponse.json({ success: false, message: "Admin access denied" }, { status: 403 });
     }
 
     /* -------------------------------
-       INPUT PARSING
+       3️⃣ READ QUERY PARAMS
     --------------------------------*/
-    const body = await req.json();
-    const { staffId, from, to } = body || {};
+    const { searchParams } = new URL(req.url);
+    const staffId = searchParams.get("staffId") || "";
+    const days = Number(searchParams.get("days") || 30);
 
-    let fromDate = from ? new Date(from) : null;
-    let toDate = to ? new Date(to) : null;
-
-    if (toDate) toDate.setHours(23, 59, 59, 999);
+    const now = new Date();
+    const fromDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 
     /* -------------------------------
-       FETCH ALL APPROVED TELECALLERS
+       4️⃣ FETCH ALL APPROVED TELECALLERS
     --------------------------------*/
-    const staffSnap = await adminDb
+    const staffSnap = await db
       .collection("staff")
       .where("role", "==", "telecaller")
       .where("status", "==", "approved")
@@ -76,9 +68,9 @@ export async function POST(req: Request) {
       const staffData = staffDoc.data();
 
       /* -------------------------------
-         FETCH LEADS ASSIGNED TO STAFF
+         5️⃣ FETCH LEADS FOR EACH TELECALLER
       --------------------------------*/
-      const leadsSnap = await adminDb
+      const leadsSnap = await db
         .collection("leads")
         .where("assignedTo", "==", sid)
         .get();
@@ -90,36 +82,26 @@ export async function POST(req: Request) {
       let converted = 0;
       let lastNote = "";
 
-      leadsSnap.docs.forEach((doc) => {
+      leadsSnap.forEach((doc) => {
         const lead = doc.data();
 
-        // DATE FILTER
-        if (fromDate || toDate) {
-          if (!lead.updatedAt?.toDate) return;
-          const updated = lead.updatedAt.toDate();
-
-          if (fromDate && updated < fromDate) return;
-          if (toDate && updated > toDate) return;
-        }
+        // UpdatedAt filter
+        const updated = lead.updatedAt?.toDate?.();
+        if (!updated) return;
+        if (updated < fromDate) return;
 
         totalLeads++;
 
-        const status = lead.status || "";
+        const status = lead.status || "new";
 
         if (status !== "new") contacted++;
-
         if (status === "interested") interested++;
-
         if (status === "callback") followups++;
-
         if (status === "converted") converted++;
 
-        // Last note priority
-        if (lead.lastRemark) {
-          lastNote = lead.lastRemark;
-        } else if (lead.partnerNotes && !lastNote) {
-          lastNote = lead.partnerNotes;
-        }
+        // Latest note priority
+        if (lead.lastRemark) lastNote = lead.lastRemark;
+        else if (!lastNote && lead.partnerNotes) lastNote = lead.partnerNotes;
       });
 
       performance.push({
@@ -136,7 +118,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ success: true, data: performance });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Performance API Error:", err);
     return NextResponse.json(
       { success: false, message: err?.message || "Performance fetch failed" },

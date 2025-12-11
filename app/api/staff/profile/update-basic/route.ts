@@ -4,7 +4,7 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
-// ✅ Auth header helper
+// Extract Authorization header safely
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization")
@@ -13,7 +13,9 @@ function getAuthHeader(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    // ✅ TOKEN VERIFY
+    // ------------------------------
+    // 1) AUTH CHECK
+    // ------------------------------
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -31,13 +33,14 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-
     const decoded = await adminAuth.verifyIdToken(m[1], true);
     const staffId = decoded.uid;
 
-    // ✅ READ BODY
+    // ------------------------------
+    // 2) READ BODY
+    // ------------------------------
     const body = await req.json();
-    const { name } = body || {};
+    const { name, profilePic } = body || {};
 
     if (!name || !String(name).trim()) {
       return NextResponse.json(
@@ -48,7 +51,9 @@ export async function POST(req: Request) {
 
     const cleanName = String(name).trim();
 
-    // ✅ VERIFY STAFF
+    // ------------------------------
+    // 3) VERIFY STAFF
+    // ------------------------------
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -72,19 +77,28 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ UPDATE BASIC PROFILE
-    await staffRef.update({
+    // ------------------------------
+    // 4) UPDATE BASIC PROFILE
+    // ------------------------------
+    const updateData: any = {
       name: cleanName,
       updatedAt: new Date(),
-    });
+    };
+
+    // OPTIONAL: Save uploaded profile picture URL
+    if (profilePic && typeof profilePic === "string") {
+      updateData.profilePic = profilePic;
+    }
+
+    await staffRef.update(updateData);
 
     return NextResponse.json({
       success: true,
-      message: "✅ Basic profile updated successfully",
+      message: "Profile updated successfully",
+      updated: updateData,
     });
   } catch (err: any) {
     console.error("❌ update-basic error:", err);
-
     return NextResponse.json(
       {
         success: false,

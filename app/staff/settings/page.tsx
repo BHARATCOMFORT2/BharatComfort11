@@ -104,6 +104,11 @@ export default function StaffSettingsPage() {
         );
         if (data.profilePic) setProfilePicUrl(data.profilePic);
 
+        // Prefill Aadhaar masked (if any)
+        if (data.aadhaar?.last4) {
+          setAadhaarNumberInput("**** **** **** " + data.aadhaar.last4);
+        }
+
         // Prefill bank (masked)
         if (data.bank) {
           setBankHolderName(data.bank.holderName || "");
@@ -124,7 +129,40 @@ export default function StaffSettingsPage() {
   }, [router]);
 
   /* ---------------------------------------
-     ✅ BASIC PROFILE SAVE
+     ✅ UPLOAD PROFILE PIC (calls server API)
+     - Returns uploaded image url on success
+  ---------------------------------------- */
+  async function uploadProfilePic(): Promise<string | null> {
+    if (!profilePicFile || !authUser) return null;
+
+    try {
+      const formData = new FormData();
+      formData.append("profilePic", profilePicFile);
+
+      const res = await fetch("/api/staff/profile/update-profile-pic", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${await authUser.getIdToken()}`,
+        },
+        body: formData,
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data?.message || "Profile upload failed");
+      }
+
+      return data.url || data.imageUrl || null;
+    } catch (err: any) {
+      console.error("Profile upload error:", err);
+      toast.error(err?.message || "Profile upload failed");
+      return null;
+    }
+  }
+
+  /* ---------------------------------------
+     ✅ BASIC PROFILE SAVE (Name + optional profile pic upload)
+     Option A: profilePic upload happens when Save Basic Profile is clicked
   ---------------------------------------- */
   const handleSaveBasic = async () => {
     if (!authUser) return;
@@ -134,18 +172,38 @@ export default function StaffSettingsPage() {
     }
 
     setSavingBasic(true);
+    toast.loading("Saving profile...", { id: "save-basic" });
+
     try {
-      // TODO: profilePic upload API integration (Phase 2)
-      // For now, we only send name (and maybe later profile pic URL)
+      let uploadedUrl: string | null = null;
+
+      // 1) Upload profile pic first if selected
+      if (profilePicFile) {
+        uploadedUrl = await uploadProfilePic();
+        if (uploadedUrl) {
+          setProfilePicUrl(uploadedUrl);
+          // also update local staffDoc for immediate UI reflect
+          setStaffDoc((p) => ({
+            ...(p || {}),
+            profilePic: uploadedUrl,
+          }));
+        } else {
+          // if upload failed, stop saving
+          throw new Error("Profile picture upload failed");
+        }
+      }
+
+      // 2) Call update-basic API to save name (and send profilePic if available)
+      const token = await authUser.getIdToken();
       const res = await fetch("/api/staff/profile/update-basic", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${await authUser.getIdToken()}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
           name: name.trim(),
-          // profilePicFile handle via separate API (future)
+          ...(uploadedUrl ? { profilePic: uploadedUrl } : {}),
         }),
       });
 
@@ -154,10 +212,20 @@ export default function StaffSettingsPage() {
         throw new Error(data?.message || "Failed to update profile");
       }
 
-      toast.success("Profile updated ✅");
+      toast.success("Profile updated ✅", { id: "save-basic" });
+
+      // update local UI state
+      setStaffDoc((p) => ({
+        ...(p || {}),
+        name: name.trim(),
+        profilePic: uploadedUrl || p?.profilePic,
+      }));
+      setProfilePicFile(null);
     } catch (err: any) {
       console.error(err);
-      toast.error(err?.message || "Failed to update profile");
+      toast.error(err?.message || "Failed to update profile", {
+        id: "save-basic",
+      });
     } finally {
       setSavingBasic(false);
     }
@@ -169,7 +237,7 @@ export default function StaffSettingsPage() {
   const handleSaveAadhaar = async () => {
     if (!authUser) return;
 
-    const clean = aadhaarNumberInput.replace(/\D/g, "");
+    const clean = String(aadhaarNumberInput).replace(/\D/g, "");
     if (clean.length < 4) {
       return toast.error("Please enter a valid Aadhaar number");
     }
@@ -181,9 +249,7 @@ export default function StaffSettingsPage() {
 
       const formData = new FormData();
       formData.append("last4", last4);
-      if (aadhaarImageFile) {
-        formData.append("aadhaarImage", aadhaarImageFile);
-      }
+      if (aadhaarImageFile) formData.append("aadhaarImage", aadhaarImageFile);
 
       const res = await fetch("/api/staff/profile/update-aadhaar", {
         method: "POST",
@@ -251,7 +317,6 @@ export default function StaffSettingsPage() {
           bankName: bankName.trim(),
           ifsc: bankIfsc.trim().toUpperCase(),
           accountLast4: last4,
-          // full accountNumber NOT stored, only used here for last4
         }),
       });
 
@@ -312,6 +377,7 @@ export default function StaffSettingsPage() {
           authUser.email?.split("@")[0] ||
           "Staff",
         role: "staff",
+        profilePic: staffDoc.profilePic || profilePicUrl || undefined,
       }}
     >
       <div className="max-w-3xl mx-auto p-4 space-y-6">
@@ -322,10 +388,10 @@ export default function StaffSettingsPage() {
 
           <div className="flex items-center gap-4">
             <div className="w-16 h-16 rounded-full bg-gray-200 overflow-hidden flex items-center justify-center text-xs text-gray-500">
-              {profilePicUrl ? (
+              {profilePicUrl || staffDoc.profilePic ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
-                  src={profilePicUrl}
+                  src={profilePicUrl || staffDoc.profilePic}
                   alt="Profile"
                   className="w-full h-full object-cover"
                 />
@@ -349,7 +415,7 @@ export default function StaffSettingsPage() {
                 className="text-xs"
               />
               <p className="text-[11px] text-gray-500">
-                (Profile pic upload wiring backend me karein — abhi preview ready hai)
+                (Profile pic will upload when you click "Save Basic Profile")
               </p>
             </div>
           </div>

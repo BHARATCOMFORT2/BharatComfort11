@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import { useAuth } from "@/hooks/useAuth";
+import { useRouter } from "next/navigation";
 
 type StaffPerformance = {
   staffId: string;
@@ -13,7 +14,9 @@ type StaffPerformance = {
   interested: number;
   followups: number;
   converted: number;
-  lastNote?: string;
+  totalNotes: number;
+  totalCalls: number;
+  latestActivityAt?: string | null;
 };
 
 type Telecaller = {
@@ -23,6 +26,7 @@ type Telecaller = {
 
 export default function AdminStaffPerformancePage() {
   const { firebaseUser } = useAuth();
+  const router = useRouter();
 
   const [data, setData] = useState<StaffPerformance[]>([]);
   const [staffList, setStaffList] = useState<Telecaller[]>([]);
@@ -31,12 +35,15 @@ export default function AdminStaffPerformancePage() {
   const [loading, setLoading] = useState(true);
   const [days, setDays] = useState(30);
 
-  /* ✅ TELECALLER LIST */
+  /* --------------------------------------------------------
+     LOAD TELECALLER LIST
+  -------------------------------------------------------- */
   const fetchTelecallers = async (token: string) => {
     try {
       const res = await fetch("/api/admin/staff/telecallers", {
         headers: { Authorization: `Bearer ${token}` },
       });
+
       const json = await res.json();
       if (json.success) setStaffList(json.data || []);
     } catch {
@@ -44,7 +51,9 @@ export default function AdminStaffPerformancePage() {
     }
   };
 
-  /* ✅ PERFORMANCE */
+  /* --------------------------------------------------------
+     LOAD PERFORMANCE REPORT
+  -------------------------------------------------------- */
   const fetchPerformance = async () => {
     try {
       setLoading(true);
@@ -55,27 +64,23 @@ export default function AdminStaffPerformancePage() {
         : `/api/admin/staff/performance?days=${days}`;
 
       const res = await fetch(url, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const json = await res.json();
-
-      if (!res.ok || !json.success) {
-        throw new Error(json?.message || "Performance load failed");
-      }
+      if (!json.success) throw new Error(json.message);
 
       setData(json.data || []);
     } catch (err: any) {
-      console.error("Performance fetch error:", err);
-      toast.error(err?.message || "Performance data load nahi hua");
+      toast.error(err.message || "Performance data load nahi hua");
     } finally {
       setLoading(false);
     }
   };
 
-  /* ✅ INIT */
+  /* --------------------------------------------------------
+     INIT LOAD
+  -------------------------------------------------------- */
   useEffect(() => {
     if (!firebaseUser) return;
 
@@ -87,17 +92,17 @@ export default function AdminStaffPerformancePage() {
 
   return (
     <div className="p-6 space-y-6">
-      {/* ✅ HEADER */}
+      {/* HEADER */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-xl font-semibold">Telecaller Performance</h1>
           <p className="text-sm text-gray-500">
-            Telecaller wise leads, conversion aur latest notes
+            Calls, Notes, Leads, Conversion & Activity Summary
           </p>
         </div>
 
         <div className="flex gap-2 items-center">
-          {/* ✅ TELECALLER SELECT */}
+          {/* TELECALLER SELECT */}
           <select
             value={selectedStaff}
             onChange={(e) => setSelectedStaff(e.target.value)}
@@ -111,7 +116,7 @@ export default function AdminStaffPerformancePage() {
             ))}
           </select>
 
-          {/* ✅ DAYS FILTER */}
+          {/* DAYS FILTER */}
           <select
             value={days}
             onChange={(e) => setDays(Number(e.target.value))}
@@ -124,17 +129,17 @@ export default function AdminStaffPerformancePage() {
         </div>
       </div>
 
-      {/* ✅ TABLE */}
+      {/* TABLE */}
       <div className="bg-white border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b">
-          <h2 className="text-sm font-medium">Staff Performance Summary</h2>
+          <h2 className="text-sm font-medium">Performance Summary</h2>
         </div>
 
         {loading ? (
           <div className="p-6 text-sm text-gray-500">Loading report...</div>
         ) : data.length === 0 ? (
           <div className="p-6 text-sm text-gray-500 text-center">
-            Abhi koi performance data available nahi hai.
+            No performance data available.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -143,15 +148,23 @@ export default function AdminStaffPerformancePage() {
                 <tr>
                   <th className="px-4 py-2 text-left">Name</th>
                   <th className="px-4 py-2 text-left">Email</th>
+
                   <th className="px-4 py-2 text-center">Total Leads</th>
                   <th className="px-4 py-2 text-center">Contacted</th>
                   <th className="px-4 py-2 text-center">Interested</th>
                   <th className="px-4 py-2 text-center">Follow-ups</th>
                   <th className="px-4 py-2 text-center">Converted</th>
+
+                  <th className="px-4 py-2 text-center">Total Calls</th>
+                  <th className="px-4 py-2 text-center">Notes</th>
+
                   <th className="px-4 py-2 text-center">Conversion %</th>
-                  <th className="px-4 py-2 text-left">Latest Note ✅</th>
+                  <th className="px-4 py-2 text-left">Latest Activity</th>
+
+                  <th className="px-4 py-2 text-center">Actions</th>
                 </tr>
               </thead>
+
               <tbody className="divide-y">
                 {data.map((s) => {
                   const conversion =
@@ -163,26 +176,37 @@ export default function AdminStaffPerformancePage() {
                     <tr key={s.staffId}>
                       <td className="px-4 py-2">{s.name || "-"}</td>
                       <td className="px-4 py-2">{s.email || "-"}</td>
-                      <td className="px-4 py-2 text-center">
-                        {s.totalLeads}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        {s.contacted}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        {s.interested}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        {s.followups}
-                      </td>
-                      <td className="px-4 py-2 text-center">
-                        {s.converted}
-                      </td>
+
+                      <td className="px-4 py-2 text-center">{s.totalLeads}</td>
+                      <td className="px-4 py-2 text-center">{s.contacted}</td>
+                      <td className="px-4 py-2 text-center">{s.interested}</td>
+                      <td className="px-4 py-2 text-center">{s.followups}</td>
+                      <td className="px-4 py-2 text-center">{s.converted}</td>
+
+                      <td className="px-4 py-2 text-center">{s.totalCalls}</td>
+                      <td className="px-4 py-2 text-center">{s.totalNotes}</td>
+
                       <td className="px-4 py-2 text-center font-medium">
                         {conversion}%
                       </td>
+
                       <td className="px-4 py-2 text-xs text-gray-700">
-                        {s.lastNote || "—"}
+                        {s.latestActivityAt
+                          ? new Date(s.latestActivityAt).toLocaleString()
+                          : "—"}
+                      </td>
+
+                      <td className="px-4 py-2 text-center">
+                        <button
+                          onClick={() =>
+                            router.push(
+                              `/admin/staff/activity?staffId=${s.staffId}`
+                            )
+                          }
+                          className="text-blue-600 hover:underline text-xs"
+                        >
+                          View Activity →
+                        </button>
                       </td>
                     </tr>
                   );

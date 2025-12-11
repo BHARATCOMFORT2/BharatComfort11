@@ -58,7 +58,6 @@ export default function TelecallerDashboardPage() {
   const [loadingLeads, setLoadingLeads] = useState(false);
 
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [savingLeadId, setSavingLeadId] = useState<string | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
 
   const [staffProfile, setStaffProfile] = useState<{
@@ -72,7 +71,7 @@ export default function TelecallerDashboardPage() {
   const [callFilter, setCallFilter] = useState("all");
   const [followupFilter, setFollowupFilter] = useState("all");
 
-  // ✅ My Tasks ke niche wala RANGE
+  // ✅ My Tasks Range
   const [taskRange, setTaskRange] = useState<
     "today" | "yesterday" | "week" | "month"
   >("today");
@@ -154,10 +153,7 @@ export default function TelecallerDashboardPage() {
         });
 
         const data = await res.json();
-
-        if (!res.ok || !data.success) {
-          throw new Error(data?.message || "Failed to fetch tasks");
-        }
+        if (!res.ok || !data.success) throw new Error();
 
         const list: Lead[] = data.tasks || [];
         setLeads(list);
@@ -165,8 +161,8 @@ export default function TelecallerDashboardPage() {
         const draft: Record<string, string> = {};
         list.forEach((lead) => (draft[lead.id] = ""));
         setNotesDraft(draft);
-      } catch (err: any) {
-        toast.error(err?.message || "Tasks load nahi ho paaye");
+      } catch {
+        toast.error("Tasks load nahi ho paaye");
       } finally {
         setLoadingLeads(false);
       }
@@ -189,7 +185,8 @@ export default function TelecallerDashboardPage() {
           lead.businessName?.toLowerCase().includes(search.toLowerCase()) ||
           lead.phone?.includes(search)
         )
-      ) return false;
+      )
+        return false;
 
       if (statusFilter !== "all" && lead.status !== statusFilter) return false;
       if (callFilter === "called" && !lead.lastCalledAt) return false;
@@ -197,7 +194,11 @@ export default function TelecallerDashboardPage() {
 
       if (followupFilter !== "all" && lead.followupDate) {
         const f = new Date(lead.followupDate);
-        if (followupFilter === "today" && f.toDateString() !== now.toDateString()) return false;
+        if (
+          followupFilter === "today" &&
+          f.toDateString() !== now.toDateString()
+        )
+          return false;
         if (followupFilter === "upcoming" && f <= now) return false;
         if (followupFilter === "overdue" && f >= now) return false;
       }
@@ -263,18 +264,26 @@ export default function TelecallerDashboardPage() {
     if (!phone) return toast.error("Phone number nahi mila");
 
     const cleanPhone = phone.replace(/\D/g, "");
-    const message = `Hello ${name || ""},\n\nThis is ${staffProfile?.name || "Telecaller"} from BharatComfort.\nWe contacted you regarding your business listing.\nPlease tell a good time to connect.`;
+    const message = `Hello ${name || ""},\n\nThis is ${
+      staffProfile?.name || "Telecaller"
+    } from BharatComfort.\nWe contacted you regarding your business listing.\nPlease tell a good time to connect.`;
 
-    window.location.href = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.location.href = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
+      message
+    )}`;
   };
 
   const openEmail = (email?: string, name?: string) => {
     if (!email) return toast.error("Email address nahi mila");
 
     const subject = "Regarding your Business Listing – BharatComfort";
-    const body = `Hello ${name || ""},\n\nThis is ${staffProfile?.name || "Telecaller"} from BharatComfort.\nWe contacted you regarding your business listing.\nPlease let us know a suitable time to connect.\n\nThank you.`;
+    const body = `Hello ${name || ""},\n\nThis is ${
+      staffProfile?.name || "Telecaller"
+    } from BharatComfort.\nWe contacted you regarding your business listing.\nPlease let us know a suitable time to connect.\n\nThank you.`;
 
-    window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = `mailto:${email}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body)}`;
   };
 
   /* ---------------------------------------
@@ -282,7 +291,10 @@ export default function TelecallerDashboardPage() {
   ---------------------------------------- */
   if (loadingUser) {
     return (
-      <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
+      <DashboardLayout
+        title="Telecaller Dashboard"
+        profile={staffProfile || undefined}
+      >
         <div className="flex items-center justify-center h-64 text-sm text-gray-500">
           Checking staff access...
         </div>
@@ -293,15 +305,26 @@ export default function TelecallerDashboardPage() {
   if (!staffId) return null;
 
   return (
-    <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
+    <DashboardLayout
+      title="Telecaller Dashboard"
+      profile={staffProfile || undefined}
+    >
       <div className="p-4 space-y-4">
 
-        {/* ✅ MY TASKS + TASK RANGE (AB YAHI HAI) */}
-        <div>
-          <h2 className="text-lg font-semibold mb-2">My Tasks</h2>
-          <div className="bg-white rounded shadow p-2">
-            <TaskSidebar token={token} onRangeSelect={setTaskRange} />
-          </div>
+        {/* ✅ HEADER BAR WITH SETTINGS */}
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">My Tasks</h2>
+          <button
+            onClick={() => router.push("/staff/settings")}
+            className="bg-black text-white px-3 py-1 text-sm rounded"
+          >
+            ⚙️ Settings
+          </button>
+        </div>
+
+        {/* ✅ TASK RANGE */}
+        <div className="bg-white rounded shadow p-2">
+          <TaskSidebar token={token} onRangeSelect={setTaskRange} />
         </div>
 
         {/* ✅ FILTER BAR */}
@@ -313,31 +336,53 @@ export default function TelecallerDashboardPage() {
             className="border px-3 py-1 text-sm w-64"
           />
 
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="border px-3 py-1 text-sm">
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border px-3 py-1 text-sm"
+          >
             {STATUS_OPTIONS.map((st) => (
-              <option key={st} value={st}>{st.toUpperCase()}</option>
+              <option key={st} value={st}>
+                {st.toUpperCase()}
+              </option>
             ))}
           </select>
 
-          <select value={callFilter} onChange={(e) => setCallFilter(e.target.value)} className="border px-3 py-1 text-sm">
+          <select
+            value={callFilter}
+            onChange={(e) => setCallFilter(e.target.value)}
+            className="border px-3 py-1 text-sm"
+          >
             {CALL_FILTERS.map((c) => (
-              <option key={c} value={c}>{c.replace("_"," ").toUpperCase()}</option>
+              <option key={c} value={c}>
+                {c.replace("_", " ").toUpperCase()}
+              </option>
             ))}
           </select>
 
-          <select value={followupFilter} onChange={(e) => setFollowupFilter(e.target.value)} className="border px-3 py-1 text-sm">
+          <select
+            value={followupFilter}
+            onChange={(e) => setFollowupFilter(e.target.value)}
+            className="border px-3 py-1 text-sm"
+          >
             {FOLLOWUP_FILTERS.map((f) => (
-              <option key={f} value={f}>{f.toUpperCase()}</option>
+              <option key={f} value={f}>
+                {f.toUpperCase()}
+              </option>
             ))}
           </select>
         </div>
 
-        {/* ✅ TABLE (unchanged logic) */}
+        {/* ✅ TABLE */}
         <div className="bg-white rounded-lg shadow overflow-x-auto">
           {loadingLeads ? (
-            <div className="p-6 text-center text-sm text-gray-500">Loading your tasks...</div>
+            <div className="p-6 text-center text-sm text-gray-500">
+              Loading your tasks...
+            </div>
           ) : filteredLeads.length === 0 ? (
-            <div className="p-6 text-center text-sm text-gray-500">Koi matching lead nahi mili.</div>
+            <div className="p-6 text-center text-sm text-gray-500">
+              Koi matching lead nahi mili.
+            </div>
           ) : (
             <table className="min-w-full text-sm">
               <thead className="bg-gray-100">
@@ -355,7 +400,9 @@ export default function TelecallerDashboardPage() {
               <tbody>
                 {filteredLeads.map((lead) => (
                   <tr key={lead.id} className="border-t">
-                    <td className="p-3">{lead.name || lead.businessName || "-"}</td>
+                    <td className="p-3">
+                      {lead.name || lead.businessName || "-"}
+                    </td>
                     <td className="p-3">{lead.businessName || "-"}</td>
                     <td className="p-3">{lead.phone || "-"}</td>
                     <td className="p-3">{lead.address || "-"}</td>
@@ -364,11 +411,17 @@ export default function TelecallerDashboardPage() {
                       <select
                         className="border px-2 py-1 text-xs"
                         value={lead.status}
-                        onChange={(e) => updateStatus(lead.id, e.target.value)}
+                        onChange={(e) =>
+                          updateStatus(lead.id, e.target.value)
+                        }
                       >
-                        {STATUS_OPTIONS.filter((s) => s !== "all").map((st) => (
-                          <option key={st} value={st}>{st}</option>
-                        ))}
+                        {STATUS_OPTIONS.filter((s) => s !== "all").map(
+                          (st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          )
+                        )}
                       </select>
                     </td>
 
@@ -392,9 +445,38 @@ export default function TelecallerDashboardPage() {
                     </td>
 
                     <td className="p-3 space-y-1">
-                      <button onClick={() => window.location.href = `tel:${lead.phone || ""}`} className="w-full bg-green-600 text-white text-xs px-3 py-1 rounded">📞 Call</button>
-                      <button onClick={() => openWhatsApp(lead.phone, lead.name || lead.businessName)} className="w-full bg-green-500 text-white text-xs px-3 py-1 rounded">🟢 WhatsApp</button>
-                      <button onClick={() => openEmail(lead.email, lead.name || lead.businessName)} className="w-full bg-blue-600 text-white text-xs px-3 py-1 rounded">📧 Email</button>
+                      <button
+                        onClick={() =>
+                          (window.location.href = `tel:${lead.phone || ""}`)
+                        }
+                        className="w-full bg-green-600 text-white text-xs px-3 py-1 rounded"
+                      >
+                        📞 Call
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          openWhatsApp(
+                            lead.phone,
+                            lead.name || lead.businessName
+                          )
+                        }
+                        className="w-full bg-green-500 text-white text-xs px-3 py-1 rounded"
+                      >
+                        🟢 WhatsApp
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          openEmail(
+                            lead.email,
+                            lead.name || lead.businessName
+                          )
+                        }
+                        className="w-full bg-blue-600 text-white text-xs px-3 py-1 rounded"
+                      >
+                        📧 Email
+                      </button>
                     </td>
                   </tr>
                 ))}

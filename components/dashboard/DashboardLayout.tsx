@@ -3,7 +3,7 @@
 import { ReactNode, useState, useEffect } from "react";
 import { auth } from "@/lib/firebase-client";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, X, LogOut } from "lucide-react";
+import { Menu, X, LogOut, Settings } from "lucide-react";
 
 interface Props {
   title: string;
@@ -16,7 +16,7 @@ interface Props {
 }
 
 export default function DashboardLayout({ title, children, profile }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false); // ✅ MOBILE DEFAULT CLOSED
+  const [menuOpen, setMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
@@ -25,7 +25,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     setMounted(true);
   }, []);
 
-  // ✅ AUTO REDIRECT ROLE BASED (SAFE)
+  // ✅ AUTO ROLE BASED REDIRECT
   useEffect(() => {
     if (!profile?.role) return;
 
@@ -64,12 +64,10 @@ export default function DashboardLayout({ title, children, profile }: Props) {
 
   if (!mounted) return null;
 
-  // ✅ MENUS
   const userLinks = [
     { name: "Dashboard", path: "/user/dashboard" },
     { name: "My Trips", path: "/user/bookings" },
     { name: "Settings", path: "/user/settings" },
-    { name: "Refer & Earn 💰", path: "/user/dashboard/referrals" },
   ];
 
   const partnerLinks = [
@@ -78,17 +76,17 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     { name: "Bookings", path: "/partner/bookings" },
   ];
 
-  const staffLinks = [{ name: "My Tasks", path: "/staff/dashboard" }];
+  // ✅ ✅ ✅ STAFF LINKS (SETTINGS ADDED HERE ✅)
+  const staffLinks = [
+    { name: "My Tasks", path: "/staff/dashboard" },
+    { name: "⚙️ Settings", path: "/staff/settings" }, // ✅ NEW
+  ];
 
-  // ✅ ✅ ✅ UPDATED ADMIN LINKS (Partner Leads ADDED)
   const adminLinks = [
     { name: "Dashboard", path: "/admin/dashboard" },
     { name: "Users", path: "/admin/dashboard/users" },
     { name: "Partners", path: "/admin/dashboard/partners" },
-
-    // ✅ NEW LINK ADDED HERE
     { name: "✅ Partner Leads", path: "/admin/partners-confirmed" },
-
     { name: "KYC", path: "/admin/dashboard/kyc" },
     { name: "Listings", path: "/admin/dashboard/homepage" },
     { name: "Staff Management", path: "/admin/staff" },
@@ -123,37 +121,42 @@ export default function DashboardLayout({ title, children, profile }: Props) {
         ${menuOpen ? "translate-x-0" : "-translate-x-full"}
         sm:translate-x-0`}
       >
-        {/* ✅ CLOSE ICON (ONLY MOBILE) */}
+        {/* ✅ CLOSE (MOBILE) */}
         <div className="p-4 flex justify-end sm:hidden">
           <button onClick={() => setMenuOpen(false)}>
             <X />
           </button>
         </div>
 
+        {/* ✅ STAFF PROFILE BOX */}
         <div className="p-6 flex flex-col items-center border-b">
           {profile?.profilePic ? (
             <img
               src={profile.profilePic}
               alt="Profile"
-              className="w-16 h-16 rounded-full mb-3 border"
+              className="w-20 h-20 rounded-full mb-2 border"
             />
           ) : (
-            <div className="w-16 h-16 rounded-full bg-gray-200 mb-3" />
+            <div className="w-20 h-20 rounded-full bg-gray-200 mb-2" />
           )}
-          <h2 className="text-lg font-semibold">{profile?.name || "User"}</h2>
-          <p className="text-sm text-gray-500 capitalize">
-            {profile?.role || "user"}
+
+          <h2 className="text-sm font-semibold">
+            {profile?.name || "Staff"}
+          </h2>
+
+          <p className="text-xs text-gray-500 capitalize">
+            {profile?.role || "staff"}
           </p>
         </div>
 
-        {/* ✅ NAVIGATION */}
-        <nav className="mt-6 space-y-2 px-4">
+        {/* ✅ SIDEBAR MENU */}
+        <nav className="mt-4 space-y-2 px-4">
           {navLinks.map((link) => (
             <button
               key={link.name}
               onClick={() => {
                 router.push(link.path);
-                setMenuOpen(false); // ✅ MOBILE AUTO CLOSE
+                setMenuOpen(false);
               }}
               className={`block w-full text-left px-4 py-2 rounded-lg transition ${
                 pathname === link.path
@@ -181,7 +184,6 @@ export default function DashboardLayout({ title, children, profile }: Props) {
       <div className="flex-1 sm:ml-64 w-full">
         <header className="flex justify-between items-center bg-white shadow px-4 py-4 sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            {/* ✅ HAMBURGER ICON (ONLY MOBILE) */}
             <button
               className="sm:hidden"
               onClick={() => setMenuOpen(true)}

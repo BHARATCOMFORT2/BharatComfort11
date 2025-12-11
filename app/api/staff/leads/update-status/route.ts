@@ -5,7 +5,7 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import admin from "firebase-admin";
 
-// ✅ Allowed dropdown values (LOCKED)
+// Allowed dropdown values
 const ALLOWED_STATUS = [
   "new",
   "contacted",
@@ -16,7 +16,7 @@ const ALLOWED_STATUS = [
   "invalid",
 ];
 
-// ✅ Auth header helper
+// Auth header helper
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization")
@@ -25,7 +25,7 @@ function getAuthHeader(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    // ✅ TOKEN VERIFY
+    // TOKEN VERIFY
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -34,8 +34,8 @@ export async function POST(req: Request) {
       );
     }
 
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m) {
+    const tokenMatch = authHeader.match(/^Bearer (.+)$/);
+    if (!tokenMatch) {
       return NextResponse.json(
         { success: false, message: "Bad Authorization header" },
         { status: 401 }
@@ -46,7 +46,7 @@ export async function POST(req: Request) {
 
     let decoded: any;
     try {
-      decoded = await adminAuth.verifyIdToken(m[1], true);
+      decoded = await adminAuth.verifyIdToken(tokenMatch[1], true);
     } catch {
       return NextResponse.json(
         { success: false, message: "Invalid token" },
@@ -56,6 +56,7 @@ export async function POST(req: Request) {
 
     const staffId = decoded.uid;
 
+    // REQUEST BODY
     const body = await req.json();
     const { leadId, status } = body || {};
 
@@ -73,7 +74,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ VERIFY STAFF
+    // VERIFY STAFF
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -97,7 +98,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ VERIFY LEAD OWNERSHIP
+    // VERIFY LEAD OWNERSHIP
     const leadRef = adminDb.collection("leads").doc(leadId);
     const leadSnap = await leadRef.get();
 
@@ -117,18 +118,28 @@ export async function POST(req: Request) {
       );
     }
 
-    // ✅ ✅ ✅ FINAL SAFE STATUS UPDATE (WITH SERVER TIMESTAMP)
+    // -------------------------------------------------------------------
+    // ✅ UPDATE STATUS + CREATE ACTIVITY LOG
+    // -------------------------------------------------------------------
     await leadRef.update({
       status,
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(), // ✅ BEST PRACTICE
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       lastUpdatedBy: staffId,
+    });
+
+    // WRITE TO SUBCOLLECTION `/logs`
+    await leadRef.collection("logs").add({
+      type: "status",
+      status,
+      by: staffId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({
       success: true,
-      message: "✅ Lead status updated successfully",
+      message: "Lead status updated successfully",
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error("Lead status update error:", error);
 
     return NextResponse.json(

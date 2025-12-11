@@ -1,4 +1,6 @@
 "use client";
+export const dynamic = "force-dynamic";   // ✅ FIX 1 (no prerender)
+export const runtime = "nodejs";
 
 import { useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -8,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 /* TYPES */
 type Activity = {
   id: string;
-  type: string; // "note" | "call" | "status" | "assign" | etc.
+  type: string;
   text?: string;
   note?: string;
   outcome?: string;
@@ -47,7 +49,7 @@ export default function AdminStaffActivityPage() {
         method: "POST",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           staffId,
@@ -73,10 +75,8 @@ export default function AdminStaffActivityPage() {
 
   /* CLIENT FILTERING */
   const filtered = activities.filter((log) => {
-    // TYPE FILTER
     if (typeFilter !== "all" && log.type !== typeFilter) return false;
 
-    // SEARCH FILTER
     if (searchText.trim()) {
       const q = searchText.toLowerCase();
       if (
@@ -102,10 +102,7 @@ export default function AdminStaffActivityPage() {
           </p>
         </div>
 
-        <button
-          onClick={() => router.back()}
-          className="text-sm text-blue-600 hover:underline"
-        >
+        <button onClick={() => router.back()} className="text-sm text-blue-600 hover:underline">
           ← Back
         </button>
       </div>
@@ -123,7 +120,8 @@ export default function AdminStaffActivityPage() {
         </div>
 
         <div>
-          <label classname="text-xs">Activity Type</label>
+          {/* ❌ label classname → ✔ className  (FIX 2) */}
+          <label className="text-xs">Activity Type</label>
           <select
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
@@ -182,7 +180,6 @@ export default function AdminStaffActivityPage() {
                   <td className="px-4 py-3 capitalize">{log.type}</td>
 
                   <td className="px-4 py-3 text-gray-700">
-                    {/* Dynamic details */}
                     {log.type === "call" && (
                       <div>
                         <p>
@@ -191,13 +188,16 @@ export default function AdminStaffActivityPage() {
                         <p>{log.note}</p>
                       </div>
                     )}
+
                     {log.type === "note" && <p>{log.text}</p>}
+
                     {log.type === "status" && (
                       <p>
                         Status changed: <b>{log.oldStatus}</b> →{" "}
                         <b>{log.newStatus}</b>
                       </p>
                     )}
+
                     {log.type === "assign" && <p>Lead assigned</p>}
                   </td>
 

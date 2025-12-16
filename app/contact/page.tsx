@@ -57,7 +57,7 @@ export default function ContactPage() {
           <div className="flex flex-col space-y-4">
             <div className="flex items-center space-x-3">
               <Mail className="text-yellow-600" />
-              <span>support@bharatcomfort.com</span>
+              <span>support@bharatcomfort.online, bharatcomfort99@gmail.com</span>
             </div>
             <div className="flex items-center space-x-3">
               <Phone className="text-yellow-600" />
@@ -65,7 +65,7 @@ export default function ContactPage() {
             </div>
             <div className="flex items-center space-x-3">
               <MapPin className="text-yellow-600" />
-              <span>Ghazipur Utaar Pradesh, India</span>
+              <span>Ghazipur Uttar Pradesh, India</span>
             </div>
           </div>
 

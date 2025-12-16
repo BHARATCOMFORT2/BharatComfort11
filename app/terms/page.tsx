@@ -16,7 +16,7 @@ export default function TermsPage() {
         </h1>
         <p className="text-gray-700 text-lg max-w-3xl mx-auto">
           These Terms & Conditions govern your use of{" "}
-          <strong>BHARATCOMFORT11</strong>. By accessing our platform, you agree
+          <strong>BHARATCOMFORT</strong>. By accessing our platform, you agree
           to these terms. Please read them carefully before using our services.
         </p>
       </div>
@@ -32,7 +32,7 @@ export default function TermsPage() {
             platform.
           </li>
           <li>
-            BHARATCOMFORT11 reserves the right to suspend accounts violating
+            BHARATCOMFORT reserves the right to suspend accounts violating
             policies.
           </li>
         </ul>
@@ -45,7 +45,7 @@ export default function TermsPage() {
         <ul className="list-disc list-inside text-gray-700 space-y-1">
           <li>All bookings are subject to partner availability and approval.</li>
           <li>Payments are processed securely through Razorpay.</li>
-          <li>BHARATCOMFORT11 does not store card details.</li>
+          <li>BHARATCOMFORT does not store card details.</li>
         </ul>
       </section>
 
@@ -55,7 +55,7 @@ export default function TermsPage() {
         </h2>
         <p className="text-gray-700 leading-relaxed">
           All cancellations and refunds are governed by the{" "}
-          <strong>respective partner’s policy</strong>. BHARATCOMFORT11 acts as
+          <strong>respective partner’s policy</strong>. BHARATCOMFORT acts as
           a booking facilitator and does not control refund timelines or terms.
           Travelers are advised to review partner-specific refund policies
           before booking.
@@ -66,7 +66,7 @@ export default function TermsPage() {
             processed within 5–7 business days.
           </li>
           <li>
-            In case of disputes, BHARATCOMFORT11 mediates fairly between users
+            In case of disputes, BHARATCOMFORT mediates fairly between users
             and partners under SLA timelines.
           </li>
         </ul>
@@ -91,7 +91,7 @@ export default function TermsPage() {
           Liability Disclaimer
         </h2>
         <p className="text-gray-700 leading-relaxed">
-          BHARATCOMFORT11 acts as a technology intermediary connecting travelers
+          BHARATCOMFORT acts as a technology intermediary connecting travelers
           and partners. We are not responsible for partner negligence, delays,
           or force majeure events but ensure all partners are verified and
           disputes are resolved transparently.
@@ -104,7 +104,7 @@ export default function TermsPage() {
         </h2>
         <p className="text-gray-700 leading-relaxed">
           These Terms are governed by the laws of India, and any disputes shall
-          be subject to the jurisdiction of Mumbai, Maharashtra.
+          be subject to the jurisdiction of Ghazipur, Uttar Pradesh.
         </p>
       </section>
     </motion.div>

@@ -5,8 +5,8 @@ import { motion } from "framer-motion";
 export default function FAQsPage() {
   const faqs = [
     {
-      q: "What is BHARATCOMFORT11?",
-      a: "BHARATCOMFORT11 is an AI-powered travel platform connecting travelers with verified partners across India for roadways, railways, and airways.",
+      q: "What is BHARATCOMFORT?",
+      a: "BHARATCOMFORT is an AI-powered travel platform connecting travelers with verified partners across India for roadways, railways, and airways.",
     },
     {
       q: "How do cancellations and refunds work?",
@@ -26,7 +26,7 @@ export default function FAQsPage() {
     },
     {
       q: "How can I contact support?",
-      a: "You can reach our support team via email at support@bharatcomfort11.com or through the in-app Help Center.",
+      a: "You can reach our support team via email at support@bharatcomfort.online or through the in-app Help Center.",
     },
   ];
 
@@ -43,7 +43,7 @@ export default function FAQsPage() {
         </h1>
         <p className="text-gray-700 text-lg max-w-3xl mx-auto">
           Find answers to the most common questions about{" "}
-          <strong>BHARATCOMFORT11</strong> and how our platform works.
+          <strong>BHARATCOMFORT</strong> and how our platform works.
         </p>
       </div>
 

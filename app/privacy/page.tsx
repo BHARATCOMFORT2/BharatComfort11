@@ -15,7 +15,7 @@ export default function PrivacyPolicyPage() {
           Privacy Policy
         </h1>
         <p className="text-gray-700 text-lg max-w-3xl mx-auto">
-          At <strong>BHARATCOMFORT11</strong>, we value your privacy and are
+          At <strong>BHARATCOMFORT</strong>, we value your privacy and are
           committed to protecting your personal information. This policy
           explains how we collect, use, and safeguard your data when you use our
           website, mobile app, or any of our services.
@@ -70,7 +70,7 @@ export default function PrivacyPolicyPage() {
         <p className="text-gray-700 leading-relaxed">
           You may access, correct, or delete your personal data anytime by
           contacting us at{" "}
-          <strong className="text-indigo-700">support@bharatcomfort11.com</strong>.
+          <strong className="text-indigo-700">support@bharatcomfort.online</strong>.
           You can also opt out of promotional emails at any time.
         </p>
       </section>

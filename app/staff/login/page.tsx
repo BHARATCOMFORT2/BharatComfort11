@@ -30,17 +30,25 @@ export default function StaffLoginPage() {
     try {
       setLoading(true);
 
-      // ✅ Firebase Auth Login
+      /* --------------------------------
+         1️⃣ Firebase Auth Login
+      -------------------------------- */
       const cred = await signInWithEmailAndPassword(
         auth,
         form.email,
         form.password
       );
 
+      // 🔥 IMPORTANT FIX: force token sync
+      await cred.user.getIdToken(true);
+
       const uid = cred.user.uid;
 
-      // ✅ REAL STAFF COLLECTION CHECK
-      const snap = await getDoc(doc(db, "staff", uid));
+      /* --------------------------------
+         2️⃣ Staff Profile Read (Firestore)
+      -------------------------------- */
+      const staffRef = doc(db, "staff", uid);
+      const snap = await getDoc(staffRef);
 
       if (!snap.exists()) {
         await auth.signOut();
@@ -49,13 +57,14 @@ export default function StaffLoginPage() {
 
       const profile = snap.data();
 
-      // ✅ Must be telecaller
+      /* --------------------------------
+         3️⃣ Strict Staff Validation
+      -------------------------------- */
       if (profile.role !== "telecaller") {
         await auth.signOut();
         return toast.error("This login is for telecallers only");
       }
 
-      // ⏳ Pending Approval
       if (profile.status === "pending") {
         await auth.signOut();
         return toast("Your account is pending admin approval", {
@@ -63,19 +72,19 @@ export default function StaffLoginPage() {
         });
       }
 
-      // ❌ Rejected
       if (profile.status === "rejected") {
         await auth.signOut();
         return toast.error("Your account has been rejected by admin");
       }
 
-      // ❌ Inactive
       if (profile.isActive !== true) {
         await auth.signOut();
         return toast.error("Your account is inactive");
       }
 
-      // ✅ Approved + Active Staff → Dashboard
+      /* --------------------------------
+         4️⃣ Success → Staff Dashboard
+      -------------------------------- */
       toast.success("Login successful");
       router.push("/staff/dashboard");
     } catch (err: any) {

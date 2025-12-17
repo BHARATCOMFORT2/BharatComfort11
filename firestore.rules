@@ -1,293 +1,334 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    /* ───────────────────────────────
-       🔐 Helper Functions
-    ─────────────────────────────── */
+    /* ================================
+       🔐 HELPER FUNCTIONS
+    ================================= */
     function isSignedIn() {
       return request.auth != null;
     }
 
     function isAdmin() {
       return isSignedIn() &&
-             (request.auth.token.role == 'admin' ||
-              request.auth.token.isAdmin == true ||
-              request.auth.token.admin == true);
+        (request.auth.token.role == 'admin' ||
+         request.auth.token.role == 'superadmin' ||
+         request.auth.token.isAdmin == true ||
+         request.auth.token.admin == true);
     }
 
     function isPartner() {
-      return isSignedIn() &&
-             (request.auth.token.role == 'partner' || isAdmin());
+      return isSignedIn() && request.auth.token.role == 'partner';
+    }
+
+    function isStaff() {
+      return isSignedIn() && request.auth.token.role == 'staff';
     }
 
     function isSelf(uid) {
       return isSignedIn() && request.auth.uid == uid;
     }
 
-    /* ───────────────────────────────
+    /* ================================
+       ✅ PUBLIC PARTNER LEADS (FORM)
+    ================================= */
+    match /partnerLeads/{docId} {
+      allow create: if true;
+      allow read, update, delete: if isAdmin();
+    }
+
+    /* ================================
        👤 USERS
-    ─────────────────────────────── */
+    ================================= */
     match /users/{uid} {
-      // Allow signed-in owner to read their profile OR admin
-      allow read: if isSelf(uid) || isAdmin();
-
-      allow create: if isSelf(uid);
-
-      // Users may update their doc but cannot set role/isAdmin
-      allow update: if isSelf(uid)
-                    && !("role" in request.resource.data)
-                    && !("isAdmin" in request.resource.data);
-
-      allow delete: if isSelf(uid) || isAdmin();
-      allow write: if isAdmin();
-    }
-
-    /* ───────────────────────────────
-       🧑‍💼 PARTNERS
-    ─────────────────────────────── */
-    match /partners/{uid} {
-      // partner doc read: owner or admin
       allow read: if isSelf(uid) || isAdmin();
       allow create: if isSelf(uid);
-
-      // partner can update their profile (not admin fields)
       allow update: if isSelf(uid)
-                    && !("role" in request.resource.data)
-                    && !("isAdmin" in request.resource.data);
-
-      allow delete: if isSelf(uid) || isAdmin();
-
-      /* ───────────────────────────────
-         KYC Subcollections
-      ─────────────────────────────── */
-      match /kycDocs/{docId} {
-        allow read: if isSelf(uid) || isAdmin();
-        allow create: if isSelf(uid);
-        allow update, delete: if isAdmin();
-      }
-
-      match /kycAudit/{auditId} {
-        allow read: if isSelf(uid) || isAdmin();
-        allow create: if isSelf(uid) || isAdmin();
-        allow update, delete: if isAdmin();
-      }
+        && !(request.resource.data.diff(resource.data).affectedKeys()
+            .hasAny(["role","isAdmin","status","isActive"]));
+      allow delete: if isAdmin();
     }
 
-    /* ───────────────────────────────
-       📅 BOOKINGS (query-safe)
-    ─────────────────────────────── */
-    match /bookings/{bookingId} {
+    match /users/{uid}/wallet/{entryId} {
+      allow read: if isSelf(uid) || isAdmin();
+      allow write, delete: if isAdmin();
+    }
 
-      // allow query by userId: where("userId","==", request.auth.uid)
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "userId"
-                   && request.query.where[0].value == request.auth.uid;
+    /* ================================
+     /* ================================
+   🤝 PARTNERS + KYC (✅ FINAL FIX)
+================================ */
+match /partners/{uid} {
 
-      // allow query by partnerId: where("partnerId","==", request.auth.uid)
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "partnerId"
-                   && request.query.where[0].value == request.auth.uid;
+  // ✅ Partner apna data padh sakta hai
+  allow read: if isSelf(uid);
 
-      // admin may read all
-      allow read: if isAdmin();
+  // ✅ Admin kisi bhi partner ko padh sakta hai
+  allow read: if isAdmin();
 
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+  // ✅ Partner khud ka profile create kar sakta hai
+  allow create: if isSelf(uid);
+
+  // ✅ Partner limited fields update kar sakta hai
+  allow update: if isSelf(uid)
+    && !("role" in request.resource.data)
+    && !("isAdmin" in request.resource.data)
+    && !("kycStatus" in request.resource.data)
+    && !("approved" in request.resource.data);
+
+  // ✅✅ ADMIN FULL CONTROL (🔥 THIS IS THE REAL FIX)
+  allow update, delete: if isAdmin();
+
+  /* -------- KYC DOCUMENTS -------- */
+  match /kycDocs/{docId} {
+
+    // ✅ Partner khud ka KYC dekh sakta hai
+    allow read: if isSelf(uid);
+
+    // ✅ Admin sabka KYC dekh sakta hai
+    allow read: if isAdmin();
+
+    // ✅ Partner KYC submit kar sakta hai
+    allow create: if isSelf(uid);
+
+    // ✅✅ ADMIN KYC APPROVE / REJECT (🔥 THIS FIX)
+    allow update, delete: if isAdmin();
+  }
+
+  /* -------- KYC AUDIT LOG -------- */
+  match /kycAudit/{auditId} {
+    allow read: if isSelf(uid) || isAdmin();
+    allow create: if isAdmin();
+    allow update, delete: if isAdmin();
+  }
+}
+/* ───────────────────────────────
+  /* ───────── LISTINGS (🔥 PARTNER FULL CONTROL) ───────── */
+    match /listings/{listingId} {
+      allow read: if true;
+
+      allow create: if isAdmin()
+        || (isPartner() && request.resource.data.partnerId == request.auth.uid);
 
       allow update: if isAdmin()
-                    || (isSignedIn() && resource.data.userId == request.auth.uid)
-                    || (isSignedIn() && resource.data.partnerId == request.auth.uid);
+        || (isPartner() && resource.data.partnerId == request.auth.uid);
+
+      allow delete: if isAdmin()
+        || (isPartner() && resource.data.partnerId == request.auth.uid);
+
+      match /availability/{aid} {
+        allow read: if true;
+        allow write: if isAdmin()
+          || (isPartner()
+              && get(/databases/$(database)/documents/listings/$(listingId))
+                  .data.partnerId == request.auth.uid);
+      }
+    }
+    /* ================================
+      /* ================================
+   /* ================================
+   🧑‍💼 STAFF (LOGIN SAFE RESTORE)
+================================ */
+match /staff/{staffId} {
+
+  // ✅ allow read AFTER auth session exists
+  allow read: if request.auth != null;
+
+  // ❌ client create not allowed
+  allow create: if false;
+
+  // ✅ staff limited self update
+  allow update: if request.auth != null
+    && request.auth.uid == staffId
+    && !(request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(["role","status","isActive"]));
+
+  // ✅ admin full control
+  allow read, write, delete: if isAdmin();
+}
+
+
+    /* ================================
+       ✅ TELECALLER LEADS (TASK SYSTEM)
+    ================================= */
+    match /leads/{leadId} {
+
+      // ✅ Admin full control
+      allow read, write, delete: if isAdmin();
+
+      // ✅ Telecaller can read ONLY assigned leads
+      allow read: if isStaff()
+        && resource.data.assignedTo == request.auth.uid;
+
+      // ✅ Telecaller can update ONLY limited fields
+      allow update: if isStaff()
+        && resource.data.assignedTo == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            "status",
+            "partnerNotes",
+            "notes",
+            "followUpDate",
+            "updatedAt"
+          ]);
+
+      // ❌ No client-side create
+      allow create: if false;
+    }
+
+    /* ================================
+       📅 BOOKINGS
+    ================================= */
+    match /bookings/{bookingId} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid)
+        || (isSignedIn() && resource.data.partnerId == request.auth.uid);
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+
+      allow update: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid)
+        || (isSignedIn() && resource.data.partnerId == request.auth.uid);
 
       allow delete: if isAdmin();
     }
 
-    /* ───────────────────────────────
-       💳 PAYMENTS (query-safe for owner)
-    ─────────────────────────────── */
+    /* ================================
+       💳 PAYMENTS
+    ================================= */
     match /payments/{paymentId} {
-      // allow reads when queried by userId
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "userId"
-                   && request.query.where[0].value == request.auth.uid;
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
 
-      // allow reads when queried by partnerId
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "partnerId"
-                   && request.query.where[0].value == request.auth.uid;
-
-      // fallback admin
-      allow read: if isAdmin();
-
-      allow create, update, delete: if isAdmin();
+      allow write, delete: if isAdmin();
     }
 
-    /* ───────────────────────────────
-       💸 REFUNDS (query-safe)
-    ─────────────────────────────── */
+    /* ================================
+       💸 REFUNDS
+    ================================= */
     match /refunds/{refundId} {
-      // allow queries by userId
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "userId"
-                   && request.query.where[0].value == request.auth.uid;
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
 
-      // allow queries by partnerId
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "partnerId"
-                   && request.query.where[0].value == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
 
-      allow read: if isAdmin();
-
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
 
       allow delete: if isAdmin();
     }
 
-    /* ───────────────────────────────
-       💰 SETTLEMENTS (query-safe)
-    ─────────────────────────────── */
+    /* ================================
+       💰 SETTLEMENTS
+    ================================= */
     match /settlements/{sid} {
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.partnerId == request.auth.uid);
 
-      // allow query reads by partnerId
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "partnerId"
-                   && request.query.where[0].value == request.auth.uid;
-
-      // admin may read all
-      allow read: if isAdmin();
-
-      // create by partner themselves
       allow create: if isPartner()
-                    && request.resource.data.partnerId == request.auth.uid;
+        && request.resource.data.partnerId == request.auth.uid;
 
-      // owner can update their settlement doc
-      allow update: if isSignedIn() && resource.data.partnerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.partnerId == request.auth.uid;
 
-      allow delete, write: if isAdmin();
+      allow delete: if isAdmin();
     }
 
-    /* ───────────────────────────────
-       ⚖️ SETTLEMENT DISPUTES & messages
-    ─────────────────────────────── */
+    /* ================================
+       ⚖️ SETTLEMENT DISPUTES
+    ================================= */
     match /settlement_disputes/{disputeId} {
       allow read: if isAdmin()
-                  || (isSignedIn() && resource.data.partnerId == request.auth.uid);
+        || (isSignedIn() && resource.data.partnerId == request.auth.uid);
 
-      allow create: if isPartner() && request.resource.data.partnerId == request.auth.uid;
+      allow create: if isPartner()
+        && request.resource.data.partnerId == request.auth.uid;
 
-      allow update: if isSignedIn() && resource.data.partnerId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.partnerId == request.auth.uid;
 
       allow delete: if isAdmin();
 
       match /messages/{msgId} {
         allow read: if isAdmin()
-                    || (isSignedIn()
-                        && get(/databases/$(database)/documents/settlement_disputes/$(disputeId))
-                           .data.partnerId == request.auth.uid);
+          || (isSignedIn()
+            && get(/databases/$(database)/documents/settlement_disputes/$(disputeId))
+              .data.partnerId == request.auth.uid);
 
-        allow create: if isAdmin()
-                      || (isSignedIn() && request.resource.data.uid == request.auth.uid);
+        allow create: if isSignedIn()
+          && request.resource.data.uid == request.auth.uid;
 
         allow update, delete: if isAdmin();
       }
     }
 
-    /* ───────────────────────────────
-       🔔 NOTIFICATIONS (query-safe)
-    ─────────────────────────────── */
+    /* ================================
+       🔔 NOTIFICATIONS
+    ================================= */
     match /notifications/{id} {
-      // allow queries that filter by userId == request.auth.uid
-      allow read: if isSignedIn()
-                   && request.query != null
-                   && request.query.where.size() > 0
-                   && request.query.where[0].field == "userId"
-                   && request.query.where[0].value == request.auth.uid;
+      allow read: if isAdmin()
+        || (isSignedIn() && resource.data.userId == request.auth.uid);
 
-      allow read: if isAdmin();
-
-      allow update: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
 
       allow delete, write: if isAdmin();
     }
 
-    /* ───────────────────────────────
-       ⭐ REVIEWS / STORIES (public reads)
-    ─────────────────────────────── */
+    /* ================================
+       ⭐ REVIEWS / STORIES
+    ================================= */
     match /reviews/{id} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
     }
 
     match /stories/{id} {
       allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isSignedIn() && resource.data.userId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn()
+        && resource.data.userId == request.auth.uid;
     }
 
-    /* ───────────────────────────────
-       🎁 REFERRALS
-    ─────────────────────────────── */
+    /* ================================
+       🎁 REFERRALS / REWARDS
+    ================================= */
     match /referrals/{rid} {
-      // allow queries that include referrerId or referredUserId filters
       allow read: if isAdmin()
-                  || (isSignedIn() &&
-                      request.query != null
-                      && request.query.where.size() > 0
-                      && (request.query.where[0].field == "referrerId" && request.query.where[0].value == request.auth.uid
-                          || request.query.where[0].field == "referredUserId" && request.query.where[0].value == request.auth.uid)
-                     )
-                  || isSelf(resource.data.referrerId)
-                  || isSelf(resource.data.referredUserId);
+        || isSelf(resource.data.referrerId)
+        || isSelf(resource.data.referredUserId);
 
-      allow create: if isSignedIn() && request.resource.data.referrerId == request.auth.uid;
+      allow create: if isSignedIn()
+        && request.resource.data.referrerId == request.auth.uid;
+
       allow update, delete: if isAdmin();
     }
 
     match /referral_codes/{uid} {
       allow read: if isSelf(uid) || isAdmin();
-      allow create: if isSelf(uid)
-                    && !exists(/databases/$(database)/documents/referral_codes/$(uid));
+      allow create: if isSelf(uid);
       allow update, delete: if isAdmin();
     }
 
     match /rewards/{rewardId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid || isAdmin();
-      allow create, update, delete: if isAdmin();
+      allow read: if (isSignedIn()
+        && resource.data.userId == request.auth.uid) || isAdmin();
+
+      allow write, delete: if isAdmin();
     }
 
-    match /users/{uid}/wallet/{entryId} {
-      allow read: if isSelf(uid) || isAdmin();
-      allow create, update, delete: if isAdmin();
-    }
-
-    /* ───────────────────────────────
-       🏠 PUBLIC DOCUMENTS
-    ─────────────────────────────── */
+    /* ================================
+       🏠 PUBLIC CMS / HOMEPAGE
+    ================================= */
     match /homepage/{docId} {
       allow read: if true;
       allow write: if isAdmin();
-    }
-
-    match /listings/{id} {
-      allow read: if true;
-      allow write, delete: if isAdmin();
     }
 
     match /featured_listings/{id} {
@@ -308,6 +349,13 @@ service cloud.firestore {
     match /recent_stories/{id} {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    /* ================================
+       ❌ FINAL SECURITY LOCK
+    ================================= */
+    match /{document=**} {
+      allow read, write: if false;
     }
   }
 }

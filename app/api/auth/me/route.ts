@@ -21,25 +21,32 @@ export async function GET(req: Request) {
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     const uid = decoded.uid;
 
-    // ✅ USERS COLLECTION CHECK
-    const userSnap = await adminDb.collection("users").doc(uid).get();
-    if (userSnap.exists) {
-      return NextResponse.json({
-        success: true,
-        user: userSnap.data(),
-      });
-    }
-
-    // ✅ STAFF COLLECTION CHECK
+    /* ---------------------------------------------------
+       1️⃣ STAFF — HIGHEST PRIORITY
+    ----------------------------------------------------*/
     const staffSnap = await adminDb.collection("staff").doc(uid).get();
     if (staffSnap.exists) {
+      const staff = staffSnap.data();
+
+      if (staff?.isApproved === false || staff?.isActive === false) {
+        return NextResponse.json(
+          { success: false, error: "Staff not approved" },
+          { status: 403 }
+        );
+      }
+
       return NextResponse.json({
         success: true,
-        user: { role: "staff", ...staffSnap.data() },
+        user: {
+          role: "staff",
+          ...staff,
+        },
       });
     }
 
-    // ✅ PARTNER COLLECTION CHECK
+    /* ---------------------------------------------------
+       2️⃣ PARTNER
+    ----------------------------------------------------*/
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
     if (partnerSnap.exists) {
       return NextResponse.json({
@@ -48,7 +55,20 @@ export async function GET(req: Request) {
       });
     }
 
-    // ✅ DEFAULT USER FALLBACK
+    /* ---------------------------------------------------
+       3️⃣ USER (LOWEST PRIORITY)
+    ----------------------------------------------------*/
+    const userSnap = await adminDb.collection("users").doc(uid).get();
+    if (userSnap.exists) {
+      return NextResponse.json({
+        success: true,
+        user: { role: "user", ...userSnap.data() },
+      });
+    }
+
+    /* ---------------------------------------------------
+       4️⃣ FALLBACK
+    ----------------------------------------------------*/
     return NextResponse.json({
       success: true,
       user: { role: "user" },

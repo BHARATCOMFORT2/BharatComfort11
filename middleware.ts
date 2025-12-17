@@ -15,7 +15,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     2️⃣ SKIP STATIC FILES ONLY (NOT API)
+     2️⃣ SKIP STATIC FILES
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/_next") ||
@@ -26,7 +26,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     ✅ 3️⃣ UNIVERSAL API FIX — INJECT __session ✅✅✅
+     3️⃣ UNIVERSAL API COOKIE FIX
   ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     const sessionCookie =
@@ -80,7 +80,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     ✅ 6️⃣ PROTECTED ROUTES
+     6️⃣ PROTECTED ROUTES
   ----------------------------------------------------*/
   const protectedPaths = [
     "/dashboard",
@@ -110,7 +110,23 @@ export function middleware(request: NextRequest) {
   const isAuthenticated = !!(cookieSession || bearerToken);
 
   if (isProtected && !isAuthenticated) {
-    const loginUrl = new URL(`/auth/login`, request.url);
+
+    // ✅ STAFF → STAFF LOGIN
+    if (pathname.startsWith("/staff")) {
+      const loginUrl = new URL("/staff/login", request.url);
+      loginUrl.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // ✅ ADMIN → AUTH LOGIN
+    if (pathname.startsWith("/admin")) {
+      const loginUrl = new URL("/auth/login", request.url);
+      loginUrl.searchParams.set("redirect", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    // ✅ USER / PARTNER → AUTH LOGIN
+    const loginUrl = new URL("/auth/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }
@@ -119,7 +135,7 @@ export function middleware(request: NextRequest) {
 }
 
 /* ---------------------------------------------------
-   ✅ 7️⃣ MATCHER — ✅ API INCLUDED NOW ✅
+   7️⃣ MATCHER
 ----------------------------------------------------*/
 export const config = {
   matcher: [

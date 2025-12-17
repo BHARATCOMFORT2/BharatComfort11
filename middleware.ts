@@ -26,7 +26,18 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     3️⃣ UNIVERSAL API COOKIE FIX
+     3️⃣ SKIP AUTH & STAFF LOGIN / REGISTER ROUTES
+  ----------------------------------------------------*/
+  if (
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/staff/login") ||
+    pathname.startsWith("/staff/register")
+  ) {
+    return NextResponse.next();
+  }
+
+  /* ---------------------------------------------------
+     4️⃣ UNIVERSAL API FIX — INJECT __session
   ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     const sessionCookie =
@@ -35,30 +46,21 @@ export function middleware(request: NextRequest) {
       request.cookies.get("firebase_session")?.value ||
       "";
 
-    const newHeaders = new Headers(request.headers);
-    const existingCookie = request.headers.get("cookie") || "";
-
     if (sessionCookie) {
+      const newHeaders = new Headers(request.headers);
+      const existingCookie = request.headers.get("cookie") || "";
+
       const updatedCookie = existingCookie.includes("__session=")
         ? existingCookie.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
         : `__session=${sessionCookie}; ${existingCookie}`;
 
       newHeaders.set("cookie", updatedCookie);
+
+      return NextResponse.next({
+        request: { headers: newHeaders },
+      });
     }
 
-    return NextResponse.next({
-      request: { headers: newHeaders },
-    });
-  }
-
-  /* ---------------------------------------------------
-     4️⃣ SKIP AUTH / STAFF LOGIN ROUTES
-  ----------------------------------------------------*/
-  if (
-    pathname.startsWith("/auth") ||
-    pathname.startsWith("/staff/login") ||
-    pathname.startsWith("/staff/register")
-  ) {
     return NextResponse.next();
   }
 
@@ -107,26 +109,10 @@ export function middleware(request: NextRequest) {
     ? authHeader.substring(7)
     : "";
 
-  const isAuthenticated = !!(cookieSession || bearerToken);
+  const isAuthenticated = Boolean(cookieSession || bearerToken);
 
   if (isProtected && !isAuthenticated) {
-
-    // ✅ STAFF → STAFF LOGIN
-    if (pathname.startsWith("/staff")) {
-      const loginUrl = new URL("/staff/login", request.url);
-      loginUrl.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    // ✅ ADMIN → AUTH LOGIN
-    if (pathname.startsWith("/admin")) {
-      const loginUrl = new URL("/auth/login", request.url);
-      loginUrl.searchParams.set("redirect", pathname);
-      return NextResponse.redirect(loginUrl);
-    }
-
-    // ✅ USER / PARTNER → AUTH LOGIN
-    const loginUrl = new URL("/auth/login", request.url);
+    const loginUrl = new URL(`/auth/login`, request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }

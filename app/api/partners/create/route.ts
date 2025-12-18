@@ -3,13 +3,20 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
+function getBearerToken(req: Request) {
+  const h = req.headers.get("authorization");
+  if (!h?.startsWith("Bearer ")) return null;
+  return h.split("Bearer ")[1];
+}
+
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
+    const now = admin.firestore.FieldValue.serverTimestamp();
 
-    /* -----------------------------------
+    /* -------------------------------
        1️⃣ Parse body
-    ------------------------------------*/
+    --------------------------------*/
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json(
@@ -18,38 +25,29 @@ export async function POST(req: Request) {
       );
     }
 
-    const {
-      token,
-      displayName,
-      phone,
-      email,
-      businessName,
-      metadata,
-    } = body;
+    const { displayName, phone, email, businessName, metadata } = body;
 
-    const now = admin.firestore.FieldValue.serverTimestamp();
-
-    /* -----------------------------------
-       2️⃣ Resolve or Create Firebase Auth User
-       ✅ TOKEN OPTIONAL (NEW PARTNER SAFE)
-    ------------------------------------*/
+    /* -------------------------------
+       2️⃣ AUTH RESOLUTION (FIXED)
+    --------------------------------*/
     let uid: string;
     let userEmail: string | null = email ?? null;
 
+    const headerToken = getBearerToken(req);
     let decoded: any = null;
-    if (token) {
-      decoded = await adminAuth.verifyIdToken(token).catch(() => null);
+
+    if (headerToken) {
+      decoded = await adminAuth.verifyIdToken(headerToken).catch(() => null);
     }
 
     if (decoded) {
-      // Existing logged-in user
       uid = decoded.uid;
       userEmail = decoded.email || userEmail;
     } else {
-      // 🔥 NEW PARTNER SIGNUP (NO LOGIN YET)
+      // 🚨 New partner WITHOUT login
       if (!email || !phone) {
         return NextResponse.json(
-          { success: false, error: "Email and phone are required" },
+          { success: false, error: "Email & phone required" },
           { status: 400 }
         );
       }
@@ -63,17 +61,17 @@ export async function POST(req: Request) {
       uid = userRecord.uid;
     }
 
-    /* -----------------------------------
-       3️⃣ SET CUSTOM CLAIMS (CRITICAL)
-    ------------------------------------*/
+    /* -------------------------------
+       3️⃣ CUSTOM CLAIMS
+    --------------------------------*/
     await adminAuth.setCustomUserClaims(uid, {
       role: "partner",
       partner: true,
     });
 
-    /* -----------------------------------
-       4️⃣ USERS/{uid} — ENSURE ROLE=partner
-    ------------------------------------*/
+    /* -------------------------------
+       4️⃣ USERS/{uid} (SAFE MERGE)
+    --------------------------------*/
     const userRef = adminDb.collection("users").doc(uid);
     const userSnap = await userRef.get();
     const existingUser = userSnap.exists ? userSnap.data() : null;
@@ -85,10 +83,7 @@ export async function POST(req: Request) {
       name: displayName ?? existingUser?.name ?? null,
       role: "partner",
       partnerId: uid,
-      status: "partner_onboarding",
-      emailVerified: true,
-      phoneVerified: true,
-      verified: false,
+      status: existingUser?.status ?? "partner_onboarding",
       updatedAt: now,
     };
 
@@ -98,9 +93,9 @@ export async function POST(req: Request) {
 
     await userRef.set(userPayload, { merge: true });
 
-    /* -----------------------------------
-       5️⃣ PARTNERS/{uid} — SAFE UPSERT
-    ------------------------------------*/
+    /* -------------------------------
+       5️⃣ PARTNERS/{uid}
+    --------------------------------*/
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
     const existingPartner = partnerSnap.exists
@@ -109,8 +104,6 @@ export async function POST(req: Request) {
 
     const partnerPayload: any = {
       uid,
-
-      // Profile
       displayName:
         displayName ?? existingPartner?.displayName ?? null,
       phone: phone ?? existingPartner?.phone ?? null,
@@ -119,7 +112,6 @@ export async function POST(req: Request) {
         businessName ?? existingPartner?.businessName ?? null,
       metadata: metadata ?? existingPartner?.metadata ?? null,
 
-      // Lifecycle (NEVER auto downgrade)
       status: existingPartner?.status || "PENDING_KYC",
       kycStatus: existingPartner?.kycStatus || "NOT_STARTED",
       approved: existingPartner?.approved || false,
@@ -134,21 +126,18 @@ export async function POST(req: Request) {
 
     await partnerRef.set(partnerPayload, { merge: true });
 
-    /* -----------------------------------
+    /* -------------------------------
        6️⃣ SUCCESS
-    ------------------------------------*/
+    --------------------------------*/
     return NextResponse.json({
       success: true,
       partnerId: uid,
-      message: "✅ Partner registered successfully",
+      message: "Partner registered successfully",
     });
   } catch (err: any) {
     console.error("❌ Partner create error:", err);
     return NextResponse.json(
-      {
-        success: false,
-        error: err?.message || "Internal server error",
-      },
+      { success: false, error: err?.message || "Server error" },
       { status: 500 }
     );
   }

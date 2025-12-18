@@ -6,10 +6,9 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
- * ✅ Creates a verified user record.
- * If role === "partner", it creates:
- *  - users/{uid}     -> light pointer record
- *  - partners/{uid} -> full partner profile with kycStatus
+ * ✅ Creates or updates VERIFIED USER ONLY
+ * ❌ Does NOT create partner document
+ * Partner creation MUST happen via /api/partners/create
  */
 export async function POST(req: Request) {
   try {
@@ -24,7 +23,6 @@ export async function POST(req: Request) {
       role = "user",
       referredBy = null,
       referralCode = null,
-      kycStatus = null,
     } = data ?? {};
 
     if (!uid || !email) {
@@ -36,71 +34,72 @@ export async function POST(req: Request) {
 
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    /* ✅ 1️⃣ USERS/{uid} (LIGHT POINTER DOC) */
-    const userDoc = {
+    /* ----------------------------------
+       1️⃣ FETCH EXISTING USER (SAFE)
+    -----------------------------------*/
+    const userRef = adminDb.collection("users").doc(uid);
+    const snap = await userRef.get();
+    const existing = snap.exists ? snap.data() : null;
+
+    /* ----------------------------------
+       2️⃣ ROLE SAFETY (NO DOWNGRADE)
+    -----------------------------------*/
+    const finalRole =
+      existing?.role === "partner" ? "partner" : role;
+
+    /* ----------------------------------
+       3️⃣ USERS/{uid} (MERGE SAFE)
+    -----------------------------------*/
+    const userPayload: any = {
       uid,
-      name: name || null,
       email,
-      phone: phone || null,
-      role,
-      status: role === "partner" ? "partner_onboarding" : "active",
-      emailVerified: true,
-      phoneVerified: true,
-      verified: role === "partner" ? false : true,
-      createdAt: now,
       updatedAt: now,
-      referredBy: referredBy ?? null,
-      referralCode: referralCode ?? null,
-      partnerId: role === "partner" ? uid : null,
     };
 
-    await adminDb
-      .collection("users")
-      .doc(uid)
-      .set(userDoc, { merge: true });
-
-    /* ✅ 2️⃣ PARTNERS/{uid} (ONLY IF PARTNER) */
-    if (role === "partner") {
-      const partnerRef = adminDb.collection("partners").doc(uid);
-      const partnerSnap = await partnerRef.get();
-
-      // ✅ Prevent duplicate overwrite
-      if (!partnerSnap.exists) {
-        const partnerDoc = {
-          uid,
-          name: name || null,
-          email,
-          phone: phone || null,
-          createdAt: now,
-          updatedAt: now,
-
-          // ✅ Partner lifecycle
-          status: "PENDING_KYC",   // PENDING_KYC → ACTIVE → BLOCKED
-          kycStatus: kycStatus || "NOT_STARTED",
-
-          kyc: null,
-          approved: false,
-          approvedAt: null,
-        };
-
-        await partnerRef.set(partnerDoc);
-      }
-
-      return NextResponse.json({
-        success: true,
-        message: "✅ Partner user created (pending KYC).",
-        partnerId: uid,
-      });
+    if (!existing) {
+      userPayload.createdAt = now;
     }
 
-    /* ✅ 3️⃣ NORMAL USER */
+    if (name && !existing?.name) userPayload.name = name;
+    if (phone && !existing?.phone) userPayload.phone = phone;
+
+    userPayload.role = finalRole;
+    userPayload.partnerId =
+      finalRole === "partner" ? uid : existing?.partnerId ?? null;
+
+    userPayload.status =
+      finalRole === "partner"
+        ? existing?.status ?? "partner_onboarding"
+        : existing?.status ?? "active";
+
+    userPayload.referredBy =
+      existing?.referredBy ?? referredBy ?? null;
+
+    userPayload.referralCode =
+      existing?.referralCode ?? referralCode ?? null;
+
+    // ✅ Verification flags SHOULD already be true
+    // from OTP system — do NOT force overwrite
+    if (!existing) {
+      userPayload.emailVerified = true;
+      userPayload.phoneVerified = true;
+      userPayload.verified = finalRole !== "partner";
+    }
+
+    await userRef.set(userPayload, { merge: true });
+
+    /* ----------------------------------
+       4️⃣ RESPONSE
+    -----------------------------------*/
     return NextResponse.json({
       success: true,
-      message: "✅ User created successfully.",
+      message:
+        finalRole === "partner"
+          ? "User verified. Partner onboarding in progress."
+          : "User verified successfully.",
     });
   } catch (err: any) {
-    console.error("❌ Error creating verified user:", err);
-
+    console.error("❌ create-verified-user error:", err);
     return NextResponse.json(
       {
         success: false,

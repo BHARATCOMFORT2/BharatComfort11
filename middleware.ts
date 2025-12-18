@@ -15,7 +15,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     2️⃣ SKIP STATIC FILES
+     2️⃣ SKIP STATIC / PUBLIC FILES
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/_next") ||
@@ -26,10 +26,14 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     3️⃣ SKIP AUTH & STAFF LOGIN / REGISTER ROUTES
+     3️⃣ SKIP AUTH PAGES (VERY IMPORTANT)
+     🔥 ADMIN LOGIN MUST BE SKIPPED
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/auth") ||
+    pathname.startsWith("/admin/login") ||
+    pathname.startsWith("/admin/register") ||
+    pathname.startsWith("/admin/forgot") ||
     pathname.startsWith("/staff/login") ||
     pathname.startsWith("/staff/register")
   ) {
@@ -37,7 +41,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     4️⃣ UNIVERSAL API FIX — INJECT __session
+     4️⃣ UNIVERSAL API COOKIE INJECTION
   ----------------------------------------------------*/
   if (pathname.startsWith("/api")) {
     const sessionCookie =
@@ -51,7 +55,10 @@ export function middleware(request: NextRequest) {
       const existingCookie = request.headers.get("cookie") || "";
 
       const updatedCookie = existingCookie.includes("__session=")
-        ? existingCookie.replace(/__session=[^;]+/, `__session=${sessionCookie}`)
+        ? existingCookie.replace(
+            /__session=[^;]+/,
+            `__session=${sessionCookie}`
+          )
         : `__session=${sessionCookie}; ${existingCookie}`;
 
       newHeaders.set("cookie", updatedCookie);
@@ -65,7 +72,7 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     5️⃣ REFERRAL CAPTURE
+     5️⃣ REFERRAL CAPTURE (PUBLIC)
   ----------------------------------------------------*/
   const ref = request.nextUrl.searchParams.get("ref");
   if (ref && /^[a-zA-Z0-9_-]{4,20}$/.test(ref)) {
@@ -88,7 +95,7 @@ export function middleware(request: NextRequest) {
     "/dashboard",
     "/user",
     "/partner",
-    "/admin",
+    "/admin", // ❗ admin dashboard only (login already skipped)
     "/staff",
     "/chat",
     "/book",
@@ -112,7 +119,7 @@ export function middleware(request: NextRequest) {
   const isAuthenticated = Boolean(cookieSession || bearerToken);
 
   if (isProtected && !isAuthenticated) {
-    const loginUrl = new URL(`/auth/login`, request.url);
+    const loginUrl = new URL("/auth/login", request.url);
     loginUrl.searchParams.set("redirect", pathname);
     return NextResponse.redirect(loginUrl);
   }

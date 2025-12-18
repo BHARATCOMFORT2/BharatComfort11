@@ -5,79 +5,44 @@ import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 
 export async function GET(req: Request) {
   try {
-    const cookie = req.headers.get("cookie") || "";
-    const sessionCookie = cookie
-      .split("; ")
-      .find((c) => c.startsWith("__session="))
-      ?.replace("__session=", "");
-
+    // ✅ SAFE COOKIE READ
+    const sessionCookie = req.cookies.get("__session")?.value;
     if (!sessionCookie) {
-      return NextResponse.json(
-        { success: false, error: "Not authenticated" },
-        { status: 401 }
-      );
+      return NextResponse.json({ success: false });
     }
 
     const decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
     const uid = decoded.uid;
 
     /* ---------------------------------------------------
-       1️⃣ STAFF — HIGHEST PRIORITY
-    ----------------------------------------------------*/
-    const staffSnap = await adminDb.collection("staff").doc(uid).get();
-    if (staffSnap.exists) {
-      const staff = staffSnap.data();
-
-      if (staff?.isApproved === false || staff?.isActive === false) {
-        return NextResponse.json(
-          { success: false, error: "Staff not approved" },
-          { status: 403 }
-        );
-      }
-
-      return NextResponse.json({
-        success: true,
-        user: {
-          role: "staff",
-          ...staff,
-        },
-      });
-    }
-
-    /* ---------------------------------------------------
-       2️⃣ PARTNER
-    ----------------------------------------------------*/
-    const partnerSnap = await adminDb.collection("partners").doc(uid).get();
-    if (partnerSnap.exists) {
-      return NextResponse.json({
-        success: true,
-        user: { role: "partner", ...partnerSnap.data() },
-      });
-    }
-
-    /* ---------------------------------------------------
-       3️⃣ USER (LOWEST PRIORITY)
+       SINGLE SOURCE OF TRUTH: users collection
     ----------------------------------------------------*/
     const userSnap = await adminDb.collection("users").doc(uid).get();
-    if (userSnap.exists) {
+
+    if (!userSnap.exists) {
       return NextResponse.json({
         success: true,
-        user: { role: "user", ...userSnap.data() },
+        user: { role: "user" },
       });
     }
 
-    /* ---------------------------------------------------
-       4️⃣ FALLBACK
-    ----------------------------------------------------*/
+    const user = userSnap.data()!;
+
+    // ❌ NEVER LOGOUT FROM HERE
+    // ❌ NO 401 / 403 FOR ROLE ISSUES
+
     return NextResponse.json({
       success: true,
-      user: { role: "user" },
+      user: {
+        role: user.role || "user",
+        ...user,
+      },
     });
-  } catch (e: any) {
-    console.error("AUTH ME ERROR:", e);
-    return NextResponse.json(
-      { success: false, error: "Invalid session" },
-      { status: 401 }
-    );
+  } catch (e) {
+    console.error("AUTH CHECK ERROR:", e);
+
+    // 🔥 DO NOT CLEAR COOKIE
+    // 🔥 DO NOT FORCE LOGOUT
+    return NextResponse.json({ success: false });
   }
 }

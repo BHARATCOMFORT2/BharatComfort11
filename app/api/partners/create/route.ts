@@ -1,17 +1,15 @@
-// app/api/partners/create/route.ts
+export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
-
-export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin } = getFirebaseAdmin();
 
-    // -----------------------------------
-    // 1️⃣ Parse body
-    // -----------------------------------
+    /* -----------------------------------
+       1️⃣ Parse body
+    ------------------------------------*/
     const body = await req.json().catch(() => null);
     if (!body) {
       return NextResponse.json(
@@ -20,33 +18,62 @@ export async function POST(req: Request) {
       );
     }
 
-    const { token, displayName, phone, email, businessName, metadata } = body;
+    const {
+      token,
+      displayName,
+      phone,
+      email,
+      businessName,
+      metadata,
+    } = body;
 
-    if (!token) {
-      return NextResponse.json(
-        { success: false, error: "Missing token" },
-        { status: 401 }
-      );
-    }
-
-    // -----------------------------------
-    // 2️⃣ Verify Firebase ID Token
-    // -----------------------------------
-    const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
-    if (!decoded) {
-      return NextResponse.json(
-        { success: false, error: "Invalid or expired token" },
-        { status: 401 }
-      );
-    }
-
-    const uid = decoded.uid;
-    const userEmail = decoded.email || email || null;
     const now = admin.firestore.FieldValue.serverTimestamp();
 
-    // -----------------------------------
-    // 3️⃣ Ensure USERS/{uid} exists with role=partner ✅ CRITICAL FIX
-    // -----------------------------------
+    /* -----------------------------------
+       2️⃣ Resolve or Create Firebase Auth User
+       ✅ TOKEN OPTIONAL (NEW PARTNER SAFE)
+    ------------------------------------*/
+    let uid: string;
+    let userEmail: string | null = email ?? null;
+
+    let decoded: any = null;
+    if (token) {
+      decoded = await adminAuth.verifyIdToken(token).catch(() => null);
+    }
+
+    if (decoded) {
+      // Existing logged-in user
+      uid = decoded.uid;
+      userEmail = decoded.email || userEmail;
+    } else {
+      // 🔥 NEW PARTNER SIGNUP (NO LOGIN YET)
+      if (!email || !phone) {
+        return NextResponse.json(
+          { success: false, error: "Email and phone are required" },
+          { status: 400 }
+        );
+      }
+
+      const userRecord = await adminAuth.createUser({
+        email,
+        phoneNumber: phone,
+        displayName: displayName ?? undefined,
+      });
+
+      uid = userRecord.uid;
+    }
+
+    /* -----------------------------------
+       3️⃣ SET CUSTOM CLAIMS (CRITICAL)
+    ------------------------------------*/
+    await adminAuth.setCustomUserClaims(uid, {
+      role: "partner",
+      partner: true,
+    });
+
+    /* -----------------------------------
+       4️⃣ USERS/{uid} — ENSURE ROLE=partner
+    ------------------------------------*/
     const userRef = adminDb.collection("users").doc(uid);
     const userSnap = await userRef.get();
     const existingUser = userSnap.exists ? userSnap.data() : null;
@@ -56,7 +83,7 @@ export async function POST(req: Request) {
       email: userEmail,
       phone: phone ?? existingUser?.phone ?? null,
       name: displayName ?? existingUser?.name ?? null,
-      role: "partner", // ✅ ENFORCED
+      role: "partner",
       partnerId: uid,
       status: "partner_onboarding",
       emailVerified: true,
@@ -71,50 +98,57 @@ export async function POST(req: Request) {
 
     await userRef.set(userPayload, { merge: true });
 
-    // -----------------------------------
-    // 4️⃣ Create / Update PARTNERS/{uid} safely ✅ NO KYC RESET
-    // -----------------------------------
+    /* -----------------------------------
+       5️⃣ PARTNERS/{uid} — SAFE UPSERT
+    ------------------------------------*/
     const partnerRef = adminDb.collection("partners").doc(uid);
     const partnerSnap = await partnerRef.get();
-    const existing = partnerSnap.exists ? partnerSnap.data() : null;
+    const existingPartner = partnerSnap.exists
+      ? partnerSnap.data()
+      : null;
 
     const partnerPayload: any = {
       uid,
 
-      // Profile fields
-      displayName: displayName ?? existing?.displayName ?? null,
-      phone: phone ?? existing?.phone ?? null,
-      email: userEmail ?? existing?.email ?? null,
-      businessName: businessName ?? existing?.businessName ?? null,
-      metadata: metadata ?? existing?.metadata ?? null,
+      // Profile
+      displayName:
+        displayName ?? existingPartner?.displayName ?? null,
+      phone: phone ?? existingPartner?.phone ?? null,
+      email: userEmail ?? existingPartner?.email ?? null,
+      businessName:
+        businessName ?? existingPartner?.businessName ?? null,
+      metadata: metadata ?? existingPartner?.metadata ?? null,
 
-      // ✅ Partner lifecycle NEVER auto downgrade
-      status: existing?.status || "PENDING_KYC", // PENDING_KYC → ACTIVE → BLOCKED
-      kycStatus: existing?.kycStatus || "NOT_STARTED",
-      approved: existing?.approved || false,
-      approvedAt: existing?.approvedAt || null,
+      // Lifecycle (NEVER auto downgrade)
+      status: existingPartner?.status || "PENDING_KYC",
+      kycStatus: existingPartner?.kycStatus || "NOT_STARTED",
+      approved: existingPartner?.approved || false,
+      approvedAt: existingPartner?.approvedAt || null,
 
       updatedAt: now,
     };
 
-    if (!existing) {
+    if (!existingPartner) {
       partnerPayload.createdAt = now;
     }
 
     await partnerRef.set(partnerPayload, { merge: true });
 
-    // -----------------------------------
-    // 5️⃣ Final success
-    // -----------------------------------
+    /* -----------------------------------
+       6️⃣ SUCCESS
+    ------------------------------------*/
     return NextResponse.json({
       success: true,
       partnerId: uid,
-      message: "✅ Partner profile created / updated safely",
+      message: "✅ Partner registered successfully",
     });
   } catch (err: any) {
     console.error("❌ Partner create error:", err);
     return NextResponse.json(
-      { success: false, error: err?.message || "Internal server error" },
+      {
+        success: false,
+        error: err?.message || "Internal server error",
+      },
       { status: 500 }
     );
   }

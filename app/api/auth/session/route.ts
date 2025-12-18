@@ -5,46 +5,31 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const preferredRegion = "auto";
 
-/* ==========================================
-   SAFE COOKIE OPTIONS
-========================================== */
+/**
+ * ✅ SAFE COOKIE OPTIONS
+ * - Never hardcode domain
+ * - Uses env only in production
+ */
 const COOKIE_OPTIONS = {
   httpOnly: true,
   secure: process.env.NODE_ENV === "production",
   sameSite: "lax" as const,
   path: "/",
-  ...(process.env.COOKIE_DOMAIN
-    ? { domain: process.env.COOKIE_DOMAIN }
-    : {}),
+  ...(process.env.COOKIE_DOMAIN ? { domain: process.env.COOKIE_DOMAIN } : {}),
 };
-
-/* ==========================================
-   Helper: Extract Bearer Token
-========================================== */
-function getBearerToken(req: Request) {
-  const h = req.headers.get("authorization");
-  if (!h?.startsWith("Bearer ")) return null;
-  return h.substring(7);
-}
 
 /* ======================================================
    ✅ CREATE SESSION (LOGIN)
-   POST /api/auth/session
 ====================================================== */
 export async function POST(req: Request) {
   try {
-    const token = getBearerToken(req);
+    const { token } = await req.json();
+
     if (!token) {
-      return NextResponse.json(
-        { error: "Missing Authorization token" },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: "Missing token" }, { status: 400 });
     }
 
     const { adminAuth } = getFirebaseAdmin();
-
-    // Verify ID token first (important)
-    await adminAuth.verifyIdToken(token);
 
     const expiresIn = 7 * 24 * 60 * 60 * 1000; // 7 days
     const sessionCookie = await adminAuth.createSessionCookie(token, {
@@ -64,29 +49,46 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("🔥 Session creation error:", error?.message || error);
     return NextResponse.json(
-      { error: "Session creation failed" },
-      { status: 401 }
+      { error: error.message || "Internal error" },
+      { status: 500 }
     );
   }
 }
 
 /* ======================================================
    ✅ VALIDATE SESSION
-   GET /api/auth/session
 ====================================================== */
 export async function GET(req: Request) {
   try {
     const { adminAuth } = getFirebaseAdmin();
 
-    const sessionCookie = req.cookies.get("__session")?.value;
+    const cookieHeader = req.headers.get("cookie") || "";
+    const raw = cookieHeader
+      .split("; ")
+      .find((c) => c.startsWith("__session="));
+
+    const sessionCookie = raw?.split("=")[1];
+
     if (!sessionCookie) {
       return NextResponse.json({ authenticated: false }, { status: 401 });
     }
 
-    const decoded = await adminAuth.verifySessionCookie(
-      sessionCookie,
-      true
-    );
+    let decoded;
+    try {
+      decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+    } catch (err) {
+      const resp = NextResponse.json(
+        { authenticated: false },
+        { status: 401 }
+      );
+      resp.cookies.set({
+        name: "__session",
+        value: "",
+        maxAge: 0,
+        ...COOKIE_OPTIONS,
+      });
+      return resp;
+    }
 
     return NextResponse.json({
       authenticated: true,
@@ -95,31 +97,29 @@ export async function GET(req: Request) {
       email: decoded.email || null,
     });
   } catch (err) {
-    const res = NextResponse.json(
-      { authenticated: false },
-      { status: 401 }
-    );
-    res.cookies.set({
+    const resp = NextResponse.json({ authenticated: false }, { status: 401 });
+    resp.cookies.set({
       name: "__session",
       value: "",
       maxAge: 0,
       ...COOKIE_OPTIONS,
     });
-    return res;
+    return resp;
   }
 }
 
 /* ======================================================
-   ✅ LOGOUT
-   DELETE /api/auth/session
+   ✅ LOGOUT / CLEAR SESSION
 ====================================================== */
 export async function DELETE() {
   const res = NextResponse.json({ success: true });
+
   res.cookies.set({
     name: "__session",
     value: "",
     maxAge: 0,
     ...COOKIE_OPTIONS,
   });
+
   return res;
 }

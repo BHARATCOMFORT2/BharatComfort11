@@ -27,10 +27,12 @@ const countryCodes = [
   { code: "+81", name: "Japan 🇯🇵" },
 ];
 
+type Step = "register" | "phone" | "email";
+
 export default function RegisterPage() {
   const router = useRouter();
 
-  const [step, setStep] = useState<"register" | "phone" | "email">("register");
+  const [step, setStep] = useState<Step>("register");
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -50,15 +52,14 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [otpSentAt, setOtpSentAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState(0);
-  const [tempUid, setTempUid] = useState<string | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
 
-  /* 🔐 reCAPTCHA */
+  /* 🔐 reCAPTCHA INIT */
   useEffect(() => {
-    const id = setTimeout(() => initRecaptcha("recaptcha-container"), 0);
-    return () => clearTimeout(id);
+    initRecaptcha("recaptcha-container");
   }, []);
 
-  /* ⏱️ OTP Timer */
+  /* ⏱️ OTP TIMER */
   useEffect(() => {
     if (step !== "phone" || !otpSentAt) return;
     const t = setInterval(() => {
@@ -76,9 +77,9 @@ export default function RegisterPage() {
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }));
 
-  /* =========================
-     STEP 1 – REGISTER
-  ========================= */
+  /* =================================================
+     STEP 1️⃣ REGISTER (NO FIREBASE AUTH HERE)
+  ================================================= */
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -87,56 +88,71 @@ export default function RegisterPage() {
     if (form.password !== form.confirmPassword)
       return setError("Passwords do not match.");
 
-    const phoneNumber = `${countryCode}${form.phone.trim()}`;
+    const raw = form.phone.replace(/\D/g, "");
+    const clean = raw.startsWith("0") ? raw.slice(1) : raw;
+    const phoneNumber = `${countryCode}${clean}`;
+
     if (!/^\+[1-9]\d{9,14}$/.test(phoneNumber))
       return setError("Invalid phone number.");
 
     setLoading(true);
     try {
-      const cred = await createUserWithEmailAndPassword(
-        auth,
-        form.email,
-        form.password
+      // 🔐 STORE TEMP DATA (NO AUTH YET)
+      sessionStorage.setItem(
+        "pendingSignup",
+        JSON.stringify({
+          ...form,
+          phone: phoneNumber,
+        })
       );
-      setTempUid(cred.user.uid);
 
       await sendOtp(phoneNumber);
       setOtpSentAt(Date.now());
       setTimeLeft(600);
       setStep("phone");
     } catch (err: any) {
-      setError(
-        err.code === "auth/email-already-in-use"
-          ? "Email already in use."
-          : "Registration failed."
-      );
+      setError(err.message || "Failed to send OTP.");
     } finally {
       setLoading(false);
     }
   };
 
-  /* =========================
-     STEP 2 – PHONE OTP
-  ========================= */
+  /* =================================================
+     STEP 2️⃣ PHONE OTP VERIFY → CREATE AUTH USER
+  ================================================= */
   const handleVerifyPhoneOtp = async () => {
     if (!otp.trim()) return setError("Enter OTP.");
-    if (!tempUid) return setError("Session expired.");
 
     setLoading(true);
     try {
-      const user = await verifyOtp(otp);
-      if (!user) throw new Error("Invalid OTP.");
+      await verifyOtp(otp);
 
+      const pending = JSON.parse(
+        sessionStorage.getItem("pendingSignup") || "{}"
+      );
+
+      if (!pending.email || !pending.password) {
+        throw new Error("Session expired. Please register again.");
+      }
+
+      // 🔥 CREATE AUTH USER ONLY AFTER OTP VERIFIED
+      const cred = await createUserWithEmailAndPassword(
+        auth,
+        pending.email,
+        pending.password
+      );
+
+      setUid(cred.user.uid);
       clearOtpSession();
       setStep("email");
 
       await fetch("/api/auth/send-email-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email }),
+        body: JSON.stringify({ email: pending.email }),
       });
     } catch (err: any) {
-      setError(err.message || "OTP failed.");
+      setError(err.message || "OTP verification failed.");
     } finally {
       setLoading(false);
     }
@@ -144,67 +160,71 @@ export default function RegisterPage() {
 
   const handleResendOtp = async () => {
     try {
-      await resendOtp(`${countryCode}${form.phone}`);
+      await resendOtp();
       setOtpSentAt(Date.now());
       setTimeLeft(600);
-    } catch {
-      setError("Resend failed.");
+    } catch (err: any) {
+      setError(err.message || "Resend failed.");
     }
   };
 
-  /* =========================
-     STEP 3 – EMAIL OTP + USER + PARTNER CREATE
-  ========================= */
+  /* =================================================
+     STEP 3️⃣ EMAIL OTP → USER + PARTNER CREATE
+  ================================================= */
   const handleVerifyEmailOtp = async () => {
     if (!emailOtp.trim()) return setError("Enter Email OTP.");
-    if (!tempUid) return setError("Session expired.");
+    if (!uid) return setError("Session expired.");
 
     setLoading(true);
     try {
-      /* Verify email OTP */
+      const pending = JSON.parse(
+        sessionStorage.getItem("pendingSignup") || "{}"
+      );
+
       const verifyRes = await fetch("/api/auth/verify-email-otp", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: form.email, otp: emailOtp }),
+        body: JSON.stringify({ email: pending.email, otp: emailOtp }),
       });
+
       const verifyData = await verifyRes.json();
       if (!verifyData.success) throw new Error(verifyData.message);
 
-      /* Referral lookup */
       let referredBy: string | null = null;
-      if (form.referral.trim()) {
+      if (pending.referral) {
         const q = query(
           collection(db, "users"),
-          where("referralCode", "==", form.referral.trim())
+          where("referralCode", "==", pending.referral)
         );
         const snap = await getDocs(q);
         if (!snap.empty) referredBy = snap.docs[0].id;
       }
 
       const referralCode =
-        form.name.split(" ")[0].toUpperCase() + "-" + nanoid(5).toUpperCase();
+        pending.name.split(" ")[0].toUpperCase() +
+        "-" +
+        nanoid(5).toUpperCase();
 
-      /* Create verified user */
+      // ✅ CREATE VERIFIED USER
       const createUserRes = await fetch("/api/auth/create-verified-user", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          uid: tempUid,
-          name: form.name,
-          email: form.email,
-          phone: `${countryCode}${form.phone}`,
-          role: form.role,
+          uid,
+          name: pending.name,
+          email: pending.email,
+          phone: pending.phone,
+          role: pending.role,
           referredBy,
           referralCode,
-          kycStatus: form.role === "partner" ? "NOT_STARTED" : null,
         }),
       });
 
       const userData = await createUserRes.json();
       if (!userData.success) throw new Error(userData.message);
 
-      /* 🔥 CREATE PARTNER (FIX) */
-      if (form.role === "partner") {
+      // 🔥 CREATE PARTNER
+      if (pending.role === "partner") {
         const token = await auth.currentUser?.getIdToken();
 
         const partnerRes = await fetch("/api/partners/create", {
@@ -214,9 +234,9 @@ export default function RegisterPage() {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            displayName: form.name,
-            email: form.email,
-            phone: `${countryCode}${form.phone}`,
+            displayName: pending.name,
+            email: pending.email,
+            phone: pending.phone,
             businessName: "",
             metadata: {},
           }),
@@ -227,8 +247,9 @@ export default function RegisterPage() {
           throw new Error("Partner creation failed.");
       }
 
+      sessionStorage.removeItem("pendingSignup");
       router.push(
-        form.role === "partner" ? "/partner/dashboard" : "/dashboard"
+        pending.role === "partner" ? "/partner/dashboard" : "/dashboard"
       );
     } catch (err: any) {
       setError(err.message || "Verification failed.");
@@ -237,13 +258,12 @@ export default function RegisterPage() {
     }
   };
 
-  /* =========================
+  /* =================================================
      UI
-  ========================= */
+  ================================================= */
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-2xl shadow-lg p-8 space-y-6">
-
         {error && (
           <p className="text-red-600 bg-red-50 p-2 rounded text-sm">{error}</p>
         )}
@@ -252,43 +272,97 @@ export default function RegisterPage() {
           <form onSubmit={handleRegister} className="space-y-4">
             <h1 className="text-2xl font-bold text-center">Create Account</h1>
 
-            <input name="name" placeholder="Full Name" required
-              value={form.name} onChange={handleChange}
-              className="w-full border rounded p-3" />
+            <input
+              name="name"
+              placeholder="Full Name"
+              required
+              value={form.name}
+              onChange={handleChange}
+              className="w-full border rounded p-3"
+            />
 
-            <input name="email" type="email" placeholder="Email" required
-              value={form.email} onChange={handleChange}
-              className="w-full border rounded p-3" />
+            <input
+              name="email"
+              type="email"
+              placeholder="Email"
+              required
+              value={form.email}
+              onChange={handleChange}
+              className="w-full border rounded p-3"
+            />
 
             <div className="flex gap-2">
-              <select value={countryCode}
+              <select
+                value={countryCode}
                 onChange={(e) => setCountryCode(e.target.value)}
-                className="border rounded p-2">
+                className="border rounded p-2"
+              >
                 {countryCodes.map((c) => (
-                  <option key={c.code} value={c.code}>{c.name}</option>
+                  <option key={c.code} value={c.code}>
+                    {c.name}
+                  </option>
                 ))}
               </select>
-              <input name="phone" placeholder="Phone" required
-                value={form.phone} onChange={handleChange}
-                className="flex-1 border rounded p-3" />
+              <input
+                name="phone"
+                placeholder="Phone"
+                required
+                value={form.phone}
+                onChange={handleChange}
+                className="flex-1 border rounded p-3"
+              />
             </div>
 
-            <input name="referral" placeholder="Referral Code"
-              value={form.referral} onChange={handleChange}
-              className="w-full border rounded p-3" />
-
-            <input name="password" type="password" placeholder="Password"
-              value={form.password} onChange={handleChange}
-              className="w-full border rounded p-3" />
-
-            <input name="confirmPassword" type="password"
-              placeholder="Confirm Password"
-              value={form.confirmPassword} onChange={handleChange}
-              className="w-full border rounded p-3" />
-
-            <select name="role" value={form.role}
+            <input
+              name="referral"
+              placeholder="Referral Code"
+              value={form.referral}
               onChange={handleChange}
-              className="w-full border rounded p-3">
+              className="w-full border rounded p-3"
+            />
+
+            <div className="relative">
+              <input
+                name="password"
+                type={showPassword ? "text" : "password"}
+                placeholder="Password"
+                value={form.password}
+                onChange={handleChange}
+                className="w-full border rounded p-3"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-3 top-3"
+              >
+                {showPassword ? <EyeOff /> : <Eye />}
+              </button>
+            </div>
+
+            <div className="relative">
+              <input
+                name="confirmPassword"
+                type={showConfirm ? "text" : "password"}
+                placeholder="Confirm Password"
+                value={form.confirmPassword}
+                onChange={handleChange}
+                className="w-full border rounded p-3"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirm(!showConfirm)}
+                className="absolute right-3 top-3"
+              >
+                {showConfirm ? <EyeOff /> : <Eye />}
+              </button>
+            </div>
+
+            <select
+              name="role"
+              value={form.role}
+              onChange={handleChange}
+              className="w-full border rounded p-3"
+            >
               <option value="user">User</option>
               <option value="partner">Partner</option>
             </select>
@@ -302,10 +376,15 @@ export default function RegisterPage() {
         {step === "phone" && (
           <>
             <h2 className="text-center font-semibold">Verify Phone</h2>
-            <input value={otp} onChange={(e) => setOtp(e.target.value)}
+            <input
+              value={otp}
+              onChange={(e) => setOtp(e.target.value)}
               placeholder="Enter OTP"
-              className="w-full border rounded p-3" />
-            <Button onClick={handleVerifyPhoneOtp}>Verify</Button>
+              className="w-full border rounded p-3"
+            />
+            <Button onClick={handleVerifyPhoneOtp} disabled={loading}>
+              Verify
+            </Button>
             <Button onClick={handleResendOtp} disabled={timeLeft > 0}>
               {timeLeft > 0 ? `Resend in ${formattedTime}` : "Resend OTP"}
             </Button>
@@ -315,15 +394,21 @@ export default function RegisterPage() {
         {step === "email" && (
           <>
             <h2 className="text-center font-semibold">Verify Email</h2>
-            <input value={emailOtp} onChange={(e) => setEmailOtp(e.target.value)}
+            <input
+              value={emailOtp}
+              onChange={(e) => setEmailOtp(e.target.value)}
               placeholder="Enter Email OTP"
-              className="w-full border rounded p-3" />
-            <Button onClick={handleVerifyEmailOtp}>Verify</Button>
+              className="w-full border rounded p-3"
+            />
+            <Button onClick={handleVerifyEmailOtp} disabled={loading}>
+              Verify
+            </Button>
           </>
         )}
       </div>
 
-      <div id="recaptcha-container" className="hidden" />
+      {/* ❗ DO NOT HIDE THIS */}
+      <div id="recaptcha-container"></div>
     </div>
   );
 }

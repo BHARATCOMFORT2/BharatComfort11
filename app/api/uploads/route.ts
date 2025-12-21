@@ -2,10 +2,7 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { getAuth } from "firebase-admin/auth";
-import { db } from "@/lib/firebaseadmin";
-import { getStorage } from "firebase-admin/storage";
-
+import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 // 5MB limit
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
@@ -13,17 +10,23 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 
 export async function POST(req: Request) {
   try {
-    // --- Verify token ---
+    /* ----------------------------------
+       1️⃣ AUTH VERIFY (MANDATORY)
+    ---------------------------------- */
     const authHeader = req.headers.get("authorization");
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const token = authHeader.split("Bearer ")[1];
-    const decoded = await getAuth().verifyIdToken(token);
+
+    const { adminAuth, adminDb, adminStorage } = getFirebaseAdmin();
+    const decoded = await adminAuth.verifyIdToken(token);
     const uid = decoded.uid;
 
-    // --- Parse form data ---
+    /* ----------------------------------
+       2️⃣ FORM DATA
+    ---------------------------------- */
     const formData = await req.formData();
     const file = formData.get("file") as File | null;
 
@@ -31,37 +34,42 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
     }
 
-    // --- Validate file type and size ---
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
-        { error: "Invalid file type. Only JPEG, PNG, WEBP allowed." },
+        { error: "Invalid file type (JPEG, PNG, WEBP only)" },
         { status: 400 }
       );
     }
 
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: "File too large. Max 5MB allowed." },
+        { error: "File too large (Max 5MB)" },
         { status: 400 }
       );
     }
 
-    // --- Upload to Firebase Storage ---
-    const storage = getStorage().bucket();
-    const fileName = `uploads/${uid}/${Date.now()}-${encodeURIComponent(file.name)}`;
-    const fileBuffer = Buffer.from(await file.arrayBuffer());
+    /* ----------------------------------
+       3️⃣ STORAGE UPLOAD
+    ---------------------------------- */
+    const bucket = adminStorage.bucket();
+    const fileName = `uploads/${uid}/${Date.now()}-${file.name}`;
+    const buffer = Buffer.from(await file.arrayBuffer());
 
-    const fileRef = storage.file(fileName);
-    await fileRef.save(fileBuffer, {
+    const fileRef = bucket.file(fileName);
+
+    await fileRef.save(buffer, {
       contentType: file.type,
-      public: true,
       metadata: { cacheControl: "public, max-age=31536000" },
     });
 
-    const publicUrl = `https://storage.googleapis.com/${storage.name}/${fileName}`;
+    await fileRef.makePublic();
 
-    // --- Optional: Store record in Firestore ---
-    await db.collection("uploads").add({
+    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${fileName}`;
+
+    /* ----------------------------------
+       4️⃣ FIRESTORE LOG
+    ---------------------------------- */
+    await adminDb.collection("uploads").add({
       uid,
       url: publicUrl,
       name: file.name,

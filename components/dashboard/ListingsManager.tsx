@@ -1,11 +1,20 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 
+/* Drag & Drop */
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
 /* ----------------------------------------------------
-   Listing Interface
+   Types
 ---------------------------------------------------- */
 interface Listing {
   id: string;
@@ -14,15 +23,36 @@ interface Listing {
   location: string;
   price: number;
   images: string[];
-  createdBy: string;
   status: "pending" | "approved" | "rejected";
-  featured?: boolean;
   allowPayAtHotel?: boolean;
-  createdAt?: any;
 }
 
 /* ----------------------------------------------------
-   Main Component
+   Sortable Image Component
+---------------------------------------------------- */
+function SortableImage({ id, url }: { id: string; url: string }) {
+  const { setNodeRef, attributes, listeners, transform, transition } =
+    useSortable({ id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+
+  return (
+    <img
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      src={url}
+      style={style}
+      className="w-24 h-24 rounded object-cover cursor-move border"
+    />
+  );
+}
+
+/* ----------------------------------------------------
+   Listings Manager
 ---------------------------------------------------- */
 export default function ListingsManager() {
   const { firebaseUser, profile, loading } = useAuth();
@@ -40,80 +70,70 @@ export default function ListingsManager() {
   });
 
   const [previewUrls, setPreviewUrls] = useState<string[]>([]);
-  const [uploadProgress, setUploadProgress] = useState(0);
   const [editId, setEditId] = useState<string | null>(null);
 
   /* ----------------------------------------------------
-     LOAD LISTINGS (COOKIE BASED)
+     Load Listings (cookie based – admin/partner)
   ---------------------------------------------------- */
-  async function loadListings() {
+  const loadListings = async () => {
     try {
       const res = await fetch("/api/admin/listings", {
         credentials: "include",
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Failed to load listings");
+      if (!res.ok) throw new Error(data?.error);
       setListings(data.listings || []);
     } catch (e: any) {
-      alert(e.message);
+      alert(e.message || "Failed to load listings");
     }
-  }
+  };
 
   useEffect(() => {
     loadListings();
   }, []);
 
   /* ----------------------------------------------------
-     🔑 MULTI IMAGE UPLOAD (TOKEN BASED)
+     Upload Images (Bearer token)
   ---------------------------------------------------- */
   const uploadImages = async (files: File[]) => {
     if (!firebaseUser) throw new Error("Not authenticated");
 
     const token = await firebaseUser.getIdToken(true);
-    if (!token) throw new Error("Token missing");
-
     const form = new FormData();
     files.forEach((f) => form.append("files", f));
 
     const res = await fetch("/api/uploads", {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
+      headers: { Authorization: `Bearer ${token}` },
       body: form,
     });
 
-    const text = await res.text();
-    if (!res.ok) throw new Error(text);
-
-    const data = JSON.parse(text);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "Upload failed");
     return data.urls as string[];
   };
 
   /* ----------------------------------------------------
-     SAVE LISTING
+     Create / Update Listing
   ---------------------------------------------------- */
   const handleSubmit = async () => {
     if (loading || !firebaseUser) {
-      alert("Please wait, auth loading");
+      alert("Auth loading, please wait");
       return;
     }
 
     if (!formData.name || !formData.location || !formData.price) {
-      alert("Fill all required fields");
+      alert("Please fill all required fields");
       return;
     }
 
     setBusy(true);
-    setUploadProgress(0);
 
     try {
-      const uploadedUrls =
+      const uploaded =
         formData.images.length > 0
           ? await uploadImages(formData.images)
           : [];
-
-      setUploadProgress(100);
 
       const payload = {
         id: editId,
@@ -121,19 +141,27 @@ export default function ListingsManager() {
         description: formData.description.trim(),
         location: formData.location.trim(),
         price: Number(formData.price),
-        images: [...previewUrls, ...uploadedUrls],
+        images: [...previewUrls, ...uploaded],
         allowPayAtHotel: formData.allowPayAtHotel,
       };
 
-      const res = await fetch("/api/partner/listings/save", {
+      const endpoint = editId
+        ? "/api/partners/listings/update"
+        : "/api/partners/listings/create";
+
+      const token = await firebaseUser.getIdToken(true);
+
+      const res = await fetch(endpoint, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify(payload),
       });
 
       const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || "Save failed");
+      if (!res.ok) throw new Error(data?.error || "Operation failed");
 
       alert(editId ? "✅ Listing updated" : "✅ Listing created");
 
@@ -148,7 +176,6 @@ export default function ListingsManager() {
 
       setPreviewUrls([]);
       setEditId(null);
-      setUploadProgress(0);
       loadListings();
     } catch (e: any) {
       alert(e.message);
@@ -158,7 +185,66 @@ export default function ListingsManager() {
   };
 
   /* ----------------------------------------------------
-     EDIT
+     Delete Listing
+  ---------------------------------------------------- */
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this listing?")) return;
+    if (!firebaseUser) return;
+
+    try {
+      const token = await firebaseUser.getIdToken(true);
+
+      const res = await fetch("/api/partners/listings/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error);
+
+      alert("✅ Listing deleted");
+      loadListings();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  /* ----------------------------------------------------
+     Admin Approve / Reject
+  ---------------------------------------------------- */
+  const handleApprove = async (id: string) => {
+    const res = await fetch("/api/admin/listings/approve", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: id }),
+    });
+    const data = await res.json();
+    if (!res.ok) alert(data?.error);
+    else loadListings();
+  };
+
+  const handleReject = async (id: string) => {
+    const reason = prompt("Enter rejection reason");
+    if (!reason) return;
+
+    const res = await fetch("/api/admin/listings/reject", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ listingId: id, reason }),
+    });
+    const data = await res.json();
+    if (!res.ok) alert(data?.error);
+    else loadListings();
+  };
+
+  /* ----------------------------------------------------
+     Edit Listing
   ---------------------------------------------------- */
   const handleEdit = (l: Listing) => {
     setEditId(l.id);
@@ -176,26 +262,27 @@ export default function ListingsManager() {
   /* ----------------------------------------------------
      UI
   ---------------------------------------------------- */
-  if (!firebaseUser) {
-    return <p className="text-gray-500">Please log in.</p>;
-  }
+  if (!firebaseUser) return <p>Please login</p>;
 
   return (
-    <div className="mt-10">
-      <div className="bg-white shadow p-6 rounded mb-6">
-        <h2 className="text-xl font-semibold mb-4">
+    <div className="mt-8 space-y-6">
+      {/* FORM */}
+      <div className="bg-white p-6 rounded shadow">
+        <h2 className="text-xl font-semibold mb-3">
           {editId ? "Edit Listing" : "Add Listing"}
         </h2>
 
         <input
-          className="border p-2 rounded w-full mb-2"
+          className="border p-2 w-full mb-2"
           placeholder="Name"
           value={formData.name}
-          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+          onChange={(e) =>
+            setFormData({ ...formData, name: e.target.value })
+          }
         />
 
         <input
-          className="border p-2 rounded w-full mb-2"
+          className="border p-2 w-full mb-2"
           placeholder="Location"
           value={formData.location}
           onChange={(e) =>
@@ -205,7 +292,7 @@ export default function ListingsManager() {
 
         <input
           type="number"
-          className="border p-2 rounded w-full mb-2"
+          className="border p-2 w-full mb-2"
           placeholder="Price"
           value={formData.price}
           onChange={(e) =>
@@ -214,7 +301,7 @@ export default function ListingsManager() {
         />
 
         <textarea
-          className="border p-2 rounded w-full mb-2"
+          className="border p-2 w-full mb-2"
           placeholder="Description"
           value={formData.description}
           onChange={(e) =>
@@ -234,46 +321,61 @@ export default function ListingsManager() {
           }
         />
 
+        {/* Image Reorder */}
         {previewUrls.length > 0 && (
-          <div className="flex gap-2 mt-3 flex-wrap">
-            {previewUrls.map((u, i) => (
-              <img key={i} src={u} className="w-24 h-24 object-cover rounded" />
-            ))}
-          </div>
+          <DndContext
+            collisionDetection={closestCenter}
+            onDragEnd={({ active, over }) => {
+              if (!over || active.id === over.id) return;
+              setPreviewUrls((items) =>
+                arrayMove(
+                  items,
+                  items.indexOf(active.id as string),
+                  items.indexOf(over.id as string)
+                )
+              );
+            }}
+          >
+            <SortableContext items={previewUrls}>
+              <div className="flex gap-2 flex-wrap mt-3">
+                {previewUrls.map((url) => (
+                  <SortableImage key={url} id={url} url={url} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         )}
 
         <Button onClick={handleSubmit} disabled={busy}>
-          {busy
-            ? uploadProgress < 100
-              ? `Uploading ${uploadProgress}%`
-              : "Saving..."
-            : editId
-            ? "Update Listing"
-            : "Add Listing"}
+          {editId ? "Update Listing" : "Create Listing"}
         </Button>
       </div>
 
-      <div className="bg-white shadow p-6 rounded">
+      {/* LISTINGS */}
+      <div className="bg-white p-6 rounded shadow">
         <h2 className="text-xl font-semibold mb-4">Listings</h2>
 
         {listings.map((l) => (
           <div
             key={l.id}
-            className="flex justify-between border-b py-3 items-center"
+            className="flex justify-between items-center border-b py-3"
           >
             <div>
               <strong>{l.name}</strong>
               <div className="text-sm">{l.location}</div>
-              <div className="text-sm">₹{l.price} • {l.status}</div>
+              <div className="text-sm">
+                ₹{l.price} • {l.status}
+              </div>
             </div>
 
             <div className="flex gap-2">
               <Button onClick={() => handleEdit(l)}>Edit</Button>
+              <Button onClick={() => handleDelete(l.id)}>Delete</Button>
 
               {profile?.role === "admin" && (
                 <>
-                  <Button onClick={() => alert("Approve API")}>Approve</Button>
-                  <Button onClick={() => alert("Reject API")}>Reject</Button>
+                  <Button onClick={() => handleApprove(l.id)}>Approve</Button>
+                  <Button onClick={() => handleReject(l.id)}>Reject</Button>
                 </>
               )}
             </div>

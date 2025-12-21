@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 interface Listing {
   id: string;
   name: string;
+  title?: string;
   description: string;
   location: string;
   price: number;
@@ -28,7 +29,7 @@ interface Listing {
 }
 
 /* ----------------------------------------------------
-   Sortable Image Component
+   Sortable Image
 ---------------------------------------------------- */
 function SortableImage({ id, url }: { id: string; url: string }) {
   const { setNodeRef, attributes, listeners, transform, transition } =
@@ -73,7 +74,7 @@ export default function ListingsManager() {
   const [editId, setEditId] = useState<string | null>(null);
 
   /* ----------------------------------------------------
-     Load Listings (cookie based – admin/partner)
+     Load Listings (cookie based)
   ---------------------------------------------------- */
   const loadListings = async () => {
     try {
@@ -122,8 +123,13 @@ export default function ListingsManager() {
       return;
     }
 
-    if (!formData.name || !formData.location || !formData.price) {
-      alert("Please fill all required fields");
+    if (
+      !formData.name.trim() ||
+      !formData.location.trim() ||
+      !formData.price ||
+      isNaN(Number(formData.price))
+    ) {
+      alert("Invalid listing data");
       return;
     }
 
@@ -135,14 +141,19 @@ export default function ListingsManager() {
           ? await uploadImages(formData.images)
           : [];
 
+      /* 🔑 BACKEND-COMPATIBLE PAYLOAD */
       const payload = {
         id: editId,
+
+        // IMPORTANT: send both
         name: formData.name.trim(),
+        title: formData.name.trim(),
+
         description: formData.description.trim(),
         location: formData.location.trim(),
         price: Number(formData.price),
         images: [...previewUrls, ...uploaded],
-        allowPayAtHotel: formData.allowPayAtHotel,
+        allowPayAtHotel: !!formData.allowPayAtHotel,
       };
 
       const endpoint = editId
@@ -249,7 +260,7 @@ export default function ListingsManager() {
   const handleEdit = (l: Listing) => {
     setEditId(l.id);
     setFormData({
-      name: l.name,
+      name: l.name || l.title || "",
       description: l.description,
       location: l.location,
       price: String(l.price),
@@ -361,7 +372,7 @@ export default function ListingsManager() {
             className="flex justify-between items-center border-b py-3"
           >
             <div>
-              <strong>{l.name}</strong>
+              <strong>{l.name || l.title}</strong>
               <div className="text-sm">{l.location}</div>
               <div className="text-sm">
                 ₹{l.price} • {l.status}

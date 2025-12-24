@@ -5,93 +5,112 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import admin from "firebase-admin";
 
-// Helper
+/* ---------------- Helper ---------------- */
 function getAuthHeader(req: Request) {
-  return (req as any).headers?.get
-    ? req.headers.get("authorization")
-    : (req as any).headers?.authorization;
+  return req.headers.get("authorization");
 }
 
+/* ---------------- POST ---------------- */
 export async function POST(req: Request) {
   try {
+    /* ---------- AUTH ---------- */
     const authHeader = getAuthHeader(req);
     if (!authHeader)
-      return NextResponse.json({ success: false, message: "Missing Authorization" }, { status: 401 });
+      return NextResponse.json(
+        { success: false, message: "Missing Authorization" },
+        { status: 401 }
+      );
 
-    const m = authHeader.match(/^Bearer (.+)$/);
-    if (!m)
-      return NextResponse.json({ success: false, message: "Bad Authorization header" }, { status: 401 });
+    const match = authHeader.match(/^Bearer (.+)$/);
+    if (!match)
+      return NextResponse.json(
+        { success: false, message: "Invalid Authorization header" },
+        { status: 401 }
+      );
 
-    const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifyIdToken(m[1], true);
+    const { adminAuth, adminDb } = getFirebaseAdmin();
+    const decoded = await adminAuth.verifyIdToken(match[1], true);
     const staffId = decoded.uid;
 
-    // Read body
-    const body = await req.json();
-    const { leadId, phone, outcome, note } = body || {};
+    /* ---------- BODY ---------- */
+    const { leadId, phone, outcome, note } = await req.json();
+
     if (!leadId)
-      return NextResponse.json({ success: false, message: "leadId is required" }, { status: 400 });
+      return NextResponse.json(
+        { success: false, message: "leadId is required" },
+        { status: 400 }
+      );
 
-    // Verify staff
-    const staffRef = adminDb.collection("staff").doc(staffId);
-    const staffSnap = await staffRef.get();
-    const staff = staffSnap.data();
+    /* ---------- VERIFY STAFF ---------- */
+    const staffSnap = await adminDb.collection("staff").doc(staffId).get();
+    if (!staffSnap.exists)
+      return NextResponse.json(
+        { success: false, message: "Staff not found" },
+        { status: 403 }
+      );
 
+    const staff = staffSnap.data()!;
     if (
-      !staffSnap.exists ||
       staff.role !== "telecaller" ||
       staff.status !== "approved" ||
       staff.isActive !== true
     ) {
-      return NextResponse.json({ success: false, message: "Unauthorized" }, { status: 403 });
+      return NextResponse.json(
+        { success: false, message: "Unauthorized staff" },
+        { status: 403 }
+      );
     }
 
-    // Verify lead ownership
+    /* ---------- VERIFY LEAD ---------- */
     const leadRef = adminDb.collection("leads").doc(leadId);
     const leadSnap = await leadRef.get();
-    const lead = leadSnap.data();
 
     if (!leadSnap.exists)
-      return NextResponse.json({ success: false, message: "Lead not found" }, { status: 404 });
+      return NextResponse.json(
+        { success: false, message: "Lead not found" },
+        { status: 404 }
+      );
 
-    if (lead.assignedTo !== staffId)
-      return NextResponse.json({ success: false, message: "Lead not assigned to you" }, { status: 403 });
+    const lead = leadSnap.data()!;
+    if (lead.assignedTo !== staffId) {
+      return NextResponse.json(
+        { success: false, message: "Lead not assigned to you" },
+        { status: 403 }
+      );
+    }
 
-    // Build call log data
-    const now = new Date();
+    /* ---------- CALL LOG ---------- */
+    const callLog = {
+      leadId,
+      leadName: lead.name || lead.businessName || "",
+      leadPhone: phone || lead.phone || "",
 
-    const callData = {
-      phone: String(phone || "").trim() || null,
-      outcome: String(outcome || "").trim() || null,
-      note: String(note || "").trim() || null,
-      calledBy: staffId,
-      createdAt: now,
-      type: "call_log",
+      staffId,
+      staffName: staff.name || "",
+
+      outcome: outcome || "dialed",
+      note: note || "",
+
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      type: "call",
     };
 
-    // ⭐ 1) Append call log to ARRAY
+    /* ---------- SAVE LOG ---------- */
+    await leadRef.collection("logs").add(callLog);
+
+    /* ---------- UPDATE LEAD META ---------- */
     await leadRef.update({
-      callLogs: admin.firestore.FieldValue.arrayUnion(callData),
       lastCalledAt: admin.firestore.FieldValue.serverTimestamp(),
       lastUpdatedBy: staffId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    // ⭐ 2) ADD ENTRY TO SUBCOLLECTION (for admin timeline)
-    await leadRef
-      .collection("logs")
-      .add({
-        ...callData,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        staffName: staff.name || "",
-      });
-
     return NextResponse.json({
       success: true,
-      message: "Call log saved + activity timeline updated",
+      message: "Call log saved successfully",
     });
-  } catch (error: any) {
-    console.error("❌ Lead call log error:", error);
+  } catch (err) {
+    console.error("❌ Call log error:", err);
     return NextResponse.json(
       { success: false, message: "Failed to save call log" },
       { status: 500 }

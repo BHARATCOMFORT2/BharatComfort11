@@ -5,16 +5,23 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 import admin from "firebase-admin";
 
-// Auth header helper
+/* --------------------------------------------------
+   AUTH HEADER HELPER
+-------------------------------------------------- */
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
     ? req.headers.get("authorization")
     : (req as any).headers?.authorization;
 }
 
+/* ==================================================
+   POST — UPDATE LEAD NOTE (TELECALLER)
+================================================== */
 export async function POST(req: Request) {
   try {
-    // TOKEN VERIFY
+    /* ---------------------------------------
+       1️⃣ TOKEN VERIFY
+    ---------------------------------------- */
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -35,20 +42,30 @@ export async function POST(req: Request) {
     const decoded = await adminAuth.verifyIdToken(m[1], true);
     const staffId = decoded.uid;
 
-    // BODY
-    const body = await req.json();
-    const { leadId, text, note } = body || {};
-
-    const cleanText = (text ?? note ?? "").toString().trim();
-
-    if (!leadId || !cleanText) {
+    /* ---------------------------------------
+       2️⃣ READ BODY (STRICT)
+    ---------------------------------------- */
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json(
-        { success: false, message: "leadId and note/text are required" },
+        { success: false, message: "Invalid JSON body" },
         { status: 400 }
       );
     }
 
-    // VERIFY STAFF
+    const { leadId, text } = body;
+    const cleanText = String(text || "").trim();
+
+    if (!leadId || !cleanText) {
+      return NextResponse.json(
+        { success: false, message: "leadId and text are required" },
+        { status: 400 }
+      );
+    }
+
+    /* ---------------------------------------
+       3️⃣ VERIFY STAFF
+    ---------------------------------------- */
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -72,7 +89,9 @@ export async function POST(req: Request) {
       );
     }
 
-    // VERIFY LEAD OWNERSHIP
+    /* ---------------------------------------
+       4️⃣ VERIFY LEAD OWNERSHIP
+    ---------------------------------------- */
     const leadRef = adminDb.collection("leads").doc(leadId);
     const leadSnap = await leadRef.get();
 
@@ -91,41 +110,38 @@ export async function POST(req: Request) {
       );
     }
 
-    // NOTE OBJECT
+    /* ---------------------------------------
+       5️⃣ UPDATE LEAD (SAFE — NO ARRAY BLOAT)
+    ---------------------------------------- */
     const now = admin.firestore.FieldValue.serverTimestamp();
-    const noteObj = {
-      text: cleanText,
-      addedBy: staffId,
-      createdAt: now,
-    };
 
-    // ------------------------------------------------------------
-    // ✅ UPDATE NOTES ARRAY + LAST REMARK
-    // ------------------------------------------------------------
     await leadRef.update({
-      notes: admin.firestore.FieldValue.arrayUnion(noteObj),
-      partnerNotes: cleanText,
-      lastRemark: cleanText,
+      lastRemark: cleanText,          // ✅ latest note (fast access)
+      partnerNotes: cleanText,        // ✅ backward compatibility
       lastUpdatedBy: staffId,
       updatedAt: now,
     });
 
-    // ------------------------------------------------------------
-    // ✅ ADD TO ACTIVITY LOGS SUBCOLLECTION
-    // ------------------------------------------------------------
+    /* ---------------------------------------
+       6️⃣ ACTIVITY LOG (SOURCE OF TRUTH)
+    ---------------------------------------- */
     await leadRef.collection("logs").add({
       type: "note",
       text: cleanText,
       by: staffId,
+      staffName: staffData?.name || "",
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    /* ---------------------------------------
+       7️⃣ RESPONSE
+    ---------------------------------------- */
     return NextResponse.json({
       success: true,
       message: "Lead note saved successfully",
     });
   } catch (err) {
-    console.error("Lead note update error:", err);
+    console.error("❌ Lead note update error:", err);
     return NextResponse.json(
       { success: false, message: "Failed to update lead note" },
       { status: 500 }

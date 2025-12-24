@@ -19,11 +19,10 @@ type Lead = {
   id: string;
   name?: string;
   businessName?: string;
-  address?: string;
   phone?: string;
   email?: string;
   status: string;
-  followupDate?: string; // callbackDate
+  followupDate?: string;
   lastCalledAt?: any;
   lastNote?: string;
 };
@@ -41,8 +40,22 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
-const CALL_FILTERS = ["all", "called", "not_called"];
-const FOLLOWUP_FILTERS = ["all", "today", "upcoming", "overdue"];
+/* ---------------------------------------
+   DATE HELPERS
+---------------------------------------- */
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const tomorrowStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+};
+const nextWeekStr = () => {
+  const d = new Date();
+  d.setDate(d.getDate() + 7);
+  return d.toISOString().slice(0, 10);
+};
+const isOverdue = (date?: string) =>
+  date ? new Date(date) < new Date(new Date().toDateString()) : false;
 
 /* ---------------------------------------
    COMPONENT
@@ -58,37 +71,28 @@ export default function TelecallerDashboardPage() {
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
+  const [callbackDates, setCallbackDates] = useState<Record<string, string>>(
+    {}
+  );
 
   const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
     null
   );
 
-  /* 🔥 VIEW STATE */
   const [view, setView] = useState<
     "tasks" | "interested" | "callback"
   >("tasks");
 
-  /* 🔥 TASK RANGE */
   const [taskRange, setTaskRange] = useState<
     "today" | "yesterday" | "week" | "month"
   >("today");
-
-  /* 🔍 FILTER STATES */
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [callFilter, setCallFilter] = useState("all");
-  const [followupFilter, setFollowupFilter] = useState("all");
 
   /* ---------------------------------------
      AUTH
   ---------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setLoadingUser(false);
-        router.push("/staff/login");
-        return;
-      }
+      if (!user) return router.push("/staff/login");
 
       try {
         const snap = await getDoc(doc(db, "staff", user.uid));
@@ -99,9 +103,8 @@ export default function TelecallerDashboardPage() {
           profile.role !== "telecaller" ||
           profile.status !== "approved" ||
           profile.isActive !== true
-        ) {
+        )
           throw new Error();
-        }
 
         setStaffId(user.uid);
         setToken(await user.getIdToken());
@@ -146,9 +149,9 @@ export default function TelecallerDashboardPage() {
 
         setLeads(data.tasks || []);
 
-        const drafts: Record<string, string> = {};
-        data.tasks?.forEach((l: Lead) => (drafts[l.id] = ""));
-        setNotesDraft(drafts);
+        const d: Record<string, string> = {};
+        data.tasks?.forEach((l: Lead) => (d[l.id] = ""));
+        setNotesDraft(d);
       } catch {
         toast.error("Tasks load nahi ho paaye");
       } finally {
@@ -173,41 +176,7 @@ export default function TelecallerDashboardPage() {
   };
 
   /* ---------------------------------------
-     FILTER LOGIC
-  ---------------------------------------- */
-  const filteredLeads = useMemo(() => {
-    if (view !== "tasks") return [];
-    const now = new Date();
-
-    return leads.filter((lead) => {
-      if (
-        search &&
-        !(
-          lead.name?.toLowerCase().includes(search.toLowerCase()) ||
-          lead.businessName?.toLowerCase().includes(search.toLowerCase()) ||
-          lead.phone?.includes(search)
-        )
-      )
-        return false;
-
-      if (statusFilter !== "all" && lead.status !== statusFilter) return false;
-      if (callFilter === "called" && !lead.lastCalledAt) return false;
-      if (callFilter === "not_called" && lead.lastCalledAt) return false;
-
-      if (followupFilter !== "all" && lead.followupDate) {
-        const f = new Date(lead.followupDate);
-        if (followupFilter === "today" && f.toDateString() !== now.toDateString())
-          return false;
-        if (followupFilter === "upcoming" && f <= now) return false;
-        if (followupFilter === "overdue" && f >= now) return false;
-      }
-
-      return true;
-    });
-  }, [leads, search, statusFilter, callFilter, followupFilter, view]);
-
-  /* ---------------------------------------
-     STATUS UPDATE (WITH CALLBACK DATE)
+     STATUS UPDATE
   ---------------------------------------- */
   const updateStatus = async (
     leadId: string,
@@ -231,8 +200,6 @@ export default function TelecallerDashboardPage() {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
 
-      toast.success("Status updated ✅");
-
       setLeads((prev) =>
         prev.map((l) =>
           l.id === leadId
@@ -240,13 +207,15 @@ export default function TelecallerDashboardPage() {
             : l
         )
       );
+
+      toast.success("Status updated ✅");
     } catch {
       toast.error("Status update failed");
     }
   };
 
   /* ---------------------------------------
-     NOTES SAVE
+     SAVE NOTE
   ---------------------------------------- */
   const saveNote = async (leadId: string) => {
     const text = notesDraft[leadId];
@@ -265,33 +234,78 @@ export default function TelecallerDashboardPage() {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
 
-      toast.success("Note saved ✅");
-      setLeads((prev) =>
-        prev.map((l) => (l.id === leadId ? { ...l, lastNote: text } : l))
+      setLeads((p) =>
+        p.map((l) => (l.id === leadId ? { ...l, lastNote: text } : l))
       );
       setNotesDraft((p) => ({ ...p, [leadId]: "" }));
+      toast.success("Note saved ✅");
     } catch {
       toast.error("Note save failed");
     }
   };
 
   /* ---------------------------------------
-     CONTACT HELPERS
+     WHATSAPP + EMAIL (FULL MESSAGE RESTORED)
   ---------------------------------------- */
   const openWhatsApp = (phone?: string, name?: string) => {
-    if (!phone) return toast.error("Phone missing");
-    const msg = `Namaste ${name || ""},\n\nMain ${
-      staffProfile?.name || "Telecaller"
-    } bol raha/rahi hoon – BharatComfort se.\nPlease hotel photos, room prices, category, address, GST (agar ho) aur owner Aadhaar share karein.`;
-    window.location.href = `https://wa.me/91${phone.replace(
-      /\D/g,
-      ""
-    )}?text=${encodeURIComponent(msg)}`;
+    if (!phone) return toast.error("Phone number nahi mila");
+
+    const clean = phone.replace(/\D/g, "");
+    const message = `Namaste Sir/Ma'am ${name || ""},
+
+Main ${staffProfile?.name || "Telecaller"} bol raha/rahi hoon – BharatComfort team se.
+
+Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details chahiye:
+
+🏨 Hotel / Property Photos
+🛏 Room Categories (AC / Non-AC / Deluxe etc.)
+💰 Room Prices (per night)
+📍 Complete Address + Google Map Location
+🧾 GST Number (agar available ho)
+🪪 Owner ka Aadhaar (sirf verification ke liye)
+
+Aap ye details yahin WhatsApp par bhej sakte hain.
+Agar baat karna convenient ho, toh please ek suitable time bata dein.
+
+For more details:
+🌐 https://www.bharatcomfort.online
+📞 +91 9277168528
+
+Dhanyavaad 🙏
+BharatComfort Team`;
+
+    window.location.href = `https://wa.me/91${clean}?text=${encodeURIComponent(
+      message
+    )}`;
   };
 
   const openEmail = (email?: string, name?: string) => {
-    if (!email) return toast.error("Email missing");
-    window.location.href = `mailto:${email}?subject=Business Listing – BharatComfort`;
+    if (!email) return toast.error("Email address nahi mila");
+
+    const subject = "Regarding Your Business Listing – BharatComfort";
+    const body = `Hello ${name || ""},
+
+This is ${staffProfile?.name || "Telecaller"} from BharatComfort.
+
+We are reaching out regarding listing your hotel/business on BharatComfort.
+To proceed, we require the following details:
+
+- Property photos
+- Room categories & prices
+- Complete address
+- GST number (if applicable)
+- Owner Aadhaar (for verification only)
+
+Please reply to this email or WhatsApp us at +91 9277168528.
+
+Website: https://www.bharatcomfort.online
+
+Thank you,
+BharatComfort Team`;
+
+    window.location.href = `mailto:${email}?subject=${encodeURIComponent(
+      subject
+    )}&body=${encodeURIComponent(body)}`;
   };
 
   /* ---------------------------------------
@@ -335,8 +349,15 @@ export default function TelecallerDashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredLeads.map((lead) => (
-                    <tr key={lead.id} className="border-t">
+                  {leads.map((lead) => (
+                    <tr
+                      key={lead.id}
+                      className={`border-t ${
+                        isOverdue(lead.followupDate)
+                          ? "bg-red-50"
+                          : ""
+                      }`}
+                    >
                       <td className="p-2">
                         {lead.name || lead.businessName}
                       </td>
@@ -347,14 +368,11 @@ export default function TelecallerDashboardPage() {
                           value={lead.status}
                           onChange={(e) => {
                             const st = e.target.value;
-                            if (st === "callback") {
-                              const d = prompt("Callback date (YYYY-MM-DD)");
-                              updateStatus(lead.id, st, d || undefined);
-                            } else {
+                            if (st !== "callback") {
                               updateStatus(lead.id, st);
                             }
                           }}
-                          className="border px-1 text-xs"
+                          className="border text-xs"
                         >
                           {STATUS_OPTIONS.map((s) => (
                             <option key={s} value={s}>
@@ -364,8 +382,78 @@ export default function TelecallerDashboardPage() {
                         </select>
                       </td>
 
-                      <td className="p-2 text-xs">
-                        {lead.followupDate || "-"}
+                      <td className="p-2">
+                        {lead.status === "callback" && (
+                          <>
+                            <input
+                              type="date"
+                              value={
+                                callbackDates[lead.id] ||
+                                lead.followupDate ||
+                                ""
+                              }
+                              onChange={(e) =>
+                                setCallbackDates((p) => ({
+                                  ...p,
+                                  [lead.id]: e.target.value,
+                                }))
+                              }
+                              className="border text-xs"
+                            />
+
+                            <div className="flex gap-1 mt-1">
+                              <button
+                                onClick={() =>
+                                  updateStatus(
+                                    lead.id,
+                                    "callback",
+                                    todayStr()
+                                  )
+                                }
+                                className="text-xs px-1 bg-gray-200"
+                              >
+                                Today
+                              </button>
+                              <button
+                                onClick={() =>
+                                  updateStatus(
+                                    lead.id,
+                                    "callback",
+                                    tomorrowStr()
+                                  )
+                                }
+                                className="text-xs px-1 bg-gray-200"
+                              >
+                                Tomorrow
+                              </button>
+                              <button
+                                onClick={() =>
+                                  updateStatus(
+                                    lead.id,
+                                    "callback",
+                                    nextWeekStr()
+                                  )
+                                }
+                                className="text-xs px-1 bg-gray-200"
+                              >
+                                Next Week
+                              </button>
+                            </div>
+
+                            <button
+                              onClick={() =>
+                                updateStatus(
+                                  lead.id,
+                                  "callback",
+                                  callbackDates[lead.id]
+                                )
+                              }
+                              className="mt-1 bg-orange-600 text-white text-xs px-2 py-1"
+                            >
+                              Save Callback
+                            </button>
+                          </>
+                        )}
                       </td>
 
                       <td className="p-2">
@@ -381,7 +469,7 @@ export default function TelecallerDashboardPage() {
                         />
                         <button
                           onClick={() => saveNote(lead.id)}
-                          className="bg-black text-white px-2 py-1 text-xs mt-1"
+                          className="bg-black text-white text-xs px-2 py-1 mt-1"
                         >
                           Save
                         </button>

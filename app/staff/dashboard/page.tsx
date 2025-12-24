@@ -275,7 +275,7 @@ export default function TelecallerDashboardPage() {
     const clean = phone.replace(/\D/g, "");
     const message = `Namaste Sir/Ma'am ${name || ""},
 
-Main ${staffProfile?.name || "Telecaller"} bol raha/rahi hoon – BharatComfort team se.
+   BharatComfort team se aapse aapke business ka free listings ke regarding contact kar rahe hain.
 
 Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details chahiye:
 
@@ -283,8 +283,8 @@ Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details 
 🛏 Room Categories
 💰 Room Prices
 📍 Complete Address
-🧾 GST (agar available ho)
-🪪 Owner Aadhaar (verification ke liye)
+🧾 GST (optional)
+🪪 Owner Aadhaar (optional)
 
 Aap yeh details yahin WhatsApp par bhej sakte hain.
 

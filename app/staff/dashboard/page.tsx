@@ -259,19 +259,35 @@ export default function TelecallerDashboardPage() {
 
   /* ---------------------------------------
      ✅ WHATSAPP + EMAIL
-  ---------------------------------------- */
-  const openWhatsApp = (phone?: string, name?: string) => {
-    if (!phone) return toast.error("Phone number nahi mila");
+const openWhatsApp = (phone?: string, name?: string) => {
+  if (!phone) return toast.error("Phone number nahi mila");
 
-    const cleanPhone = phone.replace(/\D/g, "");
-    const message = `Hello ${name || ""},\n\nThis is ${
-      staffProfile?.name || "Telecaller"
-    } from BharatComfort.\nWe contacted you regarding your business listing.\nPlease tell a good time to connect.`;
+  const cleanPhone = phone.replace(/\D/g, "");
 
-    window.location.href = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
-      message
-    )}`;
-  };
+  const message = `Namaste Sir/Ma'am ${name || ""},
+
+Main ${staffProfile?.name || "Telecaller"} bol raha/rahi hoon – BharatComfort team se.
+
+Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details chahiye:
+
+🏨 Hotel / Property Photos  
+🛏 Room Categories (AC / Non-AC / Deluxe etc.)  
+💰 Room Prices (per night)  
+📍 Complete Address + Google Map Location  
+🧾 GST Number (agar available ho)  
+🪪 Owner ka Aadhaar (sirf verification ke liye)
+
+Aap ye details yahin WhatsApp par bhej sakte hain.
+Agar baat karna convenient ho, toh please ek suitable time bata dein.
+For more details please visit bharatcomfort.online or feel free to contact at +919277168528.
+Dhanyavaad 🙏  
+BharatComfort Team`;
+
+  window.location.href = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
+    message
+  )}`;
+};
+
 
   const openEmail = (email?: string, name?: string) => {
     if (!email) return toast.error("Email address nahi mila");

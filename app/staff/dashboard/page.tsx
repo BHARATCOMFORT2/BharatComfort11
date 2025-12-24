@@ -9,8 +9,8 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
 
 import TaskSidebar, { SidebarAction } from "./components/TaskSidebar";
-import InterestedPartnersPage from "../interested/page";
-import CallbackLeadsPage from "../callback/page";
+import InterestedPartnersPage from "../InterestedPartners/page";
+import CallbackLeadsPage from "../CallbackLeads/page";
 
 /* ---------------------------------------
    TYPES

@@ -4,8 +4,9 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 
-import CallLogsTab from "@/app/staff/dashboard/components/CallLogsTab";
 import TaskSidebar from "@/app/staff/dashboard/components/TaskSidebar";
+import CallLogsTab from "@/app/staff/dashboard/components/CallLogsTab";
+import TelecallerAnalytics from "../components/TelecallerAnalytics";
 
 /* ---------------------------------------
    TYPES
@@ -43,7 +44,7 @@ export default function AdminTelecallerDashboardPage() {
   const [leads, setLeads] = useState<Lead[]>([]);
 
   /* ---------------------------------------
-     AUTH (ADMIN)
+     ADMIN AUTH
   ---------------------------------------- */
   useEffect(() => {
     const load = async () => {
@@ -101,23 +102,29 @@ export default function AdminTelecallerDashboardPage() {
 
   return (
     <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
-      {/* LEFT SIDEBAR (READ ONLY) */}
+      {/* LEFT SIDEBAR (READ-ONLY) */}
       <TaskSidebar
         token={token}
         onSelect={(a) => {
           if (a.type === "status") setView(a.value);
-          if (a.type === "range") setView("tasks");
+          if (a.type === "range") {
+            setView("tasks");
+            setActiveTab("tasks");
+          }
         }}
       />
 
       {/* RIGHT PANEL */}
       <div className="space-y-4">
-        {/* TABS */}
+        {/* 🔹 ANALYTICS (STEP 3) */}
+        <TelecallerAnalytics token={token} staffId={staffId} />
+
+        {/* 🔹 TABS */}
         {view === "tasks" && (
           <div className="flex gap-4 border-b pb-2">
             <button
               onClick={() => setActiveTab("tasks")}
-              className={`text-sm ${
+              className={`text-sm px-2 pb-1 ${
                 activeTab === "tasks"
                   ? "border-b-2 border-black font-medium"
                   : "text-gray-500"
@@ -128,7 +135,7 @@ export default function AdminTelecallerDashboardPage() {
 
             <button
               onClick={() => setActiveTab("calllogs")}
-              className={`text-sm ${
+              className={`text-sm px-2 pb-1 ${
                 activeTab === "calllogs"
                   ? "border-b-2 border-black font-medium"
                   : "text-gray-500"
@@ -139,12 +146,12 @@ export default function AdminTelecallerDashboardPage() {
           </div>
         )}
 
-        {/* CALL LOGS */}
+        {/* 🔹 CALL LOGS */}
         {view === "tasks" && activeTab === "calllogs" && (
           <CallLogsTab token={token} staffId={staffId} />
         )}
 
-        {/* TASKS (READ ONLY TABLE) */}
+        {/* 🔹 TASKS TABLE (READ-ONLY MIRROR) */}
         {view === "tasks" && activeTab === "tasks" && (
           <div className="bg-white rounded shadow overflow-x-auto">
             <table className="min-w-full text-sm">
@@ -154,7 +161,7 @@ export default function AdminTelecallerDashboardPage() {
                   <th className="p-2">Phone</th>
                   <th className="p-2">Status</th>
                   <th className="p-2">Callback</th>
-                  <th className="p-2">Note</th>
+                  <th className="p-2">Last Note</th>
                 </tr>
               </thead>
               <tbody>
@@ -173,6 +180,7 @@ export default function AdminTelecallerDashboardPage() {
                     </td>
                   </tr>
                 ))}
+
                 {leads.length === 0 && (
                   <tr>
                     <td

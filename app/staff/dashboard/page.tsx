@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
@@ -11,6 +11,7 @@ import toast from "react-hot-toast";
 import TaskSidebar, { SidebarAction } from "./components/TaskSidebar";
 import InterestedPartnersPage from "../InterestedPartners/page";
 import CallbackLeadsPage from "../CallbackLeads/page";
+import CallLogsTab from "./components/CallLogsTab";
 
 /* ---------------------------------------
    TYPES
@@ -79,6 +80,7 @@ export default function TelecallerDashboardPage() {
     null
   );
 
+  /* 🔹 SINGLE SOURCE OF TRUTH (FIXED DUPLICATES) */
   const [view, setView] = useState<
     "tasks" | "interested" | "callback"
   >("tasks");
@@ -86,6 +88,8 @@ export default function TelecallerDashboardPage() {
   const [taskRange, setTaskRange] = useState<
     "today" | "yesterday" | "week" | "month"
   >("today");
+
+  const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
 
   /* ---------------------------------------
      AUTH
@@ -169,6 +173,7 @@ export default function TelecallerDashboardPage() {
     if (action.type === "range") {
       setView("tasks");
       setTaskRange(action.value);
+      setActiveTab("tasks");
     }
     if (action.type === "status") {
       setView(action.value);
@@ -207,8 +212,6 @@ export default function TelecallerDashboardPage() {
             : l
         )
       );
-
-      toast.success("Status updated ✅");
     } catch {
       toast.error("Status update failed");
     }
@@ -238,14 +241,33 @@ export default function TelecallerDashboardPage() {
         p.map((l) => (l.id === leadId ? { ...l, lastNote: text } : l))
       );
       setNotesDraft((p) => ({ ...p, [leadId]: "" }));
-      toast.success("Note saved ✅");
     } catch {
       toast.error("Note save failed");
     }
   };
 
   /* ---------------------------------------
-     WHATSAPP + EMAIL (FULL MESSAGE RESTORED)
+     CALL LOG (FIXED – MOVED OUT OF JSX)
+  ---------------------------------------- */
+  const logCall = async (lead: Lead) => {
+    try {
+      await fetch("/api/staff/calls/log", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          leadId: lead.id,
+          phone: lead.phone,
+          outcome: "dialed",
+        }),
+      });
+    } catch {}
+  };
+
+  /* ---------------------------------------
+     WHATSAPP
   ---------------------------------------- */
   const openWhatsApp = (phone?: string, name?: string) => {
     if (!phone) return toast.error("Phone number nahi mila");
@@ -258,18 +280,13 @@ Main ${staffProfile?.name || "Telecaller"} bol raha/rahi hoon – BharatComfort 
 Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details chahiye:
 
 🏨 Hotel / Property Photos
-🛏 Room Categories (AC / Non-AC / Deluxe etc.)
-💰 Room Prices (per night)
-📍 Complete Address + Google Map Location
-🧾 GST Number (agar available ho)
-🪪 Owner ka Aadhaar (sirf verification ke liye)
+🛏 Room Categories
+💰 Room Prices
+📍 Complete Address
+🧾 GST (agar available ho)
+🪪 Owner Aadhaar (verification ke liye)
 
-Aap ye details yahin WhatsApp par bhej sakte hain.
-Agar baat karna convenient ho, toh please ek suitable time bata dein.
-
-For more details:
-🌐 https://www.bharatcomfort.online
-📞 +91 9277168528
+Aap yeh details yahin WhatsApp par bhej sakte hain.
 
 Dhanyavaad 🙏
 BharatComfort Team`;
@@ -279,6 +296,9 @@ BharatComfort Team`;
     )}`;
   };
 
+  /* ---------------------------------------
+     EMAIL
+  ---------------------------------------- */
   const openEmail = (email?: string, name?: string) => {
     if (!email) return toast.error("Email address nahi mila");
 
@@ -287,16 +307,8 @@ BharatComfort Team`;
 
 This is ${staffProfile?.name || "Telecaller"} from BharatComfort.
 
-We are reaching out regarding listing your hotel/business on BharatComfort.
-To proceed, we require the following details:
-
-- Property photos
-- Room categories & prices
-- Complete address
-- GST number (if applicable)
-- Owner Aadhaar (for verification only)
-
-Please reply to this email or WhatsApp us at +91 9277168528.
+We are reaching out regarding listing your business with us.
+Please share required details at your convenience.
 
 Website: https://www.bharatcomfort.online
 
@@ -332,10 +344,44 @@ BharatComfort Team`;
         <TaskSidebar token={token} onSelect={handleSidebarSelect} />
 
         <div className="space-y-4">
-          {view === "interested" && <InterestedPartnersPage token={token} />}
+          {/* TABS */}
+          {view === "tasks" && (
+            <>
+              <div className="flex gap-4 border-b pb-2">
+                <button
+                  onClick={() => setActiveTab("tasks")}
+                  className={`text-sm px-2 pb-1 ${
+                    activeTab === "tasks"
+                      ? "border-b-2 border-black font-medium"
+                      : "text-gray-500"
+                  }`}
+                >
+                  Tasks
+                </button>
+
+                <button
+                  onClick={() => setActiveTab("calllogs")}
+                  className={`text-sm px-2 pb-1 ${
+                    activeTab === "calllogs"
+                      ? "border-b-2 border-black font-medium"
+                      : "text-gray-500"
+                  }`}
+                >
+                  📞 Call Logs
+                </button>
+              </div>
+
+              {activeTab === "calllogs" && <CallLogsTab token={token} />}
+            </>
+          )}
+
+          {view === "interested" && (
+            <InterestedPartnersPage token={token} />
+          )}
+
           {view === "callback" && <CallbackLeadsPage token={token} />}
 
-          {view === "tasks" && (
+          {view === "tasks" && activeTab === "tasks" && (
             <div className="bg-white rounded shadow overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-100">
@@ -482,9 +528,10 @@ BharatComfort Team`;
 
                       <td className="p-2 space-y-1">
                         <button
-                          onClick={() =>
-                            (window.location.href = `tel:${lead.phone}`)
-                          }
+                          onClick={() => {
+                            logCall(lead);
+                            window.location.href = `tel:${lead.phone}`;
+                          }}
                           className="bg-green-600 text-white text-xs px-2 py-1 w-full"
                         >
                           📞 Call

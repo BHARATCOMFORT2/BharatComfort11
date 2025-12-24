@@ -2,95 +2,112 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import AdminDashboardLayout from "@/components/admin/AdminDashboardLayout";
-import { useAuth } from "@/hooks/useAuth";
+import toast from "react-hot-toast";
 
 type Telecaller = {
   id: string;
-  name: string;
-  email: string;
-  phone: string;
-  role: string;
-  status: string;
-  isActive: boolean;
+  name?: string;
+  email?: string;
+  phone?: string;
+  totalCalls: number;
+  activeLeads: number;
 };
 
 export default function AdminTelecallersPage() {
-  const { firebaseUser, profile, loading } = useAuth();
   const router = useRouter();
+  const [data, setData] = useState<Telecaller[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [token, setToken] = useState("");
-  const [telecallers, setTelecallers] = useState<Telecaller[]>([]);
-  const [pageLoading, setPageLoading] = useState(true);
-
-  /* ✅ ADMIN PROTECTION */
   useEffect(() => {
-    if (loading) return;
+    const load = async () => {
+      try {
+        setLoading(true);
 
-    if (!firebaseUser || !["admin", "superadmin"].includes(profile?.role || "")) {
-      router.push("/");
-      return;
-    }
+        const res = await fetch("/api/admin/telecallers", {
+          headers: {
+            // 🔒 admin session / token already handled by middleware
+          },
+        });
 
-    firebaseUser.getIdToken().then((t) => setToken(t));
-  }, [firebaseUser, profile, loading, router]);
+        const json = await res.json();
+        if (!res.ok || !json.success) throw new Error();
 
-  /* ✅ LOAD ONLY APPROVED + ACTIVE TELECALLERS */
-  useEffect(() => {
-    if (!token) return;
+        setData(json.telecallers || []);
+      } catch {
+        toast.error("Telecallers load failed");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-    fetch("/api/admin/staff/telecallers", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => r.json())
-      .then((d) => {
-        if (d.success) setTelecallers(d.data || []);
-      })
-      .finally(() => setPageLoading(false));
-  }, [token]);
+    load();
+  }, []);
 
-  if (pageLoading) return <p className="p-6">Loading telecallers...</p>;
+  if (loading) {
+    return (
+      <div className="p-6 text-sm text-gray-500">
+        Loading telecallers…
+      </div>
+    );
+  }
 
   return (
-    <AdminDashboardLayout title="Active Telecallers" profile={profile}>
-      <div className="bg-white shadow rounded-lg overflow-x-auto">
+    <div className="p-6 space-y-4">
+      <h1 className="text-lg font-semibold">
+        Telecallers Dashboard
+      </h1>
+
+      <div className="bg-white rounded shadow overflow-x-auto">
         <table className="min-w-full text-sm">
           <thead className="bg-gray-100">
             <tr>
-              <th className="p-3 text-left">Name</th>
-              <th className="p-3 text-left">Email</th>
-              <th className="p-3 text-left">Phone</th>
-              <th className="p-3 text-left">Role</th>
-              <th className="p-3 text-left">Status</th>
-              <th className="p-3 text-left">Active</th>
+              <th className="p-2 text-left">Name</th>
+              <th className="p-2 text-left">Email</th>
+              <th className="p-2 text-center">Total Calls</th>
+              <th className="p-2 text-center">Active Leads</th>
+              <th className="p-2 text-center">Action</th>
             </tr>
           </thead>
+
           <tbody>
-            {telecallers.map((t) => (
+            {data.map((t) => (
               <tr key={t.id} className="border-t">
-                <td className="p-3">{t.name}</td>
-                <td className="p-3">{t.email}</td>
-                <td className="p-3">{t.phone}</td>
-                <td className="p-3">{t.role}</td>
-                <td className="p-3 capitalize">{t.status}</td>
-                <td className="p-3">
-                  {t.isActive ? (
-                    <span className="text-green-600 font-semibold">Yes</span>
-                  ) : (
-                    <span className="text-red-600 font-semibold">No</span>
-                  )}
+                <td className="p-2">{t.name || "-"}</td>
+                <td className="p-2">{t.email || "-"}</td>
+                <td className="p-2 text-center">
+                  {t.totalCalls}
+                </td>
+                <td className="p-2 text-center">
+                  {t.activeLeads}
+                </td>
+                <td className="p-2 text-center">
+                  <button
+                    onClick={() =>
+                      router.push(
+                        `/admin/dashboard/telecallers/${t.id}`
+                      )
+                    }
+                    className="text-xs bg-black text-white px-3 py-1"
+                  >
+                    View Dashboard
+                  </button>
                 </td>
               </tr>
             ))}
+
+            {data.length === 0 && (
+              <tr>
+                <td
+                  colSpan={5}
+                  className="p-4 text-center text-gray-500"
+                >
+                  No telecallers found
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
-
-        {!telecallers.length && (
-          <p className="p-6 text-center text-gray-500">
-            No active telecallers found
-          </p>
-        )}
       </div>
-    </AdminDashboardLayout>
+    </div>
   );
 }

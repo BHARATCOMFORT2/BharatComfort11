@@ -1,23 +1,30 @@
 // middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 
+const PUBLIC_ROUTES = [
+  "/",
+  "/auth",
+  "/auth/login",
+  "/auth/register",
+
+  "/partner/register",
+  "/partner/login",
+
+  "/staff/login",
+  "/staff/register",
+
+  "/admin/login",
+];
+
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
 
   /* ---------------------------------------------------
-     1️⃣ FORCE DOMAIN CONSISTENCY
-  ----------------------------------------------------*/
-  if (host === "bharatcomfort.online") {
-    return NextResponse.redirect(
-      new URL(`https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`)
-    );
-  }
-
-  /* ---------------------------------------------------
-     2️⃣ SKIP STATIC FILES
+     1️⃣ NEVER TOUCH API & STATIC
   ----------------------------------------------------*/
   if (
+    pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
     pathname.startsWith("/static") ||
     pathname.match(/\.(ico|png|jpg|jpeg|svg|css|js|woff2?|txt|xml)$/)
@@ -26,34 +33,36 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     3️⃣ SKIP AUTH PAGES
+     2️⃣ ALLOW PUBLIC ROUTES (NO AUTH, NO REDIRECT)
   ----------------------------------------------------*/
-  if (
-    pathname.startsWith("/auth") ||
-    pathname === "/admin/login" ||
-    pathname === "/staff/login" ||
-    pathname === "/staff/register"
-  ) {
+  if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
+    // 👉 domain redirect yahin safe hai
+    if (host === "bharatcomfort.online") {
+      return NextResponse.redirect(
+        new URL(`https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`)
+      );
+    }
     return NextResponse.next();
   }
 
   /* ---------------------------------------------------
-     4️⃣ NEVER TOUCH API ROUTES
-     🔥 API AUTH IS HANDLED INSIDE API
+     3️⃣ FORCE DOMAIN (ONLY FOR REAL PAGES)
   ----------------------------------------------------*/
-  if (pathname.startsWith("/api")) {
-    return NextResponse.next();
+  if (host === "bharatcomfort.online") {
+    return NextResponse.redirect(
+      new URL(`https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`)
+    );
   }
 
   /* ---------------------------------------------------
-     5️⃣ PROTECTED PAGES ONLY
+     4️⃣ PROTECTED DASHBOARD ONLY
   ----------------------------------------------------*/
   const protectedPaths = [
     "/dashboard",
-    "/user",
-    "/partner",
-    "/admin",
-    "/staff",
+    "/user/dashboard",
+    "/partner/dashboard",
+    "/staff/dashboard",
+    "/admin/dashboard",
     "/chat",
     "/book",
   ];
@@ -73,9 +82,6 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-/* ---------------------------------------------------
-   6️⃣ MATCHER
-----------------------------------------------------*/
 export const config = {
   matcher: ["/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)"],
 };

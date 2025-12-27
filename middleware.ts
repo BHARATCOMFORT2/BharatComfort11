@@ -21,7 +21,7 @@ export function middleware(request: NextRequest) {
   const host = request.headers.get("host") || "";
 
   /* ---------------------------------------------------
-     1️⃣ NEVER TOUCH API & STATIC
+     1️⃣ ABSOLUTELY SKIP API & STATIC (NO MIDDLEWARE RUN)
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/api") ||
@@ -33,13 +33,14 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     2️⃣ ALLOW PUBLIC ROUTES (NO AUTH, NO REDIRECT)
+     2️⃣ ALLOW PUBLIC ROUTES
   ----------------------------------------------------*/
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-    // 👉 domain redirect yahin safe hai
     if (host === "bharatcomfort.online") {
       return NextResponse.redirect(
-        new URL(`https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`)
+        new URL(
+          `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
+        )
       );
     }
     return NextResponse.next();
@@ -50,12 +51,14 @@ export function middleware(request: NextRequest) {
   ----------------------------------------------------*/
   if (host === "bharatcomfort.online") {
     return NextResponse.redirect(
-      new URL(`https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`)
+      new URL(
+        `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
+      )
     );
   }
 
   /* ---------------------------------------------------
-     4️⃣ PROTECTED DASHBOARD ONLY
+     4️⃣ PROTECTED DASHBOARD ROUTES
   ----------------------------------------------------*/
   const protectedPaths = [
     "/dashboard",
@@ -82,6 +85,18 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
+/* ---------------------------------------------------
+   🚨 MOST IMPORTANT PART
+   ❌ DO NOT RUN MIDDLEWARE ON /api/*
+----------------------------------------------------*/
 export const config = {
-  matcher: ["/((?!_next|static|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)"],
+  matcher: [
+    /*
+      Match all paths EXCEPT:
+      - /api/*
+      - _next
+      - static files
+    */
+    "/((?!api|_next|static|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)",
+  ],
 };

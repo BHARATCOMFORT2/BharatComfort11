@@ -40,7 +40,7 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // ✅ 1) Firebase login
+      // 1️⃣ Firebase login
       await signInWithEmailAndPassword(
         auth,
         form.email.trim(),
@@ -50,7 +50,7 @@ export default function LoginPage() {
       const user = auth.currentUser;
       if (!user) throw new Error("Auth initialization failed.");
 
-      // ✅ 2) Create secure session cookie
+      // 2️⃣ Create secure session cookie
       const idToken = await getIdToken(user, false);
 
       const sessionRes = await fetch("/api/auth/session", {
@@ -61,13 +61,13 @@ export default function LoginPage() {
 
       if (!sessionRes.ok) throw new Error("Session cookie creation failed.");
 
-      // ✅ 3) Admin direct access
+      // 3️⃣ Admin direct access
       if (ADMIN_EMAILS.includes(user.email || "")) {
         router.push("/admin/dashboard");
         return;
       }
 
-      // ✅ 4) Load user profile
+      // 4️⃣ Load user profile
       const userRef = doc(db, "users", user.uid);
       const snap = await getDoc(userRef);
 
@@ -81,44 +81,17 @@ export default function LoginPage() {
       const role = data.role || "user";
 
       // ======================================================
-      // ✅ ✅ ✅ PARTNER LOGIN — STRICT KYC ENFORCEMENT
+      // ✅ PARTNER LOGIN (KYC TEMPORARILY DISABLED)
       // ======================================================
       if (role === "partner") {
-        const partnerRef = doc(db, "partners", user.uid);
-        const pSnap = await getDoc(partnerRef);
-
-        const kycStatus =
-          pSnap.exists() && pSnap.data()?.kycStatus
-            ? String(pSnap.data().kycStatus).toUpperCase()
-            : "NOT_STARTED";
-
-        if (kycStatus === "NOT_STARTED") {
-          router.push("/partner/dashboard/kyc");
-          return;
-        }
-
-        if (kycStatus === "UNDER_REVIEW") {
-          router.push("/partner/dashboard/kyc/pending");
-          return;
-        }
-
-        if (kycStatus === "REJECTED") {
-          router.push("/partner/dashboard/kyc?resubmit=1");
-          return;
-        }
-
-        if (kycStatus === "APPROVED") {
-          router.push("/partner/dashboard");
-          return;
-        }
-
-        // ✅ Safety fallback
-        router.push("/partner/dashboard/kyc");
+        // ❌ KYC checks removed
+        // ✅ Direct dashboard access
+        router.push("/partner/dashboard");
         return;
       }
 
       // ======================================================
-      // ✅ NORMAL USER VERIFICATION FLOW
+      // ✅ NORMAL USER VERIFICATION FLOW (UNCHANGED)
       // ======================================================
       if (!user.emailVerified || !data.emailVerified) {
         router.push("/auth/verify");
@@ -139,7 +112,7 @@ export default function LoginPage() {
         });
       } catch {}
 
-      // ✅ Booking redirect
+      // Booking redirect
       if (
         redirectTo &&
         redirectTo.startsWith("/listing/") &&

@@ -20,8 +20,6 @@ import { Button } from "@/components/ui/Button";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
-import { demoListings } from "@/lib/demo-listings";
-
 const ListingMap = nextDynamic(
   () => import("@/components/listings/ListingMap"),
   {
@@ -208,11 +206,10 @@ export default function ListingsPage() {
           setHasMore(false);
         }
 
-        if (reset) {
-          // Demo listings + nayi Firestore listings, dono par filters
-          const filteredDemo = applyClientFilters(demoListings || []);
-          setListings([...newListings, ...filteredDemo]);
-        } else {
+       if (reset) {
+  setListings([...newListings]);
+}
+       else {
           // Infinite scroll: purane + naye (naye pe filter already laga hua hai)
           setListings((prev) => [...prev, ...newListings]);
         }
@@ -251,12 +248,6 @@ export default function ListingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedFilters]);
 
-  /* 💳 Handle Booking */
-  const handleBookNow = async (listing: any) => {
-    if (listing.isDemo) {
-      toast.error("Demo listing — booking disabled");
-      return;
-    }
 
     if (!user) {
       setPendingListing(listing);
@@ -376,10 +367,7 @@ export default function ListingsPage() {
             </span>
           </div>
 
-          {/* Demo badge */}
-          {listing.isDemo && (
-            <p className="text-xs text-red-500 font-semibold">
-              DEMO LISTING — BOOKING DISABLED
+      
             </p>
           )}
 

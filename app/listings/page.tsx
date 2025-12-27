@@ -211,7 +211,7 @@ export default function ListingsPage() {
         if (reset) {
           // Demo listings + nayi Firestore listings, dono par filters
           const filteredDemo = applyClientFilters(demoListings || []);
-          setListings([...filteredDemo, ...newListings]);
+          setListings([...newListings, ...filteredDemo]);
         } else {
           // Infinite scroll: purane + naye (naye pe filter already laga hua hai)
           setListings((prev) => [...prev, ...newListings]);

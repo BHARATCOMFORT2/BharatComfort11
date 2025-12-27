@@ -146,9 +146,9 @@ export default function ListingsPage() {
 
         // 🔴 Firestore pe sirf `status == active` + orderBy
         // baaki filters safe client-side apply honge
-        const baseConditions: any[] = [
-          where("status", "==", "active"),
-        ];
+       const baseConditions: any[] = [
+  where("status", "in", ["approved", "active"]),
+];
 
         let q = query(
           colRef,

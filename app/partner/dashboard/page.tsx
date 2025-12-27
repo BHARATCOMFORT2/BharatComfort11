@@ -6,7 +6,7 @@ import { auth } from "@/lib/firebase-client";
 import { onAuthStateChanged } from "firebase/auth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import PartnerListingsManager from "@/components/dashboard/PartnerListingsManager";
-import { apiFetch } from "@/lib/apiFetch"; // ✅ NEW
+import { apiFetch } from "@/lib/apiFetch";
 import {
   LineChart,
   Line,
@@ -25,8 +25,6 @@ type PartnerProfile = {
   phone?: string;
   profilePic?: string;
   status?: string;
-  kycStatus?: string; // normalized field
-  kyc?: { status?: string };
   bank?: any;
   address?: Record<string, string>;
 };
@@ -62,10 +60,6 @@ export default function PartnerDashboard() {
 
   const [busy, setBusy] = useState(false);
 
-  // helper to normalize KYC value for UI comparison
-  const normalizeKyc = (raw?: string | null) =>
-    (raw || "NOT_STARTED").toString().toUpperCase();
-
   useEffect(() => {
     let mounted = true;
 
@@ -78,78 +72,38 @@ export default function PartnerDashboard() {
       setLoading(true);
 
       try {
-        // 1) profile — abhi bhi cookie-based session (credentials: include)
+        // profile
         const pRes = await fetch("/api/partners/profile", {
           credentials: "include",
         });
         const pJson = await pRes.json().catch(() => null);
-
         if (!mounted) return;
 
-        // CASE: partner doc not created yet
-        if (!pJson || pJson.ok === false) {
-          if (pJson?.exists === false) {
-            // do NOT redirect — show KYC UI/card inside dashboard instead
-            setProfile({
-              uid: pJson?.uid || user.uid,
-              displayName: user.displayName || undefined,
-              businessName: null,
-              email: user.email || undefined,
-              phone: user.phoneNumber || undefined,
-              profilePic: null,
-              status: "NOT_CREATED",
-              kycStatus: "NOT_STARTED",
-              kyc: null,
-              bank: null,
-              address: null,
-            });
-          }
-        } else {
-          const partnerObj = pJson.partner || {};
+        const partnerObj = pJson?.partner || {};
 
-          const rawKyc =
-            (pJson.kycStatus as string) ||
-            (partnerObj.kycStatus as string) ||
-            (partnerObj.kyc?.status as string);
-          const kycStatus = normalizeKyc(rawKyc);
+        setProfile({
+          uid: pJson?.uid || partnerObj.uid || user.uid,
+          displayName:
+            partnerObj.displayName ||
+            partnerObj.businessName ||
+            user.displayName ||
+            "Partner",
+          businessName: partnerObj.businessName || "",
+          email: partnerObj.email || user.email || "",
+          phone: partnerObj.phone || user.phoneNumber || "",
+          profilePic: partnerObj.profilePic || null,
+          status: partnerObj.status || "ACTIVE",
+          bank: partnerObj.bank || null,
+          address: partnerObj.address || null,
+        });
 
-          const normalized: PartnerProfile = {
-            uid: (pJson.uid as string) || partnerObj.uid || user.uid,
-            displayName:
-              partnerObj.displayName ||
-              partnerObj.name ||
-              partnerObj.businessName ||
-              user.displayName ||
-              undefined,
-            businessName:
-              partnerObj.businessName ||
-              partnerObj.displayName ||
-              partnerObj.name ||
-              null,
-            email: partnerObj.email || user.email || null,
-            phone: partnerObj.phone || user.phoneNumber || null,
-            profilePic: partnerObj.profilePic || null,
-            status: (partnerObj.status || pJson.onboardingStatus || null) as any,
-            kycStatus,
-            kyc: partnerObj.kyc || null,
-            bank: partnerObj.bank || null,
-            address: partnerObj.address || null,
-          };
-
-          setProfile(normalized);
-        }
-
-        // 2) bookings (first page) — 🔁 NOW via apiFetch (Bearer token)
+        // bookings
         const bookingsRes = await apiFetch("/api/partners/bookings?limit=10");
         const bookingsJson = await bookingsRes.json().catch(() => null);
-
-        if (bookingsJson?.ok) {
+        if (bookingsJson?.ok && mounted) {
           const list = bookingsJson.bookings || [];
-          if (!mounted) return;
-
           setBookings(list);
           setHasMore(list.length >= 10);
-
           setStats((s) => ({
             ...s,
             bookings: bookingsJson.total || list.length,
@@ -161,7 +115,7 @@ export default function PartnerDashboard() {
           }));
         }
 
-        // 3) finance (override / enrich earnings) — 🔁 apiFetch
+        // finance
         const financeRes = await apiFetch("/api/partners/finance");
         const fin = await financeRes.json().catch(() => null);
         if (fin?.ok && mounted) {
@@ -171,58 +125,51 @@ export default function PartnerDashboard() {
           }));
         }
 
-        // 4) listings count (for stats.card) — 🔁 apiFetch + /listings/list
-        try {
-          const listingsRes = await apiFetch(
-            "/api/partners/listings/list?limit=1"
-          );
-          const listingsJson = await listingsRes.json().catch(() => null);
-          if (listingsJson?.ok && mounted) {
-            const totalFromApi =
+        // listings count
+        const listingsRes = await apiFetch(
+          "/api/partners/listings/list?limit=1"
+        );
+        const listingsJson = await listingsRes.json().catch(() => null);
+        if (listingsJson?.ok && mounted) {
+          setStats((s) => ({
+            ...s,
+            listings:
               listingsJson.total ??
               listingsJson.count ??
-              (Array.isArray(listingsJson.listings)
-                ? listingsJson.listings.length
-                : 0);
-
-            setStats((s) => ({
-              ...s,
-              listings:
-                typeof totalFromApi === "number" ? totalFromApi : s.listings,
-            }));
-          }
-        } catch (e) {
-          console.error("Failed to load listings stats", e);
+              listingsJson.listings?.length ??
+              0,
+          }));
         }
 
-        // 5) insights (last 7 days) — 🔁 apiFetch
+        // insights
         const insightsRes = await apiFetch("/api/partners/insights?days=7");
         const ins = await insightsRes.json().catch(() => null);
-
-        if (!mounted) return;
-
-        if (ins?.ok && Array.isArray(ins.bookingsPerDay)) {
-          setChartData(
-            ins.bookingsPerDay.map((d: any) => ({
-              date: new Date(d.day).toLocaleDateString("en-IN", {
-                day: "2-digit",
-                month: "short",
-              }),
-              count: d.count,
-            }))
-          );
-        } else {
-          const today = new Date();
-          const days = [...Array(7)].map((_, i) => {
-            const d = new Date(today);
-            d.setDate(today.getDate() - (6 - i));
-            const label = d.toLocaleDateString("en-IN", {
-              day: "2-digit",
-              month: "short",
+        if (mounted) {
+          if (ins?.ok && Array.isArray(ins.bookingsPerDay)) {
+            setChartData(
+              ins.bookingsPerDay.map((d: any) => ({
+                date: new Date(d.day).toLocaleDateString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                }),
+                count: d.count,
+              }))
+            );
+          } else {
+            const today = new Date();
+            const days = [...Array(7)].map((_, i) => {
+              const d = new Date(today);
+              d.setDate(today.getDate() - (6 - i));
+              return {
+                date: d.toLocaleDateString("en-IN", {
+                  day: "2-digit",
+                  month: "short",
+                }),
+                count: 0,
+              };
             });
-            return { date: label, count: 0 };
-          });
-          setChartData(days);
+            setChartData(days);
+          }
         }
 
         setLoading(false);
@@ -242,7 +189,6 @@ export default function PartnerDashboard() {
     setBusy(true);
     try {
       const nextPage = bookingsPage + 1;
-      // 🔁 BOOKINGS LOAD MORE NOW via apiFetch
       const res = await apiFetch(
         `/api/partners/bookings?limit=10&page=${nextPage}`
       );
@@ -251,42 +197,9 @@ export default function PartnerDashboard() {
         setBookings((prev) => [...prev, ...(j.bookings || [])]);
         setBookingsPage(nextPage);
         setHasMore((j.bookings?.length || 0) >= 10);
-      } else {
-        alert(j?.error || "Failed to load more");
       }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to load more");
     } finally {
       setBusy(false);
-    }
-  };
-
-  const refetchProfile = async () => {
-    try {
-      // profile abhi bhi cookie-based session par hi
-      const p = await fetch("/api/partners/profile", {
-        credentials: "include",
-      });
-      const pj = await p.json().catch(() => null);
-      if (pj?.ok && pj.partner) {
-        const rawKyc =
-          (pj.kycStatus as string) ||
-          (pj.partner?.kycStatus as string) ||
-          (pj.partner?.kyc?.status as string);
-
-        setProfile((prev) => {
-          const prevSafe = (prev || {}) as PartnerProfile;
-          return {
-            ...prevSafe,
-            businessName: pj.partner.businessName || prevSafe.businessName,
-            bank: pj.partner.bank || prevSafe.bank,
-            kycStatus: normalizeKyc(rawKyc),
-          };
-        });
-      }
-    } catch (e) {
-      console.error("refetchProfile failed", e);
     }
   };
 
@@ -305,15 +218,7 @@ export default function PartnerDashboard() {
         }),
       });
       const j = await res.json().catch(() => null);
-      if (res.ok && j?.ok) {
-        await refetchProfile();
-        setOpenBusinessModal(false);
-      } else {
-        alert(j?.error || "Failed to save business");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save business");
+      if (res.ok && j?.ok) setOpenBusinessModal(false);
     } finally {
       setBusy(false);
     }
@@ -330,15 +235,7 @@ export default function PartnerDashboard() {
         body: JSON.stringify({ bank: bankDraft }),
       });
       const j = await res.json().catch(() => null);
-      if (res.ok && j?.ok) {
-        await refetchProfile();
-        setOpenBankModal(false);
-      } else {
-        alert(j?.error || "Failed to save bank");
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to save bank");
+      if (res.ok && j?.ok) setOpenBankModal(false);
     } finally {
       setBusy(false);
     }
@@ -346,16 +243,9 @@ export default function PartnerDashboard() {
 
   const handleSettlementRequest = async () => {
     if (!profile) return;
-    const kycStatus = normalizeKyc(
-      profile.kycStatus || profile.kyc?.status || ""
-    );
-    if (kycStatus !== "APPROVED") {
-      return alert("KYC must be approved before requesting a settlement.");
-    }
     if (!eligibleBookings.length || settlementAmount <= 0) {
       return alert("Select bookings and enter amount");
     }
-
     setBusy(true);
     try {
       const res = await fetch("/api/partners/settlements/request", {
@@ -371,12 +261,7 @@ export default function PartnerDashboard() {
       if (res.ok && j?.ok) {
         alert("✅ Settlement request submitted!");
         setOpenSettlementModal(false);
-      } else {
-        alert(j?.error || "Failed to request settlement");
       }
-    } catch (e) {
-      console.error(e);
-      alert("Failed to request settlement");
     } finally {
       setBusy(false);
     }
@@ -390,23 +275,6 @@ export default function PartnerDashboard() {
   if (loading)
     return <p className="text-center py-10">Loading dashboard…</p>;
 
-  // UI helpers
-  const showKycBadge = (s?: string | null) => {
-    const st = normalizeKyc(s);
-    return st !== "NOT_STARTED";
-  };
-
-  const prettyKyc = (s?: string | null) => {
-    const st = normalizeKyc(s);
-    if (st === "UNDER_REVIEW" || st === "SUBMITTED") return "Pending";
-    if (st === "APPROVED") return "Approved";
-    if (st === "REJECTED") return "Rejected";
-    return "Not started";
-  };
-
-  // current normalized kycStatus for UI
-  const kycStatus = normalizeKyc(profile?.kycStatus);
-
   return (
     <DashboardLayout
       title="Partner Dashboard"
@@ -416,98 +284,12 @@ export default function PartnerDashboard() {
         profilePic: profile?.profilePic,
       }}
     >
-      {/* ========== KYC CARD ========== */}
-      {kycStatus !== "APPROVED" && (
-        <div className="mb-6 bg-yellow-50 border border-yellow-300 rounded-xl p-5">
-          <h2 className="text-lg font-semibold text-yellow-800">
-            🔐 KYC Verification Required
-          </h2>
-
-          {kycStatus === "NOT_STARTED" && (
-            <p className="text-yellow-700 mt-1">
-              You have not submitted your KYC yet. Please complete your KYC to
-              enable full access and settlements.
-            </p>
-          )}
-
-          {kycStatus === "UNDER_REVIEW" && (
-            <p className="text-yellow-700 mt-1">
-              Your KYC is under review. Our team will verify it shortly.
-            </p>
-          )}
-
-          {kycStatus === "REJECTED" && (
-            <p className="text-red-700 mt-1">
-              Your KYC was rejected. Please resubmit your information.
-            </p>
-          )}
-
-          <button
-            onClick={() => router.push("/partner/dashboard/kyc")}
-            className="mt-3 px-4 py-2 bg-yellow-700 text-white rounded-lg hover:bg-yellow-800"
-          >
-            Complete / View KYC
-          </button>
-        </div>
-      )}
-
       {/* Greeting */}
       <div className="mb-6 bg-white rounded-2xl p-6 shadow">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">Hello, {welcome} 👋</h1>
-            <p className="text-gray-600">
-              Manage your listings, bookings & payouts.
-            </p>
-
-            {showKycBadge(profile?.kycStatus) && (
-              <div
-                className={`mt-2 inline-block px-3 py-1 text-sm rounded-full ${
-                  normalizeKyc(profile?.kycStatus) === "APPROVED"
-                    ? "bg-green-100 text-green-700"
-                    : normalizeKyc(profile?.kycStatus) === "REJECTED"
-                    ? "bg-red-100 text-red-700"
-                    : "bg-yellow-100 text-yellow-700"
-                }`}
-              >
-                🧾 KYC {prettyKyc(profile?.kycStatus)}
-              </div>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-2 justify-end">
-            <button
-              onClick={() => setOpenBusinessModal(true)}
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg"
-            >
-              Business Settings
-            </button>
-            <button
-              onClick={() => setOpenBankModal(true)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg"
-            >
-              Bank Settings
-            </button>
-            {profile && normalizeKyc(profile?.kycStatus) === "APPROVED" ? (
-              <button
-                onClick={() => setOpenSettlementModal(true)}
-                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
-              >
-                Request Settlement
-              </button>
-            ) : (
-              <div className="flex items-center gap-2 px-4 py-2 bg-yellow-100 text-yellow-800 rounded-lg border border-yellow-300 text-sm">
-                ⚠️ KYC {prettyKyc(profile?.kycStatus)} —{" "}
-                <button
-                  onClick={() => router.push("/partner/dashboard/kyc")}
-                  className="text-blue-600 underline hover:text-blue-800"
-                >
-                  Complete KYC
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        <h1 className="text-2xl font-bold">Hello, {welcome} 👋</h1>
+        <p className="text-gray-600">
+          Manage your listings, bookings & payouts.
+        </p>
       </div>
 
       {/* Stats */}
@@ -550,7 +332,7 @@ export default function PartnerDashboard() {
         <PartnerListingsManager />
       </div>
 
-      {/* Recent Bookings + Load More */}
+      {/* Recent Bookings */}
       <div className="bg-white p-6 rounded-2xl shadow mb-10">
         <h3 className="text-xl font-semibold mb-4">Recent Bookings</h3>
         {bookings.map((b) => (

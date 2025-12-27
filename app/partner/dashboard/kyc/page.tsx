@@ -35,15 +35,11 @@ export default function PartnerKYCPage() {
      Load user + partner profile
   ---------------------------------------------------- */
   useEffect(() => {
-    let mounted = true;
-
     const unsub = onAuthStateChanged(auth, async (u) => {
       if (!u) {
         router.replace("/auth/login");
         return;
       }
-
-      if (!mounted) return;
 
       setUser(u);
       const t = await u.getIdToken(true);
@@ -69,9 +65,7 @@ export default function PartnerKYCPage() {
             setPincode(p.address.pincode || "");
           }
 
-          const kyc = String(
-            p.kycStatus || p.kyc?.status || "NOT_STARTED"
-          ).toUpperCase();
+          const kyc = String(p.kycStatus || "NOT_STARTED").toUpperCase();
 
           if (kyc === "APPROVED") {
             router.replace("/partner/dashboard");
@@ -90,36 +84,26 @@ export default function PartnerKYCPage() {
       }
     });
 
-    return () => {
-      mounted = false;
-      unsub();
-    };
+    return () => unsub();
   }, [router]);
 
   /* ----------------------------------------------------
-     Upload helper (JSON + BASE64)
+     Upload helper (MULTIPART — FINAL & STABLE)
   ---------------------------------------------------- */
   async function uploadFile(file: File, docType: string) {
     if (!token) throw new Error("Not authenticated");
 
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+    const form = new FormData();
+    form.append("token", token);
+    form.append("docType", docType);
+    form.append("file", file);
 
     const res = await fetch("/api/partners/kyc/upload", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        token,
-        docType,
-        fileBase64: base64,
-      }),
+      body: form,
     });
 
-    const j = await res.json();
+    const j = await res.json().catch(() => null);
 
     if (!res.ok || !j?.success) {
       throw new Error(j?.error || "Upload failed");
@@ -142,7 +126,7 @@ export default function PartnerKYCPage() {
 
       const aadNum = aadhaar.replace(/\D/g, "");
       if (!/^\d{12}$/.test(aadNum)) {
-        toast.error("Enter valid Aadhaar number");
+        toast.error("Enter valid 12-digit Aadhaar number");
         return;
       }
 
@@ -176,7 +160,7 @@ export default function PartnerKYCPage() {
         gstPath = await uploadFile(gstFile, "GST");
       }
 
-      const documents = [
+      const documents: any[] = [
         { docType: "AADHAAR", storagePath: aadhaarPath },
       ];
 
@@ -210,7 +194,7 @@ export default function PartnerKYCPage() {
         }),
       });
 
-      const j = await res.json();
+      const j = await res.json().catch(() => null);
 
       if (!res.ok || !j?.success) {
         throw new Error(j?.error || "KYC submit failed");
@@ -247,7 +231,11 @@ export default function PartnerKYCPage() {
             className="border p-2 rounded"
           />
 
-          <input type="file" onChange={(e) => setAadhaarFile(e.target.files?.[0] || null)} />
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            onChange={(e) => setAadhaarFile(e.target.files?.[0] || null)}
+          />
 
           <input
             placeholder="GST (optional)"
@@ -256,7 +244,11 @@ export default function PartnerKYCPage() {
             className="border p-2 rounded"
           />
 
-          <input type="file" onChange={(e) => setGstFile(e.target.files?.[0] || null)} />
+          <input
+            type="file"
+            accept="image/*,application/pdf"
+            onChange={(e) => setGstFile(e.target.files?.[0] || null)}
+          />
 
           <input
             placeholder="Phone"
@@ -272,13 +264,39 @@ export default function PartnerKYCPage() {
             className="border p-2 rounded"
           />
 
-          <input placeholder="Address Line 1" value={addrLine1} onChange={(e) => setAddrLine1(e.target.value)} className="border p-2 rounded" />
-          <input placeholder="Address Line 2" value={addrLine2} onChange={(e) => setAddrLine2(e.target.value)} className="border p-2 rounded" />
+          <input
+            placeholder="Address Line 1"
+            value={addrLine1}
+            onChange={(e) => setAddrLine1(e.target.value)}
+            className="border p-2 rounded"
+          />
+
+          <input
+            placeholder="Address Line 2"
+            value={addrLine2}
+            onChange={(e) => setAddrLine2(e.target.value)}
+            className="border p-2 rounded"
+          />
 
           <div className="grid grid-cols-3 gap-3">
-            <input placeholder="City" value={city} onChange={(e) => setCity(e.target.value)} className="border p-2 rounded" />
-            <input placeholder="State" value={stateField} onChange={(e) => setStateField(e.target.value)} className="border p-2 rounded" />
-            <input placeholder="Pincode" value={pincode} onChange={(e) => setPincode(e.target.value)} className="border p-2 rounded" />
+            <input
+              placeholder="City"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              className="border p-2 rounded"
+            />
+            <input
+              placeholder="State"
+              value={stateField}
+              onChange={(e) => setStateField(e.target.value)}
+              className="border p-2 rounded"
+            />
+            <input
+              placeholder="Pincode"
+              value={pincode}
+              onChange={(e) => setPincode(e.target.value)}
+              className="border p-2 rounded"
+            />
           </div>
 
           <button

@@ -19,15 +19,10 @@ type PartnerProfile = {
   phone?: string;
   profilePic?: string;
   status?: string;
-  kycStatus?: string;
-  kyc?: { status?: string };
+  bank?: any;
+  address?: any;
   [key: string]: any;
 };
-
-function normalizeKyc(raw?: string | null): string {
-  if (!raw) return "NOT_STARTED";
-  return String(raw).toUpperCase();
-}
 
 export default function PartnerDashboardLayout({
   children,
@@ -51,9 +46,6 @@ export default function PartnerDashboardLayout({
           return;
         }
 
-        // KYC page check
-        const isKycPage = pathname.startsWith("/partner/dashboard/kyc");
-
         // Secure cookie-based profile fetch
         const res = await fetch("/api/partners/profile", {
           method: "GET",
@@ -67,30 +59,16 @@ export default function PartnerDashboardLayout({
           data = null;
         }
 
-        // 🔒 Agar partner doc hi nahi mila ya API error → KYC par bhejo
+        // Agar partner doc hi nahi mila ya API error → login par bhejo
         if (!res.ok || !data?.partner) {
           if (!cancelled) {
-            if (!isKycPage) {
-              router.replace("/partner/dashboard/kyc");
-              return;
-            }
-            // KYC page par ho → bas loading hata do, empty profile chalega
-            setPartner(null);
             setLoading(false);
+            router.replace("/auth/login");
           }
           return;
         }
 
         const partnerData = data.partner || {};
-
-        // Normalize KYC value
-        const rawKyc =
-          partnerData.kycStatus ||
-          partnerData.kyc?.status ||
-          data.kycStatus ||
-          "NOT_STARTED";
-
-        const kyc = normalizeKyc(rawKyc);
 
         const normalizedPartner: PartnerProfile = {
           uid: partnerData.uid || data.uid || user.uid,
@@ -110,8 +88,6 @@ export default function PartnerDashboardLayout({
           phone: partnerData.phone || user.phoneNumber || undefined,
           profilePic: partnerData.profilePic || undefined,
           status: partnerData.status || data.onboardingStatus || undefined,
-          kycStatus: kyc,
-          kyc: partnerData.kyc || undefined,
           bank: partnerData.bank || undefined,
           address: partnerData.address || undefined,
         };
@@ -119,36 +95,7 @@ export default function PartnerDashboardLayout({
         if (cancelled) return;
 
         setPartner(normalizedPartner);
-
-        // 🔁 Already on any KYC URL → allow render (KYC page itself handle UI)
-        if (isKycPage) {
-          setLoading(false);
-          return;
-        }
-
-        // 🚦 AUTO REDIRECT RULES (same logic as login)
-        if (kyc === "NOT_STARTED" || kyc === "NOT_CREATED") {
-          router.replace("/partner/dashboard/kyc");
-          return;
-        }
-
-        if (kyc === "UNDER_REVIEW" || kyc === "SUBMITTED") {
-          router.replace("/partner/dashboard/kyc/pending");
-          return;
-        }
-
-        if (kyc === "REJECTED") {
-          router.replace("/partner/dashboard/kyc?resubmit=1");
-          return;
-        }
-
-        if (kyc === "APPROVED") {
-          setLoading(false);
-          return;
-        }
-
-        // Fallback – agar kuch aur status aaya to bhi KYC par le jao
-        router.replace("/partner/dashboard/kyc");
+        setLoading(false);
       } catch (err) {
         console.error("Partner dashboard auth error:", err);
         if (!cancelled) {
@@ -162,13 +109,13 @@ export default function PartnerDashboardLayout({
       cancelled = true;
       unsub();
     };
-  }, [pathname, router]);
+  }, [router, pathname]);
 
   if (loading) {
     return <div className="p-6">Loading partner dashboard...</div>;
   }
 
-  // DashboardLayout ko minimal profile object de dete hain
+  // Dashboard header profile (unchanged logic)
   const headerProfile = partner
     ? {
         name:

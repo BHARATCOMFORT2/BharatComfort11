@@ -5,43 +5,33 @@ import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
 /**
- * ✅ Partner KYC Upload (JSON + Base64)
- * Expects:
- * {
- *   token: string,
- *   docType: "AADHAAR" | "GST" | string,
- *   fileBase64: "data:<mime>;base64,<data>"
- * }
+ * ✅ Partner KYC Upload (MULTIPART – FINAL)
+ * Expects FormData:
+ * - file
+ * - docType
+ * - token
  */
 export async function POST(req: Request) {
   try {
     const { adminAuth, adminDb, admin, storage } = getFirebaseAdmin();
     const bucket = storage;
 
-    // -----------------------------
-    // 1️⃣ Parse JSON body
-    // -----------------------------
-    const body = await req.json().catch(() => null);
-    if (!body) {
+    // 🔴 MULTIPART PARSE
+    const formData = await req.formData();
+
+    const file = formData.get("file") as File | null;
+    const docTypeRaw = formData.get("docType");
+    const token = formData.get("token");
+
+    if (!file || !token) {
       return NextResponse.json(
-        { success: false, error: "Invalid JSON body" },
+        { success: false, error: "Missing file or token" },
         { status: 400 }
       );
     }
 
-    const { token, docType, fileBase64 } = body;
-
-    if (!token || !fileBase64) {
-      return NextResponse.json(
-        { success: false, error: "Missing token or file" },
-        { status: 400 }
-      );
-    }
-
-    // -----------------------------
-    // 2️⃣ Verify user
-    // -----------------------------
-    const decoded = await adminAuth.verifyIdToken(token).catch(() => null);
+    // 🔐 Verify token
+    const decoded = await adminAuth.verifyIdToken(String(token)).catch(() => null);
     if (!decoded) {
       return NextResponse.json(
         { success: false, error: "Not authenticated" },
@@ -51,60 +41,51 @@ export async function POST(req: Request) {
 
     const uid = decoded.uid;
 
-    // -----------------------------
-    // 3️⃣ Decode base64
-    // -----------------------------
-    const match = String(fileBase64).match(
-      /^data:(.+);base64,(.+)$/
-    );
+    // Validate file
+    const allowedTypes = [
+      "image/jpeg",
+      "image/png",
+      "image/webp",
+      "application/pdf",
+    ];
 
-    if (!match) {
+    if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { success: false, error: "Invalid base64 format" },
+        { success: false, error: "Invalid file type" },
         { status: 400 }
       );
     }
 
-    const contentType = match[1];
-    const base64Data = match[2];
-
-    const buffer = Buffer.from(base64Data, "base64");
-
-    // 5MB limit
     const MAX_SIZE = 5 * 1024 * 1024;
-    if (buffer.length > MAX_SIZE) {
+    if (file.size > MAX_SIZE) {
       return NextResponse.json(
         { success: false, error: "File too large (max 5MB)" },
         { status: 400 }
       );
     }
 
-    // -----------------------------
-    // 4️⃣ Build file path
-    // -----------------------------
-    const safeDocType = String(docType || "DOCUMENT")
+    // 🔴 Upload
+    const bytes = await file.arrayBuffer();
+    const buffer = Buffer.from(new Uint8Array(bytes));
+
+    const safeDocType = String(docTypeRaw || "DOCUMENT")
       .toUpperCase()
       .replace(/[^A-Z0-9_-]/g, "");
 
-    const ext = contentType.split("/")[1] || "bin";
+    const ext = file.name.split(".").pop() || "bin";
     const filePath = `kyc/${uid}/${safeDocType}-${Date.now()}.${ext}`;
 
-    // -----------------------------
-    // 5️⃣ Upload to Firebase Storage
-    // -----------------------------
     await bucket.file(filePath).save(buffer, {
-      metadata: { contentType },
+      metadata: { contentType: file.type },
     });
 
-    // -----------------------------
-    // 6️⃣ Audit trail
-    // -----------------------------
+    // 🔴 Audit
     await adminDb.collection("kycUploads").add({
       uid,
       docType: safeDocType,
       filePath,
-      contentType,
-      size: buffer.length,
+      contentType: file.type,
+      size: file.size,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 

@@ -33,7 +33,9 @@ export default function PartnerKYCPage() {
 
   const [partnerProfile, setPartnerProfile] = useState<any>(null);
 
-  // ✅ Load user + partner profile
+  /* ----------------------------------------------------
+     Load user + partner profile
+  ---------------------------------------------------- */
   useEffect(() => {
     let mounted = true;
 
@@ -98,7 +100,9 @@ export default function PartnerKYCPage() {
     };
   }, [router]);
 
-  // ✅ Upload helper
+  /* ----------------------------------------------------
+     Upload helper
+  ---------------------------------------------------- */
   async function uploadFile(file: File, docType: string) {
     if (!user || !token) throw new Error("Not authenticated");
 
@@ -106,7 +110,7 @@ export default function PartnerKYCPage() {
     form.append("partnerId", user.uid);
     form.append("token", token);
     form.append("docType", docType);
-    form.append("file", file);
+    form.append("file", file); // ✅ correct usage
 
     const res = await fetch("/api/partners/kyc/upload", {
       method: "POST",
@@ -122,7 +126,9 @@ export default function PartnerKYCPage() {
     return j.storagePath as string;
   }
 
-  // ✅ Submit KYC
+  /* ----------------------------------------------------
+     Submit KYC
+  ---------------------------------------------------- */
   const handleSubmit = async () => {
     if (submitting) return;
 
@@ -160,15 +166,15 @@ export default function PartnerKYCPage() {
 
       setSubmitting(true);
 
-      // ✅ Upload documents
+      // ✅ Upload documents (docType aligned with backend)
       const aadhaarStoragePath = await uploadFile(
         aadhaarFile,
-        "aadhaar_file"
+        "AADHAAR"
       );
 
       let gstStoragePath: string | null = null;
       if (gstFile) {
-        gstStoragePath = await uploadFile(gstFile, "gst_file");
+        gstStoragePath = await uploadFile(gstFile, "GST");
       }
 
       const address = {
@@ -196,16 +202,18 @@ export default function PartnerKYCPage() {
       }
 
       const documents: any[] = [
-        { docType: "aadhaar_file", storagePath: aadhaarStoragePath },
+        { docType: "AADHAAR", storagePath: aadhaarStoragePath },
       ];
+
       if (gstStoragePath) {
         documents.push({
-          docType: "gst_file",
+          docType: "GST",
           storagePath: gstStoragePath,
         });
       }
 
-      const maskedAadhaar = `${aadNum.slice(0, 4)}XXXX${aadNum.slice(-4)}`;
+      // ✅ FIXED Aadhaar masking (backend compatible)
+      const maskedAadhaar = `XXXXXXXX${aadNum.slice(-4)}`;
 
       const submitRes = await fetch("/api/partners/kyc/submit", {
         method: "POST",

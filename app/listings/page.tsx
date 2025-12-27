@@ -110,7 +110,7 @@ export default function ListingsPage() {
     [debouncedFilters]
   );
 
-  /* 🔁 Load Listings (ONLY Firestore listings) */
+  /* 🔁 Load Listings (approved + active, featured priority) */
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
@@ -125,7 +125,7 @@ export default function ListingsPage() {
         const colRef = collection(db, "listings");
 
         const baseConditions: any[] = [
-          where("status", "==", "active"),
+          where("status", "in", ["approved", "active"]),
         ];
 
         let q = query(
@@ -146,12 +146,17 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
-
         let newListings: any[] = [];
 
         if (!snap.empty) {
           newListings = snap.docs.map((doc) => {
             const data = doc.data() as any;
+
+            // ✅ STATUS MIGRATION (frontend-safe)
+            const normalizedStatus =
+              data.status === "active" || data.status === "approved"
+                ? data.status
+                : "approved";
 
             const rawImages =
               Array.isArray(data.images) && data.images.length > 0
@@ -164,13 +169,23 @@ export default function ListingsPage() {
             return {
               id: doc.id,
               ...data,
+              status: normalizedStatus,
               title: data.title || data.name || "Untitled stay",
               location: data.location || "",
               images: rawImages,
+              featured: Boolean(data.featured),
+              createdAt: data.createdAt,
             };
           });
 
           newListings = applyClientFilters(newListings);
+
+          // ⭐ FEATURED PRIORITY (TOP)
+          newListings.sort((a, b) => {
+            if (a.featured && !b.featured) return -1;
+            if (!a.featured && b.featured) return 1;
+            return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+          });
 
           setLastDoc(snap.docs[snap.docs.length - 1]);
           setHasMore(snap.docs.length === 9);
@@ -316,6 +331,12 @@ export default function ListingsPage() {
           {listing.allowPayAtHotel && (
             <p className="text-green-600 text-xs">
               🏨 Pay at Hotel Available
+            </p>
+          )}
+
+          {listing.featured && (
+            <p className="text-xs text-purple-600 font-semibold">
+              ⭐ Featured
             </p>
           )}
 

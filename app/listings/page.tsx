@@ -87,29 +87,22 @@ export default function ListingsPage() {
           search &&
           !title.toLowerCase().includes(search) &&
           !placeLocation.toLowerCase().includes(search)
-        ) {
-          return false;
-        }
+        ) return false;
 
-        if (locSearch && !placeLocation.toLowerCase().includes(locSearch)) {
+        if (locSearch && !placeLocation.toLowerCase().includes(locSearch))
           return false;
-        }
 
-        if (f.category !== "all" && item.category !== f.category) {
+        if (f.category !== "all" && item.category !== f.category)
           return false;
-        }
 
-        if (price < f.minPrice || price > f.maxPrice) {
+        if (price < f.minPrice || price > f.maxPrice)
           return false;
-        }
 
-        if (f.rating && rating < f.rating) {
+        if (f.rating && rating < f.rating)
           return false;
-        }
 
-        if (f.onlyPayAtHotel && !item.allowPayAtHotel) {
+        if (f.onlyPayAtHotel && !item.allowPayAtHotel)
           return false;
-        }
 
         return true;
       });
@@ -117,7 +110,7 @@ export default function ListingsPage() {
     [debouncedFilters]
   );
 
-  /* 🔁 Load Listings */
+  /* 🔁 Load Listings (ONLY Firestore listings) */
   const loadListings = useCallback(
     async (reset = false) => {
       if (loading || (!hasMore && !reset)) return;
@@ -131,18 +124,21 @@ export default function ListingsPage() {
 
         const colRef = collection(db, "listings");
 
-        const qBase = [
-          where("status", "in", ["approved", "active"]),
-          orderBy("createdAt", "desc"),
-          limit(9),
+        const baseConditions: any[] = [
+          where("status", "==", "active"),
         ];
 
-        let q = query(colRef, ...qBase);
+        let q = query(
+          colRef,
+          ...baseConditions,
+          orderBy("createdAt", "desc"),
+          limit(9)
+        );
 
         if (!reset && lastDoc) {
           q = query(
             colRef,
-            where("status", "in", ["approved", "active"]),
+            ...baseConditions,
             orderBy("createdAt", "desc"),
             startAfter(lastDoc),
             limit(9)
@@ -150,6 +146,7 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
+
         let newListings: any[] = [];
 
         if (!snap.empty) {
@@ -174,6 +171,7 @@ export default function ListingsPage() {
           });
 
           newListings = applyClientFilters(newListings);
+
           setLastDoc(snap.docs[snap.docs.length - 1]);
           setHasMore(snap.docs.length === 9);
         } else {
@@ -220,7 +218,7 @@ export default function ListingsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedFilters]);
 
-  /* 💳 Handle Booking — THIS WAS THE MAIN FIX */
+  /* 💳 Handle Booking */
   const handleBookNow = async (listing: any) => {
     if (!user) {
       setPendingListing(listing);
@@ -337,6 +335,7 @@ export default function ListingsPage() {
             >
               Visit
             </Button>
+
             <Button
               onClick={() => handleBookNow(listing)}
               className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white"

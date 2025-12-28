@@ -3,7 +3,7 @@
 import { ReactNode, useState, useEffect } from "react";
 import { auth } from "@/lib/firebase-client";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu, X, LogOut, Settings } from "lucide-react";
+import { Menu, X, LogOut } from "lucide-react";
 
 interface Props {
   title: string;
@@ -71,41 +71,22 @@ export default function DashboardLayout({ title, children, profile }: Props) {
   ];
 
   const partnerLinks = [
-  { name: "Dashboard", path: "/partner/dashboard" },
+    { name: "Dashboard", path: "/partner/dashboard" },
+    { name: "Listings", path: "/partner/listings" },
+    { name: "Bookings", path: "/partner/bookings" },
+    { name: "Earnings", path: "/partner/earnings" },
+    { name: "Settlements", path: "/partner/settlements" },
+    { name: "Reviews", path: "/partner/reviews" },
+    { name: "Promotions", path: "/partner/promotions" },
+    { name: "Notifications", path: "/partner/notifications" },
+    { name: "Support", path: "/partner/support" },
+    { name: "Settings", path: "/partner/settings" },
+    { name: "Policies", path: "/partner/policies" },
+  ];
 
-  // 🏨 Listings
-  { name: "Listings", path: "/partner/listings" },
-
-  // 📆 Bookings
-  { name: "Bookings", path: "/partner/bookings" },
-
-  // 💰 Earnings & Settlements
-  { name: "Earnings", path: "/partner/earnings" },
-  { name: "Settlements", path: "/partner/settlements" },
-
-  // ⭐ Reviews
-  { name: "Reviews", path: "/partner/reviews" },
-
-  // 📢 Promotions & Visibility
-  { name: "Promotions", path: "/partner/promotions" },
-
-  // 🔔 Notifications
-  { name: "Notifications", path: "/partner/notifications" },
-
-  // 🧑‍💼 Support
-  { name: "Support", path: "/partner/support" },
-
-  // ⚙️ Settings
-  { name: "Settings", path: "/partner/settings" },
-
-  // 📜 Policies
-  { name: "Policies", path: "/partner/policies" },
-];
-
-  // ✅ ✅ ✅ STAFF LINKS (SETTINGS ADDED HERE ✅)
   const staffLinks = [
     { name: "My Tasks", path: "/staff/dashboard" },
-    { name: "⚙️ Settings", path: "/staff/settings" }, // ✅ NEW
+    { name: "⚙️ Settings", path: "/staff/settings" },
   ];
 
   const adminLinks = [
@@ -141,11 +122,13 @@ export default function DashboardLayout({ title, children, profile }: Props) {
         />
       )}
 
-      {/* ✅ SIDEBAR */}
+      {/* ✅ SIDEBAR (SCROLL FIXED) */}
       <aside
-        className={`fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-30 transform transition-transform duration-300
+        className={`fixed top-0 left-0 h-full w-64 bg-white shadow-lg z-30
+        transform transition-transform duration-300
         ${menuOpen ? "translate-x-0" : "-translate-x-full"}
-        sm:translate-x-0`}
+        sm:translate-x-0
+        flex flex-col`}
       >
         {/* ✅ CLOSE (MOBILE) */}
         <div className="p-4 flex justify-end sm:hidden">
@@ -154,8 +137,8 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           </button>
         </div>
 
-        {/* ✅ STAFF PROFILE BOX */}
-        <div className="p-6 flex flex-col items-center border-b">
+        {/* ✅ PROFILE */}
+        <div className="p-6 flex flex-col items-center border-b shrink-0">
           {profile?.profilePic ? (
             <img
               src={profile.profilePic}
@@ -175,8 +158,8 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           </p>
         </div>
 
-        {/* ✅ SIDEBAR MENU */}
-        <nav className="mt-4 space-y-2 px-4">
+        {/* ✅ SCROLLABLE MENU */}
+        <nav className="flex-1 overflow-y-auto mt-4 space-y-2 px-4">
           {navLinks.map((link) => (
             <button
               key={link.name}
@@ -195,11 +178,11 @@ export default function DashboardLayout({ title, children, profile }: Props) {
           ))}
         </nav>
 
-        {/* ✅ LOGOUT */}
-        <div className="absolute bottom-6 w-full flex justify-center">
+        {/* ✅ LOGOUT (FIXED BOTTOM) */}
+        <div className="border-t p-4 shrink-0">
           <button
             onClick={handleLogout}
-            className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg"
+            className="flex items-center gap-2 text-red-500 hover:bg-red-50 px-4 py-2 rounded-lg w-full justify-center"
           >
             <LogOut size={18} /> Logout
           </button>
@@ -210,10 +193,7 @@ export default function DashboardLayout({ title, children, profile }: Props) {
       <div className="flex-1 sm:ml-64 w-full">
         <header className="flex justify-between items-center bg-white shadow px-4 py-4 sticky top-0 z-20">
           <div className="flex items-center gap-3">
-            <button
-              className="sm:hidden"
-              onClick={() => setMenuOpen(true)}
-            >
+            <button className="sm:hidden" onClick={() => setMenuOpen(true)}>
               <Menu />
             </button>
 

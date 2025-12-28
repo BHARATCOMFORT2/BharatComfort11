@@ -71,10 +71,36 @@ export default function DashboardLayout({ title, children, profile }: Props) {
   ];
 
   const partnerLinks = [
-    { name: "Dashboard", path: "/partner/dashboard" },
-    { name: "Listings", path: "/partner/listings" },
-    { name: "Bookings", path: "/partner/bookings" },
-  ];
+  { name: "Dashboard", path: "/partner/dashboard" },
+
+  // 🏨 Listings
+  { name: "Listings", path: "/partner/listings" },
+
+  // 📆 Bookings
+  { name: "Bookings", path: "/partner/bookings" },
+
+  // 💰 Earnings & Settlements
+  { name: "Earnings", path: "/partner/earnings" },
+  { name: "Settlements", path: "/partner/settlements" },
+
+  // ⭐ Reviews
+  { name: "Reviews", path: "/partner/reviews" },
+
+  // 📢 Promotions & Visibility
+  { name: "Promotions", path: "/partner/promotions" },
+
+  // 🔔 Notifications
+  { name: "Notifications", path: "/partner/notifications" },
+
+  // 🧑‍💼 Support
+  { name: "Support", path: "/partner/support" },
+
+  // ⚙️ Settings
+  { name: "Settings", path: "/partner/settings" },
+
+  // 📜 Policies
+  { name: "Policies", path: "/partner/policies" },
+];
 
   // ✅ ✅ ✅ STAFF LINKS (SETTINGS ADDED HERE ✅)
   const staffLinks = [

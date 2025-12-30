@@ -25,7 +25,7 @@ function getAuthHeader(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    // TOKEN VERIFY
+    /* ---------- AUTH ---------- */
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -43,22 +43,19 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
+    const decoded = await adminAuth.verifyIdToken(tokenMatch[1], true);
+    const staffId = decoded.uid;
 
-    let decoded: any;
-    try {
-      decoded = await adminAuth.verifyIdToken(tokenMatch[1], true);
-    } catch {
+    /* ---------- BODY ---------- */
+    const body = await req.json().catch(() => null);
+    if (!body) {
       return NextResponse.json(
-        { success: false, message: "Invalid token" },
-        { status: 401 }
+        { success: false, message: "Invalid JSON body" },
+        { status: 400 }
       );
     }
 
-    const staffId = decoded.uid;
-
-    // REQUEST BODY
-    const body = await req.json();
-    const { leadId, status } = body || {};
+    const { leadId, status } = body;
 
     if (!leadId || !status) {
       return NextResponse.json(
@@ -74,10 +71,8 @@ export async function POST(req: Request) {
       );
     }
 
-    // VERIFY STAFF
-    const staffRef = adminDb.collection("staff").doc(staffId);
-    const staffSnap = await staffRef.get();
-
+    /* ---------- VERIFY STAFF ---------- */
+    const staffSnap = await adminDb.collection("staff").doc(staffId).get();
     if (!staffSnap.exists) {
       return NextResponse.json(
         { success: false, message: "Staff not found" },
@@ -86,7 +81,6 @@ export async function POST(req: Request) {
     }
 
     const staffData = staffSnap.data();
-
     if (
       staffData?.role !== "telecaller" ||
       staffData?.status !== "approved" ||
@@ -98,7 +92,7 @@ export async function POST(req: Request) {
       );
     }
 
-    // VERIFY LEAD OWNERSHIP
+    /* ---------- VERIFY LEAD ---------- */
     const leadRef = adminDb.collection("leads").doc(leadId);
     const leadSnap = await leadRef.get();
 
@@ -110,7 +104,6 @@ export async function POST(req: Request) {
     }
 
     const leadData = leadSnap.data();
-
     if (leadData?.assignedTo !== staffId) {
       return NextResponse.json(
         { success: false, message: "You are not assigned to this lead" },
@@ -118,21 +111,19 @@ export async function POST(req: Request) {
       );
     }
 
-    // -------------------------------------------------------------------
-    // ✅ UPDATE STATUS + CREATE ACTIVITY LOG
-    // -------------------------------------------------------------------
+    /* ---------- UPDATE STATUS (NO DATE) ---------- */
     await leadRef.update({
-      status,
+      status, // callback / contacted / etc.
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       lastUpdatedBy: staffId,
-    });
 
-    // WRITE TO SUBCOLLECTION `/logs`
-    await leadRef.collection("logs").add({
-      type: "status",
-      status,
-      by: staffId,
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      // optional history (admin dashboard ke liye)
+      statusHistory: admin.firestore.FieldValue.arrayUnion({
+        status,
+        by: staffId,
+        staffName: staffData?.name || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      }),
     });
 
     return NextResponse.json({
@@ -141,7 +132,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error("Lead status update error:", error);
-
     return NextResponse.json(
       { success: false, message: "Failed to update lead status" },
       { status: 500 }

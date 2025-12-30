@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+import admin from "firebase-admin";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,7 +15,6 @@ export async function GET(req: Request) {
        1️⃣ AUTHORIZATION
     -------------------------------- */
     const authHeader = req.headers.get("authorization");
-
     if (!authHeader?.startsWith("Bearer ")) {
       return NextResponse.json(
         { success: false, message: "Unauthorized" },
@@ -22,10 +22,10 @@ export async function GET(req: Request) {
       );
     }
 
-    const token = authHeader.split("Bearer ")[1];
-
+    const token = authHeader.replace("Bearer ", "");
     const { adminAuth, adminDb } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifyIdToken(token);
+
+    const decoded = await adminAuth.verifyIdToken(token, true);
     const staffId = decoded.uid;
 
     /* -------------------------------
@@ -34,10 +34,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const status = url.searchParams.get("status");
 
-    if (
-      !status ||
-      !["interested", "callback"].includes(status)
-    ) {
+    if (!status || !["interested", "callback"].includes(status)) {
       return NextResponse.json(
         { success: false, message: "Invalid status" },
         { status: 400 }
@@ -45,16 +42,18 @@ export async function GET(req: Request) {
     }
 
     /* -------------------------------
-       3️⃣ FIRESTORE QUERY
+       3️⃣ FIRESTORE QUERY (FIXED)
+       ✔ unified collection: leads
+       ✔ unified fields
     -------------------------------- */
     let queryRef = adminDb
-      .collection("partnerLeads")
-      .where("assignedStaffId", "==", staffId)
+      .collection("leads")
+      .where("assignedTo", "==", staffId)
       .where("status", "==", status);
 
-    // 🔥 callback leads sorted by date
+    // 🔥 Callback leads → earliest follow-up first
     if (status === "callback") {
-      queryRef = queryRef.orderBy("callbackDate", "asc");
+      queryRef = queryRef.orderBy("followupDate", "asc");
     } else {
       queryRef = queryRef.orderBy("updatedAt", "desc");
     }
@@ -68,12 +67,13 @@ export async function GET(req: Request) {
         id: doc.id,
         name: d.name || null,
         businessName: d.businessName || null,
-        mobile: d.mobile || null,
+        phone: d.phone || d.mobile || null,
         city: d.city || null,
         status: d.status,
-        callbackDate: d.callbackDate
-          ? d.callbackDate.toDate().toISOString()
+        followupDate: d.followupDate
+          ? d.followupDate.toDate().toISOString()
           : null,
+        lastNote: d.lastNote || null,
       };
     });
 
@@ -84,8 +84,8 @@ export async function GET(req: Request) {
       success: true,
       leads,
     });
-  } catch (error: any) {
-    console.error("by-status API error:", error);
+  } catch (error) {
+    console.error("❌ by-status API error:", error);
 
     return NextResponse.json(
       {

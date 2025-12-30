@@ -25,9 +25,7 @@ function getAuthHeader(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    /* ---------------------------------------
-       1️⃣ TOKEN VERIFY (SAFE)
-    ---------------------------------------- */
+    // TOKEN VERIFY
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
       return NextResponse.json(
@@ -46,22 +44,21 @@ export async function POST(req: Request) {
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
-    // 🔥 IMPORTANT FIX: revocation check OFF
-    const decoded = await adminAuth.verifyIdToken(tokenMatch[1]);
-    const staffId = decoded.uid;
-
-    /* ---------------------------------------
-       2️⃣ READ BODY
-    ---------------------------------------- */
-    const body = await req.json().catch(() => null);
-    if (!body) {
+    let decoded: any;
+    try {
+      decoded = await adminAuth.verifyIdToken(tokenMatch[1], true);
+    } catch {
       return NextResponse.json(
-        { success: false, message: "Invalid JSON body" },
-        { status: 400 }
+        { success: false, message: "Invalid token" },
+        { status: 401 }
       );
     }
 
-    const { leadId, status, callbackDate } = body;
+    const staffId = decoded.uid;
+
+    // REQUEST BODY
+    const body = await req.json();
+    const { leadId, status } = body || {};
 
     if (!leadId || !status) {
       return NextResponse.json(
@@ -77,9 +74,7 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ---------------------------------------
-       3️⃣ VERIFY STAFF
-    ---------------------------------------- */
+    // VERIFY STAFF
     const staffRef = adminDb.collection("staff").doc(staffId);
     const staffSnap = await staffRef.get();
 
@@ -91,6 +86,7 @@ export async function POST(req: Request) {
     }
 
     const staffData = staffSnap.data();
+
     if (
       staffData?.role !== "telecaller" ||
       staffData?.status !== "approved" ||
@@ -102,9 +98,7 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ---------------------------------------
-       4️⃣ VERIFY LEAD OWNERSHIP
-    ---------------------------------------- */
+    // VERIFY LEAD OWNERSHIP
     const leadRef = adminDb.collection("leads").doc(leadId);
     const leadSnap = await leadRef.get();
 
@@ -116,6 +110,7 @@ export async function POST(req: Request) {
     }
 
     const leadData = leadSnap.data();
+
     if (leadData?.assignedTo !== staffId) {
       return NextResponse.json(
         { success: false, message: "You are not assigned to this lead" },
@@ -123,37 +118,21 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ---------------------------------------
-       5️⃣ PREPARE FOLLOW-UP DATE (CRITICAL FIX)
-    ---------------------------------------- */
-    let followupTs: admin.firestore.Timestamp | null = null;
-    if (status === "callback") {
-      const d = new Date(callbackDate);
-      if (isNaN(d.getTime())) {
-        return NextResponse.json(
-          { success: false, message: "Invalid callbackDate" },
-          { status: 400 }
-        );
-      }
-      followupTs = admin.firestore.Timestamp.fromDate(d);
-    }
-
-    /* ---------------------------------------
-       6️⃣ UPDATE STATUS (FINAL)
-    ---------------------------------------- */
+    // -------------------------------------------------------------------
+    // ✅ UPDATE STATUS + CREATE ACTIVITY LOG
+    // -------------------------------------------------------------------
     await leadRef.update({
       status,
-      followupDate: followupTs,
-      lastUpdatedBy: staffId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastUpdatedBy: staffId,
+    });
 
-      statusHistory: admin.firestore.FieldValue.arrayUnion({
-        status,
-        by: staffId,
-        staffName: staffData?.name || "",
-        callbackDate: followupTs,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      }),
+    // WRITE TO SUBCOLLECTION `/logs`
+    await leadRef.collection("logs").add({
+      type: "status",
+      status,
+      by: staffId,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     return NextResponse.json({
@@ -161,7 +140,8 @@ export async function POST(req: Request) {
       message: "Lead status updated successfully",
     });
   } catch (error) {
-    console.error("❌ Lead status update error:", error);
+    console.error("Lead status update error:", error);
+
     return NextResponse.json(
       { success: false, message: "Failed to update lead status" },
       { status: 500 }

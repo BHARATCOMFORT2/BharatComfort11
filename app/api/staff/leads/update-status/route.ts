@@ -44,7 +44,7 @@ export async function POST(req: Request) {
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
 
-    // ✅ FINAL FIX: revocation check hata diya
+    // ✅ revocation check OFF (stable)
     const decoded = await adminAuth.verifyIdToken(tokenMatch[1]);
     const staffId = decoded.uid;
 
@@ -57,7 +57,16 @@ export async function POST(req: Request) {
       );
     }
 
-    const { leadId, status } = body;
+    const leadId = body?.leadId;
+
+    // 🔥 FINAL FIX: STATUS NORMALIZATION
+    const rawStatus = body?.status;
+    const status =
+      typeof rawStatus === "string"
+        ? rawStatus.toLowerCase()
+        : typeof rawStatus === "object" && rawStatus?.value
+        ? String(rawStatus.value).toLowerCase()
+        : null;
 
     if (!leadId || !status) {
       return NextResponse.json(
@@ -115,7 +124,7 @@ export async function POST(req: Request) {
 
     /* ---------- UPDATE STATUS (OVERWRITE ALLOWED) ---------- */
     await leadRef.update({
-      status, // 👈 callback ya koi bhi
+      status, // callback / contacted / interested / etc.
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       lastUpdatedBy: staffId,
     });
@@ -125,7 +134,7 @@ export async function POST(req: Request) {
       message: "Lead status updated successfully",
     });
   } catch (error) {
-    console.error("Lead status update error:", error);
+    console.error("❌ Lead status update error:", error);
     return NextResponse.json(
       { success: false, message: "Failed to update lead status" },
       { status: 500 }

@@ -15,7 +15,9 @@ function getAuthHeader(req: Request) {
 }
 
 /* ==================================================
-   POST — UPDATE LEAD NOTE (TELECALLER)
+   POST — UPDATE LEAD NOTES (TELECALLER)
+   ✔ Saves ALL notes (history)
+   ✔ Keeps latest note for fast access
 ================================================== */
 export async function POST(req: Request) {
   try {
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
     const staffId = decoded.uid;
 
     /* ---------------------------------------
-       2️⃣ READ BODY (STRICT)
+       2️⃣ READ BODY
     ---------------------------------------- */
     const body = await req.json().catch(() => null);
     if (!body) {
@@ -111,30 +113,28 @@ export async function POST(req: Request) {
     }
 
     /* ---------------------------------------
-       5️⃣ UPDATE LEAD (SAFE — NO ARRAY BLOAT)
+       5️⃣ UPDATE LEAD (FINAL FIX)
+       ✔ latest note
+       ✔ full notes history
     ---------------------------------------- */
-    const now = admin.firestore.FieldValue.serverTimestamp();
-
     await leadRef.update({
-      lastRemark: cleanText,          // ✅ latest note (fast access)
-      partnerNotes: cleanText,        // ✅ backward compatibility
+      // 🔹 quick access (tables / lists)
+      lastNote: cleanText,
+
+      // 🔹 full CRM history (never overwrite)
+      notes: admin.firestore.FieldValue.arrayUnion({
+        text: cleanText,
+        by: staffId,
+        staffName: staffData?.name || "",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      }),
+
       lastUpdatedBy: staffId,
-      updatedAt: now,
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
     /* ---------------------------------------
-       6️⃣ ACTIVITY LOG (SOURCE OF TRUTH)
-    ---------------------------------------- */
-    await leadRef.collection("logs").add({
-      type: "note",
-      text: cleanText,
-      by: staffId,
-      staffName: staffData?.name || "",
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    });
-
-    /* ---------------------------------------
-       7️⃣ RESPONSE
+       6️⃣ RESPONSE
     ---------------------------------------- */
     return NextResponse.json({
       success: true,

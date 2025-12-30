@@ -43,7 +43,9 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifyIdToken(tokenMatch[1], true);
+
+    // ✅ FINAL FIX: revocation check hata diya
+    const decoded = await adminAuth.verifyIdToken(tokenMatch[1]);
     const staffId = decoded.uid;
 
     /* ---------- BODY ---------- */
@@ -111,19 +113,11 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ---------- UPDATE STATUS (NO DATE) ---------- */
+    /* ---------- UPDATE STATUS (OVERWRITE ALLOWED) ---------- */
     await leadRef.update({
-      status, // callback / contacted / etc.
+      status, // 👈 callback ya koi bhi
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       lastUpdatedBy: staffId,
-
-      // optional history (admin dashboard ke liye)
-      statusHistory: admin.firestore.FieldValue.arrayUnion({
-        status,
-        by: staffId,
-        staffName: staffData?.name || "",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      }),
     });
 
     return NextResponse.json({

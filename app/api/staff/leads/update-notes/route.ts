@@ -16,13 +16,11 @@ function getAuthHeader(req: Request) {
 
 /* ==================================================
    POST — UPDATE LEAD NOTES (TELECALLER)
-   ✔ Saves ALL notes (history)
-   ✔ Keeps latest note for fast access
 ================================================== */
 export async function POST(req: Request) {
   try {
     /* ---------------------------------------
-       1️⃣ TOKEN VERIFY
+       1️⃣ TOKEN VERIFY (SAFE)
     ---------------------------------------- */
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
@@ -41,7 +39,9 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifyIdToken(m[1], true);
+
+    // 🔥 FIX: revocation check OFF
+    const decoded = await adminAuth.verifyIdToken(m[1]);
     const staffId = decoded.uid;
 
     /* ---------------------------------------
@@ -79,7 +79,6 @@ export async function POST(req: Request) {
     }
 
     const staffData = staffSnap.data();
-
     if (
       staffData?.role !== "telecaller" ||
       staffData?.status !== "approved" ||
@@ -113,15 +112,11 @@ export async function POST(req: Request) {
     }
 
     /* ---------------------------------------
-       5️⃣ UPDATE LEAD (FINAL FIX)
-       ✔ latest note
-       ✔ full notes history
+       5️⃣ UPDATE LEAD NOTES (FINAL)
     ---------------------------------------- */
     await leadRef.update({
-      // 🔹 quick access (tables / lists)
       lastNote: cleanText,
 
-      // 🔹 full CRM history (never overwrite)
       notes: admin.firestore.FieldValue.arrayUnion({
         text: cleanText,
         by: staffId,
@@ -133,9 +128,6 @@ export async function POST(req: Request) {
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
-    /* ---------------------------------------
-       6️⃣ RESPONSE
-    ---------------------------------------- */
     return NextResponse.json({
       success: true,
       message: "Lead note saved successfully",

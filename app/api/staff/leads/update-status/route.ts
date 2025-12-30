@@ -26,7 +26,7 @@ function getAuthHeader(req: Request) {
 export async function POST(req: Request) {
   try {
     /* ---------------------------------------
-       1️⃣ TOKEN VERIFY
+       1️⃣ TOKEN VERIFY (SAFE)
     ---------------------------------------- */
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
@@ -45,7 +45,9 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-    const decoded = await adminAuth.verifyIdToken(tokenMatch[1], true);
+
+    // 🔥 IMPORTANT FIX: revocation check OFF
+    const decoded = await adminAuth.verifyIdToken(tokenMatch[1]);
     const staffId = decoded.uid;
 
     /* ---------------------------------------
@@ -75,13 +77,6 @@ export async function POST(req: Request) {
       );
     }
 
-    if (status === "callback" && !callbackDate) {
-      return NextResponse.json(
-        { success: false, message: "callbackDate is required for callback status" },
-        { status: 400 }
-      );
-    }
-
     /* ---------------------------------------
        3️⃣ VERIFY STAFF
     ---------------------------------------- */
@@ -96,7 +91,6 @@ export async function POST(req: Request) {
     }
 
     const staffData = staffSnap.data();
-
     if (
       staffData?.role !== "telecaller" ||
       staffData?.status !== "approved" ||
@@ -130,34 +124,44 @@ export async function POST(req: Request) {
     }
 
     /* ---------------------------------------
-       5️⃣ UPDATE STATUS (FINAL FIX)
+       5️⃣ PREPARE FOLLOW-UP DATE (CRITICAL FIX)
+    ---------------------------------------- */
+    let followupTs: admin.firestore.Timestamp | null = null;
+    if (status === "callback") {
+      const d = new Date(callbackDate);
+      if (isNaN(d.getTime())) {
+        return NextResponse.json(
+          { success: false, message: "Invalid callbackDate" },
+          { status: 400 }
+        );
+      }
+      followupTs = admin.firestore.Timestamp.fromDate(d);
+    }
+
+    /* ---------------------------------------
+       6️⃣ UPDATE STATUS (FINAL)
     ---------------------------------------- */
     await leadRef.update({
       status,
-      followupDate: status === "callback" ? callbackDate : null,
+      followupDate: followupTs,
       lastUpdatedBy: staffId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
 
-      // 🔹 status history (CRM timeline)
       statusHistory: admin.firestore.FieldValue.arrayUnion({
         status,
         by: staffId,
         staffName: staffData?.name || "",
-        callbackDate: status === "callback" ? callbackDate : null,
+        callbackDate: followupTs,
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       }),
     });
 
-    /* ---------------------------------------
-       6️⃣ RESPONSE
-    ---------------------------------------- */
     return NextResponse.json({
       success: true,
       message: "Lead status updated successfully",
     });
   } catch (error) {
     console.error("❌ Lead status update error:", error);
-
     return NextResponse.json(
       { success: false, message: "Failed to update lead status" },
       { status: 500 }

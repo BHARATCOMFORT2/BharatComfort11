@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Button } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase-client";
 import { apiFetch } from "@/lib/apiFetch";
+import { Button } from "@/components/ui/Button";
 
-/* ===================== TYPES ===================== */
+/* =====================================================
+   TYPES
+===================================================== */
 
 type ListingStatus =
   | "DRAFT"
@@ -19,7 +21,7 @@ type AvailabilityDay = {
   blocked: boolean;
 };
 
-type RoomPricing = {
+type Pricing = {
   basePrice: number;
   weekendPrice?: number;
   festivalPrice?: number;
@@ -32,78 +34,95 @@ type Room = {
   name: string;
   totalRooms: number;
   maxGuests: number;
-  pricing: RoomPricing;
-  availability?: AvailabilityDay[];
-};
-
-type ListingStats = {
-  views?: number;
-  bookings?: number;
+  pricing: Pricing;
+  availability: AvailabilityDay[];
 };
 
 type Listing = {
   id: string;
   title: string;
-  location?: string;
-  status?: ListingStatus;
+  location: string;
+  status: ListingStatus;
   rejectionReason?: string;
-  featured?: boolean;
-  rooms?: Room[];
-  stats?: ListingStats;
+  rooms: Room[];
+  images: string[];
 };
 
-/* ===================== HELPERS ===================== */
+/* =====================================================
+   HELPERS
+===================================================== */
 
-function formatDate(d: Date) {
+const todayPlus = (i: number) => {
+  const d = new Date();
+  d.setDate(d.getDate() + i);
   return d.toISOString().split("T")[0];
-}
+};
 
-function isWeekend(d: Date) {
+const isWeekend = (d: Date) => {
   const day = d.getDay();
   return day === 0 || day === 6;
-}
+};
 
-function calcPrice(room: Room, date: Date, festival = false) {
-  let price = room.pricing?.basePrice || 0;
+const calcPrice = (
+  pricing: Pricing,
+  date: Date,
+  festival = false
+) => {
+  let price = pricing.basePrice;
 
-  if (festival && room.pricing?.festivalPrice) {
-    price = room.pricing.festivalPrice;
-  } else if (isWeekend(date) && room.pricing?.weekendPrice) {
-    price = room.pricing.weekendPrice;
-  }
+  if (festival && pricing.festivalPrice)
+    price = pricing.festivalPrice;
+  else if (isWeekend(date) && pricing.weekendPrice)
+    price = pricing.weekendPrice;
 
-  if (room.pricing?.discountPercent) {
+  if (pricing.discountPercent)
     price -= Math.round(
-      (price * room.pricing.discountPercent) / 100
+      (price * pricing.discountPercent) / 100
     );
-  }
 
   return price;
-}
+};
 
-function conversion(views = 0, bookings = 0) {
-  if (!views) return "0%";
-  return `${Math.round((bookings / views) * 100)}%`;
-}
-
-/* ===================== MAIN ===================== */
+/* =====================================================
+   MAIN COMPONENT
+===================================================== */
 
 export default function PartnerListingsManager() {
-  console.log("✅ PartnerListingsManager mounted");
-
-  const [listings, setListings] = useState<Listing[]>([]);
+  /* ---------------- STATE ---------------- */
   const [loading, setLoading] = useState(true);
+  const [listings, setListings] = useState<Listing[]>([]);
 
-  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
-  const [pricingRoom, setPricingRoom] = useState<Room | null>(null);
+  const [editingListing, setEditingListing] =
+    useState<Listing | null>(null);
+
+  const [title, setTitle] = useState("");
+  const [location, setLocation] = useState("");
+
+  const [rooms, setRooms] = useState<Room[]>([]);
+  const [images, setImages] = useState<string[]>([]);
+
+  const [roomDraft, setRoomDraft] = useState<Omit<Room, "id">>({
+    name: "",
+    totalRooms: 1,
+    maxGuests: 2,
+    pricing: {
+      basePrice: 1000,
+      minStayNights: 1,
+    },
+    availability: [],
+  });
+
+  const [pricingRoom, setPricingRoom] =
+    useState<Room | null>(null);
+  const [availabilityRoom, setAvailabilityRoom] =
+    useState<Room | null>(null);
 
   const [previewDate, setPreviewDate] = useState(
-    formatDate(new Date())
+    todayPlus(0)
   );
   const [festivalMode, setFestivalMode] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
-  /* ---------------- LOAD LISTINGS ---------------- */
+  /* ---------------- LOAD ---------------- */
 
   useEffect(() => {
     if (!auth) return;
@@ -113,356 +132,322 @@ export default function PartnerListingsManager() {
         setLoading(false);
         return;
       }
-
-      try {
-        await u.getIdToken(true);
-        await loadListings();
-      } catch (e) {
-        console.error("Auth/Listings error:", e);
-      } finally {
-        setLoading(false);
-      }
+      await u.getIdToken(true);
+      await loadListings();
+      setLoading(false);
     });
 
     return () => unsub && unsub();
   }, []);
 
   async function loadListings() {
-    try {
-      const res = await apiFetch(
-        "/api/partners/listings/list?limit=50"
-      );
-      const j = await res.json();
-      setListings(Array.isArray(j.listings) ? j.listings : []);
-    } catch (e) {
-      console.error("Load listings failed", e);
-      setListings([]);
-    }
+    const res = await apiFetch("/api/partners/listings/list");
+    const j = await res.json();
+    setListings(Array.isArray(j.listings) ? j.listings : []);
   }
 
-  /* ---------------- AVAILABILITY ---------------- */
+  /* =====================================================
+     LISTING CRUD
+  ===================================================== */
 
-  function toggleAvailability(room: Room, date: string) {
-    const availability = room.availability ?? [];
+  async function saveListing() {
+    const endpoint = editingListing?.id
+      ? "/api/partners/listings/update"
+      : "/api/partners/listings/create";
 
-    const existing = availability.find((d) => d.date === date);
-    if (existing) {
-      existing.blocked = !existing.blocked;
-    } else {
-      availability.push({ date, blocked: true });
-    }
+    await apiFetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: editingListing?.id,
+        title,
+        location,
+        rooms,
+        images,
+      }),
+    });
 
-    room.availability = availability;
-    setSelectedRoom({ ...room });
+    resetForm();
+    loadListings();
   }
 
-  async function saveAvailability() {
-    if (!selectedRoom) return;
+  async function deleteListing(id: string) {
+    if (!confirm("Delete listing?")) return;
 
-    setBusyId(selectedRoom.id);
-    try {
-      await apiFetch(
-        "/api/partners/listings/availability/update",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            roomId: selectedRoom.id,
-            availability: selectedRoom.availability ?? [],
-          }),
-        }
-      );
-      setSelectedRoom(null);
-      loadListings();
-    } catch (e) {
-      console.error("Save availability failed", e);
-    } finally {
-      setBusyId(null);
-    }
+    await apiFetch("/api/partners/listings/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+
+    loadListings();
   }
-
-  /* ---------------- PRICING ---------------- */
-
-  async function savePricing() {
-    if (!pricingRoom) return;
-
-    setBusyId(pricingRoom.id);
-    try {
-      await apiFetch(
-        "/api/partners/listings/pricing/update",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            roomId: pricingRoom.id,
-            pricing: pricingRoom.pricing,
-          }),
-        }
-      );
-      setPricingRoom(null);
-      loadListings();
-    } catch (e) {
-      console.error("Save pricing failed", e);
-    } finally {
-      setBusyId(null);
-    }
-  }
-
-  /* ---------------- STATUS ACTIONS ---------------- */
 
   async function submitListing(id: string) {
-    setBusyId(id);
     await apiFetch("/api/partners/listings/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
     loadListings();
-    setBusyId(null);
   }
 
-  async function enableListing(id: string) {
-    setBusyId(id);
-    await apiFetch("/api/partners/listings/enable", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+  function resetForm() {
+    setEditingListing(null);
+    setTitle("");
+    setLocation("");
+    setRooms([]);
+    setImages([]);
+  }
+
+  /* =====================================================
+     ROOMS
+  ===================================================== */
+
+  function addRoom() {
+    setRooms([
+      ...rooms,
+      { ...roomDraft, id: crypto.randomUUID() },
+    ]);
+    setRoomDraft({
+      name: "",
+      totalRooms: 1,
+      maxGuests: 2,
+      pricing: {
+        basePrice: 1000,
+        minStayNights: 1,
+      },
+      availability: [],
     });
-    loadListings();
-    setBusyId(null);
   }
 
-  async function disableListing(id: string) {
-    setBusyId(id);
-    await apiFetch("/api/partners/listings/disable", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    loadListings();
-    setBusyId(null);
+  function removeRoom(id: string) {
+    setRooms(rooms.filter((r) => r.id !== id));
   }
 
-  async function duplicateListing(id: string) {
-    setBusyId(id);
-    await apiFetch("/api/partners/listings/duplicate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    loadListings();
-    setBusyId(null);
+  /* =====================================================
+     IMAGES
+  ===================================================== */
+
+  async function uploadImages(files: FileList | null) {
+    if (!files) return;
+    const uploaded: string[] = [];
+
+    for (const f of Array.from(files)) {
+      const fd = new FormData();
+      fd.append("file", f);
+      const res = await apiFetch(
+        "/api/partners/listings/images/upload",
+        { method: "POST", body: fd }
+      );
+      const j = await res.json();
+      if (j.url) uploaded.push(j.url);
+    }
+
+    setImages([...images, ...uploaded]);
   }
 
-  /* ===================== UI ===================== */
+  /* =====================================================
+     UI
+  ===================================================== */
 
-  if (loading) {
-    return <div className="p-6">Loading listings…</div>;
-  }
-
-  if (!listings.length) {
-    return <div className="p-6">No listings found</div>;
-  }
+  if (loading)
+    return <div className="p-6">Loading…</div>;
 
   return (
     <div className="space-y-6">
-      {listings.map((l) => (
-        <div
-          key={l.id}
-          className="bg-white p-6 rounded-xl border shadow"
-        >
-          <div className="flex justify-between">
-            <div>
-              <h2 className="font-bold text-lg">{l.title}</h2>
-              <p className="text-sm text-gray-500">
-                {l.location || "—"}
-              </p>
-            </div>
-            <span className="text-xs px-3 py-1 rounded bg-gray-100">
-              {l.status || "DRAFT"}
-            </span>
-          </div>
+      {/* ADD */}
+      <div className="flex justify-end">
+        <Button onClick={() => setEditingListing({} as any)}>
+          ➕ Add Listing
+        </Button>
+      </div>
 
-          {/* PERFORMANCE */}
-          <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
-            <div>👀 {l.stats?.views || 0}</div>
-            <div>📆 {l.stats?.bookings || 0}</div>
-            <div>
-              🔁{" "}
-              {conversion(
-                l.stats?.views,
-                l.stats?.bookings
-              )}
-            </div>
-          </div>
+      {/* CREATE / EDIT */}
+      {editingListing && (
+        <div className="bg-white p-6 border rounded space-y-4">
+          <h2 className="font-bold">
+            {editingListing.id ? "Edit" : "New"} Listing
+          </h2>
+
+          <input
+            className="border p-2 w-full"
+            placeholder="Title"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+
+          <input
+            className="border p-2 w-full"
+            placeholder="Location"
+            value={location}
+            onChange={(e) => setLocation(e.target.value)}
+          />
 
           {/* ROOMS */}
-          {l.rooms?.map((r) => (
-            <div
-              key={r.id}
-              className="border-t mt-4 pt-3 flex justify-between"
-            >
-              <div>
-                🛏 {r.name} — ₹{r.pricing?.basePrice || 0}
-              </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setSelectedRoom(r)}
-                >
-                  Availability
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setPricingRoom(r)}
-                >
-                  Pricing
-                </Button>
-              </div>
-            </div>
-          ))}
+          <div className="border p-4 rounded">
+            <h3 className="font-semibold mb-2">Rooms</h3>
 
-          {/* ACTIONS */}
-          <div className="flex gap-2 justify-end mt-4">
-            {l.status === "DRAFT" && (
-              <Button onClick={() => submitListing(l.id)}>
-                Submit
-              </Button>
-            )}
-            {l.status === "DISABLED" ? (
-              <Button onClick={() => enableListing(l.id)}>
-                Enable
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                onClick={() => disableListing(l.id)}
+            {rooms.map((r) => (
+              <div
+                key={r.id}
+                className="flex justify-between mb-1"
               >
-                Disable
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              onClick={() => duplicateListing(l.id)}
-            >
-              Duplicate
-            </Button>
-          </div>
-        </div>
-      ))}
+                {r.name} ₹{r.pricing.basePrice}
+                <div className="flex gap-1">
+                  <Button
+                    variant="outline"
+                    onClick={() => setPricingRoom(r)}
+                  >
+                    Pricing
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setAvailabilityRoom(r)}
+                  >
+                    Availability
+                  </Button>
+                  <button onClick={() => removeRoom(r.id)}>
+                    ❌
+                  </button>
+                </div>
+              </div>
+            ))}
 
-      {/* PRICING MODAL */}
-      {pricingRoom && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl w-full max-w-xl">
-            <h3 className="font-bold mb-3">
-              Pricing – {pricingRoom.name}
-            </h3>
-
-            {[
-              ["Base Price", "basePrice"],
-              ["Weekend Price", "weekendPrice"],
-              ["Festival Price", "festivalPrice"],
-              ["Discount %", "discountPercent"],
-              ["Min Stay Nights", "minStayNights"],
-            ].map(([label, key]) => (
+            <div className="grid grid-cols-4 gap-2 mt-2">
               <input
-                key={key}
-                type="number"
-                className="border p-2 w-full mb-2"
-                placeholder={label}
-                value={(pricingRoom.pricing as any)[key] || ""}
+                placeholder="Room name"
+                className="border p-1"
+                value={roomDraft.name}
                 onChange={(e) =>
-                  setPricingRoom({
-                    ...pricingRoom,
+                  setRoomDraft({
+                    ...roomDraft,
+                    name: e.target.value,
+                  })
+                }
+              />
+              <input
+                type="number"
+                className="border p-1"
+                placeholder="Rooms"
+                value={roomDraft.totalRooms}
+                onChange={(e) =>
+                  setRoomDraft({
+                    ...roomDraft,
+                    totalRooms: +e.target.value,
+                  })
+                }
+              />
+              <input
+                type="number"
+                className="border p-1"
+                placeholder="Guests"
+                value={roomDraft.maxGuests}
+                onChange={(e) =>
+                  setRoomDraft({
+                    ...roomDraft,
+                    maxGuests: +e.target.value,
+                  })
+                }
+              />
+              <input
+                type="number"
+                className="border p-1"
+                placeholder="Base price"
+                value={roomDraft.pricing.basePrice}
+                onChange={(e) =>
+                  setRoomDraft({
+                    ...roomDraft,
                     pricing: {
-                      ...pricingRoom.pricing,
-                      [key]: Number(e.target.value),
+                      ...roomDraft.pricing,
+                      basePrice: +e.target.value,
                     },
                   })
                 }
               />
-            ))}
+            </div>
 
-            <div className="flex items-center gap-3 mb-4">
-              <input
-                type="date"
-                value={previewDate}
-                onChange={(e) => setPreviewDate(e.target.value)}
-              />
-              <label className="flex gap-1 items-center">
-                <input
-                  type="checkbox"
-                  checked={festivalMode}
-                  onChange={(e) =>
-                    setFestivalMode(e.target.checked)
-                  }
+            <Button className="mt-2" onClick={addRoom}>
+              ➕ Add Room
+            </Button>
+          </div>
+
+          {/* IMAGES */}
+          <div>
+            <input
+              type="file"
+              multiple
+              onChange={(e) =>
+                uploadImages(e.target.files)
+              }
+            />
+            <div className="flex gap-2 mt-2 flex-wrap">
+              {images.map((i) => (
+                <img
+                  key={i}
+                  src={i}
+                  className="w-20 h-20 object-cover rounded"
                 />
-                Festival
-              </label>
-              <b>
-                ₹
-                {calcPrice(
-                  pricingRoom,
-                  new Date(previewDate),
-                  festivalMode
-                )}
-              </b>
+              ))}
             </div>
+          </div>
 
-            <div className="flex justify-end gap-2">
-              <Button onClick={() => setPricingRoom(null)}>
-                Cancel
-              </Button>
-              <Button onClick={savePricing}>Save</Button>
-            </div>
+          <div className="flex gap-2">
+            <Button onClick={saveListing}>Save</Button>
+            <Button variant="outline" onClick={resetForm}>
+              Cancel
+            </Button>
           </div>
         </div>
       )}
 
-      {/* AVAILABILITY MODAL */}
-      {selectedRoom && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-xl w-full max-w-2xl">
-            <h3 className="font-bold mb-3">
-              Availability – {selectedRoom.name}
-            </h3>
-
-            <div className="grid grid-cols-7 gap-2">
-              {Array.from({ length: 30 }).map((_, i) => {
-                const d = new Date();
-                d.setDate(d.getDate() + i);
-                const date = formatDate(d);
-                const blocked = selectedRoom.availability?.find(
-                  (x) => x.date === date && x.blocked
-                );
-                return (
-                  <button
-                    key={date}
-                    onClick={() =>
-                      toggleAvailability(selectedRoom, date)
-                    }
-                    className={`p-2 text-xs rounded ${
-                      blocked
-                        ? "bg-red-200"
-                        : "bg-green-200"
-                    }`}
-                  >
-                    {d.getDate()}
-                  </button>
-                );
-              })}
+      {/* LISTINGS */}
+      {listings.map((l) => (
+        <div key={l.id} className="border p-4 rounded">
+          <div className="flex justify-between">
+            <div>
+              <b>{l.title}</b>
+              <div className="text-sm">{l.location}</div>
+              <div className="text-xs">
+                Status: {l.status}
+              </div>
             </div>
-
-            <div className="flex justify-end gap-2 mt-4">
-              <Button onClick={() => setSelectedRoom(null)}>
-                Cancel
+            <div className="flex gap-2">
+              {(l.status === "DRAFT" ||
+                l.status === "REJECTED") && (
+                <Button onClick={() => submitListing(l.id)}>
+                  Submit
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setEditingListing(l);
+                  setTitle(l.title);
+                  setLocation(l.location);
+                  setRooms(l.rooms || []);
+                  setImages(l.images || []);
+                }}
+              >
+                Edit
               </Button>
-              <Button onClick={saveAvailability}>Save</Button>
+              <Button
+                variant="outline"
+                onClick={() => deleteListing(l.id)}
+              >
+                Delete
+              </Button>
             </div>
           </div>
+
+          {l.status === "REJECTED" &&
+            l.rejectionReason && (
+              <div className="text-red-600 text-sm">
+                ❌ {l.rejectionReason}
+              </div>
+            )}
         </div>
-      )}
+      ))}
     </div>
   );
 }

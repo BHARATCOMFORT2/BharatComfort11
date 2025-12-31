@@ -2,42 +2,113 @@
 
 import { useEffect, useState } from "react";
 import { db } from "@/lib/firebase";
-import { collection, onSnapshot, limit } from "firebase/firestore";
+import {
+  collection,
+  onSnapshot,
+  query,
+  where,
+  limit,
+} from "firebase/firestore";
 import { motion } from "framer-motion";
 import Link from "next/link";
 
+/* -------------------------
+   TYPES
+-------------------------- */
+interface Trending {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl: string;
+}
+
+interface Listing {
+  id: string;
+  name: string;
+  location: string;
+  price: number;
+  images: string[];
+}
+
+/* -------------------------
+   FALLBACKS
+-------------------------- */
+const SAMPLE_TRENDING: Trending[] = [
+  {
+    id: "1",
+    name: "Goa",
+    description: "Beach resorts & nightlife",
+    imageUrl:
+      "https://images.unsplash.com/photo-1507525428034-b723cf961d3e",
+  },
+  {
+    id: "2",
+    name: "Manali",
+    description: "Snow stays & adventure",
+    imageUrl:
+      "https://images.unsplash.com/photo-1544717305-2782549b5136",
+  },
+];
+
 export default function ExplorePage() {
-  const [destinations, setDestinations] = useState<any[]>([]);
-  const [stays, setStays] = useState<any[]>([]);
+  const [trending, setTrending] = useState<Trending[]>([]);
+  const [featured, setFeatured] = useState<Listing[]>([]);
   const [loading, setLoading] = useState(true);
 
+  /* -------------------------
+     🔥 FETCH DATA
+  -------------------------- */
   useEffect(() => {
-    // 🔹 Fetch top destinations
-    const unsubDest = onSnapshot(
-      collection(db, "destinations"),
-      (snapshot) => {
-        const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setDestinations(data.slice(0, 6)); // show top 6
-      }
+    // TRENDING
+    const unsubTrending = onSnapshot(
+      collection(db, "homepage", "trending", "items"),
+      (snap) => {
+        if (!snap.empty) {
+          setTrending(
+            snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+          );
+        } else {
+          setTrending(SAMPLE_TRENDING);
+        }
+      },
+      () => setTrending(SAMPLE_TRENDING)
     );
 
-    // 🔹 Fetch featured stays
-    const unsubStays = onSnapshot(collection(db, "stays"), (snapshot) => {
-      const data = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setStays(data.slice(0, 6));
-      setLoading(false);
-    });
+    // FEATURED LISTINGS
+    const unsubFeatured = onSnapshot(
+      query(
+        collection(db, "listings"),
+        where("featured", "==", true),
+        limit(6)
+      ),
+      (snap) => {
+        setFeatured(
+          snap.docs.map((d) => {
+            const data = d.data();
+            return {
+              id: d.id,
+              name: data.name,
+              location: data.location,
+              price: data.price,
+              images: data.images || [data.image],
+            };
+          })
+        );
+        setLoading(false);
+      },
+      () => setLoading(false)
+    );
 
     return () => {
-      unsubDest();
-      unsubStays();
+      unsubTrending();
+      unsubFeatured();
     };
   }, []);
 
   if (loading)
     return (
-      <div className="min-h-screen flex items-center justify-center text-gray-600">
-        Loading explore page...
+      <div className="min-h-screen flex items-center justify-center text-gray-500">
+        Loading Explore...
       </div>
     );
 
@@ -46,91 +117,73 @@ export default function ExplorePage() {
       className="min-h-screen bg-gray-50 p-6"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
     >
-      {/* Page Title */}
-      <h1 className="text-3xl font-bold text-center mb-2">Explore Bharat</h1>
-      <p className="text-center text-gray-600 mb-8">
-        Discover trending places, unique stays, and travel inspirations.
-      </p>
+      {/* ---------------- TRENDING ---------------- */}
+      <section className="mb-12">
+        <h2 className="text-2xl font-bold mb-6">
+          🔥 Trending Destinations
+        </h2>
 
-      {/* Trending Destinations */}
-      <section className="mb-10">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-semibold">Trending Destinations</h2>
-          <Link href="/destinations" className="text-indigo-600 text-sm hover:underline">
+        <div className="grid md:grid-cols-3 gap-6">
+          {trending.map((t, i) => (
+            <motion.div
+              key={t.id}
+              whileHover={{ scale: 1.04 }}
+              className="relative h-60 rounded-xl overflow-hidden shadow-md"
+            >
+              <img
+                src={t.imageUrl}
+                className="w-full h-full object-cover"
+                alt={t.name}
+              />
+              <div className="absolute inset-0 bg-black/40" />
+              <div className="absolute bottom-0 p-4 text-white">
+                <h3 className="text-xl font-bold">{t.name}</h3>
+                <p className="text-sm">{t.description}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </section>
+
+      {/* ---------------- FEATURED ---------------- */}
+      <section>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold">
+            🌟 Featured Stays
+          </h2>
+          <Link
+            href="/listings"
+            className="text-indigo-600 text-sm"
+          >
             View all →
           </Link>
         </div>
 
-        {destinations.length === 0 ? (
-          <p className="text-gray-500">No destinations found.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {destinations.map((d) => (
-              <motion.div
-                key={d.id}
-                className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl transition"
-                whileHover={{ scale: 1.03 }}
-              >
-                <img
-                  src={d.image || "/placeholder.jpg"}
-                  alt={d.title}
-                  className="h-48 w-full object-cover"
-                />
-                <div className="p-4">
-                  <h3 className="font-semibold text-lg">{d.title}</h3>
-                  <p className="text-sm text-gray-500">{d.state}</p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Featured Stays */}
-      <section className="mb-10">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-2xl font-semibold">Featured Stays</h2>
-          <Link href="/stays" className="text-indigo-600 text-sm hover:underline">
-            View all →
-          </Link>
+        <div className="grid md:grid-cols-3 gap-6">
+          {featured.map((l) => (
+            <motion.div
+              key={l.id}
+              whileHover={{ scale: 1.03 }}
+              className="bg-white rounded-xl shadow-md overflow-hidden"
+            >
+              <img
+                src={l.images?.[0] || "/placeholder.jpg"}
+                className="h-48 w-full object-cover"
+                alt={l.name}
+              />
+              <div className="p-4">
+                <h3 className="font-semibold">{l.name}</h3>
+                <p className="text-sm text-gray-500">
+                  {l.location}
+                </p>
+                <p className="font-bold text-indigo-600 mt-1">
+                  ₹{l.price}/night
+                </p>
+              </div>
+            </motion.div>
+          ))}
         </div>
-
-        {stays.length === 0 ? (
-          <p className="text-gray-500">No featured stays yet.</p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {stays.map((stay) => (
-              <motion.div
-                key={stay.id}
-                className="bg-white rounded-2xl shadow-md overflow-hidden hover:shadow-xl transition"
-                whileHover={{ scale: 1.03 }}
-              >
-                <img
-                  src={stay.image || "/placeholder.jpg"}
-                  alt={stay.name}
-                  className="h-48 w-full object-cover"
-                />
-                <div className="p-4">
-                  <h3 className="font-semibold text-lg">{stay.name}</h3>
-                  <p className="text-sm text-gray-500">{stay.location}</p>
-                  <p className="text-indigo-600 font-bold mt-1">
-                    ₹{stay.price}/night
-                  </p>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Travel Tips / Coming Soon */}
-      <section className="text-center border-t pt-8 mt-8">
-        <h2 className="text-2xl font-semibold mb-2">Travel Inspiration ✈️</h2>
-        <p className="text-gray-600 mb-4">
-          Coming soon: curated travel tips, stories, and guides from verified partners.
-        </p>
       </section>
     </motion.div>
   );

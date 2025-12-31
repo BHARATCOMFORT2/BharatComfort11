@@ -1,453 +1,436 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase-client";
 import { apiFetch } from "@/lib/apiFetch";
-import { Button } from "@/components/ui/Button";
 
-/* =====================================================
-   TYPES
-===================================================== */
-
-type ListingStatus =
-  | "DRAFT"
-  | "SUBMITTED"
-  | "APPROVED"
-  | "REJECTED"
-  | "DISABLED";
-
-type AvailabilityDay = {
-  date: string;
-  blocked: boolean;
-};
-
-type Pricing = {
-  basePrice: number;
-  weekendPrice?: number;
-  festivalPrice?: number;
-  discountPercent?: number;
-  minStayNights: number;
-};
-
-type Room = {
-  id: string;
-  name: string;
-  totalRooms: number;
-  maxGuests: number;
-  pricing: Pricing;
-  availability: AvailabilityDay[];
-};
+/* -------------------------------- TYPES -------------------------------- */
 
 type Listing = {
-  id: string;
-  title: string;
-  location: string;
-  status: ListingStatus;
-  rejectionReason?: string;
-  rooms: Room[];
-  images: string[];
+  id?: string;
+  title?: string;
+  description?: string;
+  location?: string;
+  price?: number;
+  images?: string[]; // ✅ NOW FULL PUBLIC URLS
+  allowPayAtHotel?: boolean;
 };
 
-/* =====================================================
-   HELPERS
-===================================================== */
-
-const todayPlus = (i: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + i);
-  return d.toISOString().split("T")[0];
-};
-
-const isWeekend = (d: Date) => {
-  const day = d.getDay();
-  return day === 0 || day === 6;
-};
-
-const calcPrice = (
-  pricing: Pricing,
-  date: Date,
-  festival = false
-) => {
-  let price = pricing.basePrice;
-
-  if (festival && pricing.festivalPrice)
-    price = pricing.festivalPrice;
-  else if (isWeekend(date) && pricing.weekendPrice)
-    price = pricing.weekendPrice;
-
-  if (pricing.discountPercent)
-    price -= Math.round(
-      (price * pricing.discountPercent) / 100
-    );
-
-  return price;
-};
-
-/* =====================================================
-   MAIN COMPONENT
-===================================================== */
+type ImageItem =
+  | {
+      id?: string;
+      url: string;        // ✅ PUBLIC IMAGE URL
+      isExisting: true;
+      isPrimary?: boolean;
+    }
+  | {
+      id?: string;
+      file: File;
+      objectUrl: string; // ✅ LOCAL PREVIEW
+      isExisting: false;
+      isPrimary?: boolean;
+    };
 
 export default function PartnerListingsManager() {
-  /* ---------------- STATE ---------------- */
-  const [loading, setLoading] = useState(true);
   const [listings, setListings] = useState<Listing[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [loadBusy, setLoadBusy] = useState(false);
 
-  const [editingListing, setEditingListing] =
-    useState<Listing | null>(null);
-
-  const [title, setTitle] = useState("");
-  const [location, setLocation] = useState("");
-
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [images, setImages] = useState<string[]>([]);
-
-  const [roomDraft, setRoomDraft] = useState<Omit<Room, "id">>({
-    name: "",
-    totalRooms: 1,
-    maxGuests: 2,
-    pricing: {
-      basePrice: 1000,
-      minStayNights: 1,
-    },
-    availability: [],
+  const [editId, setEditId] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    location: "",
+    price: "",
+    allowPayAtHotel: false,
   });
 
-  const [pricingRoom, setPricingRoom] =
-    useState<Room | null>(null);
-  const [availabilityRoom, setAvailabilityRoom] =
-    useState<Room | null>(null);
+  const [images, setImages] = useState<ImageItem[]>([]);
 
-  const [previewDate, setPreviewDate] = useState(
-    todayPlus(0)
-  );
-  const [festivalMode, setFestivalMode] = useState(false);
+  const dragIndexRef = useRef<number | null>(null);
+  const dropIndexRef = useRef<number | null>(null);
 
-  /* ---------------- LOAD ---------------- */
+  const MAX_IMAGES = 10;
+
+  /* -------------------- AUTH + LOAD -------------------- */
 
   useEffect(() => {
-    if (!auth) return;
-
     const unsub = auth.onAuthStateChanged(async (u) => {
-      if (!u) {
-        setLoading(false);
-        return;
-      }
+      if (!u) return;
       await u.getIdToken(true);
-      await loadListings();
-      setLoading(false);
+      loadListings();
     });
-
-    return () => unsub && unsub();
+    return () => unsub();
   }, []);
 
   async function loadListings() {
-    const res = await apiFetch("/api/partners/listings/list");
+    try {
+      setLoadBusy(true);
+      const res = await apiFetch(`/api/partners/listings/list?page=1&limit=50`);
+      const j = await res.json();
+      if (j.ok) setListings(j.listings || []);
+    } catch (err) {
+      console.error("loadListings error:", err);
+    } finally {
+      setLoadBusy(false);
+    }
+  }
+
+  /* -------------------- FILE SELECTION -------------------- */
+
+  function handleFilesSelected(filesList: FileList) {
+    const files = Array.from(filesList);
+
+    if (images.length + files.length > MAX_IMAGES) {
+      alert(`Maximum ${MAX_IMAGES} images allowed`);
+      return;
+    }
+
+    const newItems: ImageItem[] = files.map((f) => ({
+      file: f,
+      objectUrl: URL.createObjectURL(f),
+      isExisting: false,
+      isPrimary: false,
+    }));
+
+    setImages((prev) => {
+      const merged = [...prev, ...newItems];
+      if (!merged.some((x) => x.isPrimary)) merged[0].isPrimary = true;
+      return merged;
+    });
+  }
+
+  function removeImage(index: number) {
+    const it = images[index];
+    if (!it) return;
+
+    if (!it.isExisting) URL.revokeObjectURL(it.objectUrl);
+
+    setImages((prev) => {
+      const arr = [...prev];
+      arr.splice(index, 1);
+      if (!arr.some((x) => x.isPrimary) && arr.length > 0)
+        arr[0].isPrimary = true;
+      return arr;
+    });
+  }
+
+  function setPrimary(index: number) {
+    setImages((prev) =>
+      prev.map((it, i) => ({ ...it, isPrimary: i === index }))
+    );
+  }
+
+  /* -------------------- DRAG & DROP -------------------- */
+
+  function onDragStart(e: any, idx: number) {
+    dragIndexRef.current = idx;
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function onDragOver(e: any, idx: number) {
+    e.preventDefault();
+    dropIndexRef.current = idx;
+  }
+
+  function onDrop(e: any) {
+    e.preventDefault();
+    const from = dragIndexRef.current;
+    const to = dropIndexRef.current;
+    if (from == null || to == null || from === to) return;
+
+    setImages((prev) => {
+      const arr = [...prev];
+      const [item] = arr.splice(from, 1);
+      arr.splice(to, 0, item);
+      return arr;
+    });
+
+    dragIndexRef.current = null;
+    dropIndexRef.current = null;
+  }
+
+  /* -------------------- IMAGE UPLOAD (✅ RETURNS PUBLIC URL) -------------------- */
+
+  async function uploadFile(file: File) {
+    const fd = new FormData();
+    fd.append("file", file);
+
+    const res = await apiFetch("/api/partners/listings/upload", {
+      method: "POST",
+      body: fd,
+    });
+
     const j = await res.json();
-    setListings(Array.isArray(j.listings) ? j.listings : []);
+    if (!j.ok) throw new Error(j.error || "Image upload failed");
+
+    return j.url as string; // ✅ FULL PUBLIC IMAGE URL
   }
 
-  /* =====================================================
-     LISTING CRUD
-  ===================================================== */
+  async function prepareImageUploadPayload(items: ImageItem[]) {
+    const result: string[] = [];
 
-  async function saveListing() {
-    const endpoint = editingListing?.id
-      ? "/api/partners/listings/update"
-      : "/api/partners/listings/create";
-
-    await apiFetch(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        id: editingListing?.id,
-        title,
-        location,
-        rooms,
-        images,
-      }),
-    });
-
-    resetForm();
-    loadListings();
+    for (const it of items) {
+      if (it.isExisting) {
+        result.push(it.url);
+      } else {
+        const url = await uploadFile(it.file);
+        result.push(url);
+      }
+    }
+    return result;
   }
 
-  async function deleteListing(id: string) {
-    if (!confirm("Delete listing?")) return;
+  /* -------------------- CREATE / UPDATE -------------------- */
 
-    await apiFetch("/api/partners/listings/delete", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
+  async function handleCreateOrUpdate() {
+    if (!form.title.trim()) return alert("Enter title");
 
-    loadListings();
+    setBusy(true);
+    try {
+      let urls = await prepareImageUploadPayload(images);
+
+      const primaryIndex = images.findIndex((i) => i.isPrimary);
+      if (primaryIndex > 0) {
+        const p = urls.splice(primaryIndex, 1)[0];
+        urls.unshift(p);
+      }
+
+      const payload = {
+        title: form.title,
+        description: form.description,
+        location: form.location,
+        price: Number(form.price || 0),
+        images: urls,
+        allowPayAtHotel: form.allowPayAtHotel,
+      };
+
+      if (editId) {
+        const res = await apiFetch("/api/partners/listings/update", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: editId, ...payload }),
+        });
+
+        const j = await res.json();
+        if (!j.success) throw new Error(j.error || "Update failed");
+        alert("✅ Listing updated");
+      } else {
+        const res = await apiFetch("/api/partners/listings/create", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const j = await res.json();
+        if (!j.success) throw new Error(j.error || "Create failed");
+        alert("✅ Listing created");
+      }
+
+      resetForm();
+      loadListings();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || "Save failed");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function submitListing(id: string) {
-    await apiFetch("/api/partners/listings/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+  /* -------------------- DELETE -------------------- */
+
+  async function handleDelete(id?: string) {
+    if (!id || !confirm("Delete this listing?")) return;
+
+    setBusy(true);
+    try {
+      const res = await apiFetch("/api/partners/listings/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+
+      const j = await res.json();
+      if (!j.success) throw new Error(j.error || "Delete failed");
+
+      alert("✅ Listing deleted");
+      loadListings();
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /* -------------------- EDIT -------------------- */
+
+  function startEdit(l: Listing) {
+    setEditId(l.id || null);
+
+    setForm({
+      title: l.title || "",
+      description: l.description || "",
+      location: l.location || "",
+      price: (l.price || 0).toString(),
+      allowPayAtHotel: !!l.allowPayAtHotel,
     });
-    loadListings();
+
+    const exImages: ImageItem[] = (l.images || []).map((url, idx) => ({
+      id: `${idx}`,
+      url,
+      isExisting: true,
+      isPrimary: idx === 0,
+    }));
+
+    setImages(exImages);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   function resetForm() {
-    setEditingListing(null);
-    setTitle("");
-    setLocation("");
-    setRooms([]);
+    images.forEach((x) => {
+      if (!x.isExisting) URL.revokeObjectURL(x.objectUrl);
+    });
+
+    setEditId(null);
+    setForm({
+      title: "",
+      description: "",
+      location: "",
+      price: "",
+      allowPayAtHotel: false,
+    });
     setImages([]);
   }
 
-  /* =====================================================
-     ROOMS
-  ===================================================== */
-
-  function addRoom() {
-    setRooms([
-      ...rooms,
-      { ...roomDraft, id: crypto.randomUUID() },
-    ]);
-    setRoomDraft({
-      name: "",
-      totalRooms: 1,
-      maxGuests: 2,
-      pricing: {
-        basePrice: 1000,
-        minStayNights: 1,
-      },
-      availability: [],
-    });
-  }
-
-  function removeRoom(id: string) {
-    setRooms(rooms.filter((r) => r.id !== id));
-  }
-
-  /* =====================================================
-     IMAGES
-  ===================================================== */
-
-  async function uploadImages(files: FileList | null) {
-    if (!files) return;
-    const uploaded: string[] = [];
-
-    for (const f of Array.from(files)) {
-      const fd = new FormData();
-      fd.append("file", f);
-      const res = await apiFetch(
-        "/api/partners/listings/images/upload",
-        { method: "POST", body: fd }
-      );
-      const j = await res.json();
-      if (j.url) uploaded.push(j.url);
-    }
-
-    setImages([...images, ...uploaded]);
-  }
-
-  /* =====================================================
-     UI
-  ===================================================== */
-
-  if (loading)
-    return <div className="p-6">Loading…</div>;
+  /* -------------------- UI -------------------- */
 
   return (
-    <div className="space-y-6">
-      {/* ADD */}
-      <div className="flex justify-end">
-        <Button onClick={() => setEditingListing({} as any)}>
-          ➕ Add Listing
+    <div className="space-y-8">
+      {/* FORM */}
+      <div className="bg-white p-6 rounded-xl shadow space-y-4 border">
+        <h2 className="text-xl font-semibold">
+          {editId ? "Edit Listing" : "Add New Listing"}
+        </h2>
+
+        <input
+          placeholder="Title"
+          className="border p-2 w-full rounded"
+          value={form.title}
+          onChange={(e) => setForm({ ...form, title: e.target.value })}
+        />
+
+        <input
+          placeholder="Location"
+          className="border p-2 w-full rounded"
+          value={form.location}
+          onChange={(e) => setForm({ ...form, location: e.target.value })}
+        />
+
+        <input
+          placeholder="Price"
+          type="number"
+          className="border p-2 w-full rounded"
+          value={form.price}
+          onChange={(e) => setForm({ ...form, price: e.target.value })}
+        />
+
+        <textarea
+          placeholder="Description"
+          className="border p-2 w-full rounded"
+          value={form.description}
+          onChange={(e) =>
+            setForm({ ...form, description: e.target.value })
+          }
+        />
+
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) =>
+            e.target.files && handleFilesSelected(e.target.files)
+          }
+        />
+
+        {/* PREVIEW GRID */}
+        {images.length > 0 && (
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            {images.map((it, idx) => (
+              <div
+                key={idx}
+                draggable
+                onDragStart={(e) => onDragStart(e, idx)}
+                onDragOver={(e) => onDragOver(e, idx)}
+                onDrop={onDrop}
+                className="relative border rounded overflow-hidden"
+              >
+                <img
+                  src={it.isExisting ? it.url : it.objectUrl}
+                  className="w-full h-24 object-cover"
+                />
+
+                <button
+                  onClick={() => setPrimary(idx)}
+                  className={`absolute left-1 top-1 text-xs px-2 py-1 rounded ${
+                    it.isPrimary ? "bg-yellow-400" : "bg-white"
+                  }`}
+                >
+                  ★
+                </button>
+
+                <button
+                  onClick={() => removeImage(idx)}
+                  className="absolute right-1 top-1 bg-red-600 text-white text-xs px-2 py-1 rounded"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <label className="flex items-center gap-2 mt-2">
+          <input
+            type="checkbox"
+            checked={form.allowPayAtHotel}
+            onChange={(e) =>
+              setForm({ ...form, allowPayAtHotel: e.target.checked })
+            }
+          />
+          Pay at Hotel
+        </label>
+
+        <Button onClick={handleCreateOrUpdate} disabled={busy}>
+          {busy ? "Saving..." : editId ? "Update Listing" : "Create Listing"}
         </Button>
       </div>
 
-      {/* CREATE / EDIT */}
-      {editingListing && (
-        <div className="bg-white p-6 border rounded space-y-4">
-          <h2 className="font-bold">
-            {editingListing.id ? "Edit" : "New"} Listing
-          </h2>
-
-          <input
-            className="border p-2 w-full"
-            placeholder="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-
-          <input
-            className="border p-2 w-full"
-            placeholder="Location"
-            value={location}
-            onChange={(e) => setLocation(e.target.value)}
-          />
-
-          {/* ROOMS */}
-          <div className="border p-4 rounded">
-            <h3 className="font-semibold mb-2">Rooms</h3>
-
-            {rooms.map((r) => (
-              <div
-                key={r.id}
-                className="flex justify-between mb-1"
-              >
-                {r.name} ₹{r.pricing.basePrice}
-                <div className="flex gap-1">
-                  <Button
-                    variant="outline"
-                    onClick={() => setPricingRoom(r)}
-                  >
-                    Pricing
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setAvailabilityRoom(r)}
-                  >
-                    Availability
-                  </Button>
-                  <button onClick={() => removeRoom(r.id)}>
-                    ❌
-                  </button>
-                </div>
-              </div>
-            ))}
-
-            <div className="grid grid-cols-4 gap-2 mt-2">
-              <input
-                placeholder="Room name"
-                className="border p-1"
-                value={roomDraft.name}
-                onChange={(e) =>
-                  setRoomDraft({
-                    ...roomDraft,
-                    name: e.target.value,
-                  })
-                }
-              />
-              <input
-                type="number"
-                className="border p-1"
-                placeholder="Rooms"
-                value={roomDraft.totalRooms}
-                onChange={(e) =>
-                  setRoomDraft({
-                    ...roomDraft,
-                    totalRooms: +e.target.value,
-                  })
-                }
-              />
-              <input
-                type="number"
-                className="border p-1"
-                placeholder="Guests"
-                value={roomDraft.maxGuests}
-                onChange={(e) =>
-                  setRoomDraft({
-                    ...roomDraft,
-                    maxGuests: +e.target.value,
-                  })
-                }
-              />
-              <input
-                type="number"
-                className="border p-1"
-                placeholder="Base price"
-                value={roomDraft.pricing.basePrice}
-                onChange={(e) =>
-                  setRoomDraft({
-                    ...roomDraft,
-                    pricing: {
-                      ...roomDraft.pricing,
-                      basePrice: +e.target.value,
-                    },
-                  })
-                }
-              />
-            </div>
-
-            <Button className="mt-2" onClick={addRoom}>
-              ➕ Add Room
-            </Button>
-          </div>
-
-          {/* IMAGES */}
-          <div>
-            <input
-              type="file"
-              multiple
-              onChange={(e) =>
-                uploadImages(e.target.files)
-              }
-            />
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {images.map((i) => (
-                <img
-                  key={i}
-                  src={i}
-                  className="w-20 h-20 object-cover rounded"
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="flex gap-2">
-            <Button onClick={saveListing}>Save</Button>
-            <Button variant="outline" onClick={resetForm}>
-              Cancel
-            </Button>
-          </div>
-        </div>
-      )}
-
       {/* LISTINGS */}
-      {listings.map((l) => (
-        <div key={l.id} className="border p-4 rounded">
-          <div className="flex justify-between">
-            <div>
-              <b>{l.title}</b>
-              <div className="text-sm">{l.location}</div>
-              <div className="text-xs">
-                Status: {l.status}
-              </div>
-            </div>
-            <div className="flex gap-2">
-              {(l.status === "DRAFT" ||
-                l.status === "REJECTED") && (
-                <Button onClick={() => submitListing(l.id)}>
-                  Submit
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setEditingListing(l);
-                  setTitle(l.title);
-                  setLocation(l.location);
-                  setRooms(l.rooms || []);
-                  setImages(l.images || []);
-                }}
-              >
-                Edit
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => deleteListing(l.id)}
-              >
-                Delete
-              </Button>
-            </div>
-          </div>
+      <div className="bg-white p-6 rounded-xl shadow border">
+        <h2 className="text-xl font-semibold mb-4">Your Listings</h2>
 
-          {l.status === "REJECTED" &&
-            l.rejectionReason && (
-              <div className="text-red-600 text-sm">
-                ❌ {l.rejectionReason}
+        {loadBusy ? (
+          <p>Loading...</p>
+        ) : listings.length === 0 ? (
+          <p>No listings found</p>
+        ) : (
+          listings.map((l) => (
+            <div key={l.id} className="flex justify-between border-b py-2">
+              <div>
+                <h3>{l.title}</h3>
+                <p className="text-sm text-gray-500">{l.location}</p>
+                <p>₹{l.price}</p>
               </div>
-            )}
-        </div>
-      ))}
+              <div className="flex gap-2">
+                <Button onClick={() => startEdit(l)}>Edit</Button>
+                <Button onClick={() => handleDelete(l.id)}>Delete</Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

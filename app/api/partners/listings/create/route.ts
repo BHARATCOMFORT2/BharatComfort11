@@ -5,9 +5,15 @@ import { NextResponse } from "next/server";
 import { adminAuth, adminDb } from "@/lib/firebaseadmin";
 import { FieldValue } from "firebase-admin/firestore";
 
+/* ======================================================
+   CREATE LISTING (ROOM-WISE PRICING READY)
+====================================================== */
+
 export async function POST(req: Request) {
   try {
-    /* ✅ 1️⃣ AUTH */
+    /* ======================================================
+       1️⃣ AUTH
+    ====================================================== */
     const authHeader = req.headers.get("authorization");
 
     if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -21,7 +27,10 @@ export async function POST(req: Request) {
     const decoded = await adminAuth.verifyIdToken(idToken, true);
     const uid = decoded.uid;
 
-    /* ✅ 2️⃣ KYC CHECK */
+    /* ======================================================
+       2️⃣ PARTNER CHECK (NO KYC BLOCK)
+       👉 KYC will be enforced before payouts, NOT listing creation
+    ====================================================== */
     const partnerSnap = await adminDb.collection("partners").doc(uid).get();
 
     if (!partnerSnap.exists) {
@@ -31,25 +40,9 @@ export async function POST(req: Request) {
       );
     }
 
-    const partner = partnerSnap.data();
-    const kycStatus =
-      partner?.kycStatus ||
-      partner?.kyc?.status ||
-      partner?.kyc?.kycStatus ||
-      "NOT_STARTED";
-
-    if (kycStatus !== "APPROVED") {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "KYC not approved. You cannot create listings yet.",
-          kycStatus,
-        },
-        { status: 403 }
-      );
-    }
-
-    /* ✅ 3️⃣ BODY */
+    /* ======================================================
+       3️⃣ BODY
+    ====================================================== */
     const body = await req.json().catch(() => null);
 
     if (!body) {
@@ -62,10 +55,10 @@ export async function POST(req: Request) {
     const {
       title,
       description,
-      price,
       location,
       images,
       allowPayAtHotel,
+      rooms,        // ✅ NEW (ROOM-WISE DATA)
       metadata,
     } = body;
 
@@ -76,7 +69,9 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ✅ 4️⃣ IMAGE SANITIZATION (🔥 MAIN FIX) */
+    /* ======================================================
+       4️⃣ IMAGE SANITIZATION
+    ====================================================== */
     const safeImages = Array.isArray(images)
       ? images.filter(
           (u: any) =>
@@ -85,7 +80,33 @@ export async function POST(req: Request) {
         )
       : [];
 
-    /* ✅ 5️⃣ CREATE LISTING */
+    /* ======================================================
+       5️⃣ ROOMS + PRICING VALIDATION
+    ====================================================== */
+    const safeRooms = Array.isArray(rooms)
+      ? rooms.map((r: any) => ({
+          id: r.id || adminDb.collection("_").doc().id,
+          name: typeof r.name === "string" ? r.name : "Room",
+          totalRooms: Number(r.totalRooms) || 1,
+          maxGuests: Number(r.maxGuests) || 2,
+
+          pricing: {
+            basePrice: Number(r.pricing?.basePrice) || 0,
+            weekendPrice: Number(r.pricing?.weekendPrice) || null,
+            festivalPrice: Number(r.pricing?.festivalPrice) || null,
+            discountPercent: Number(r.pricing?.discountPercent) || 0,
+            minStayNights: Number(r.pricing?.minStayNights) || 1,
+          },
+
+          availability: Array.isArray(r.availability)
+            ? r.availability
+            : [],
+        }))
+      : [];
+
+    /* ======================================================
+       6️⃣ CREATE LISTING
+    ====================================================== */
     const docRef = adminDb.collection("listings").doc();
 
     const payload = {
@@ -94,16 +115,16 @@ export async function POST(req: Request) {
 
       title: title.trim(),
       description: description || "",
-      price: typeof price === "number" ? price : Number(price) || 0,
       location: location || "",
 
-      images: safeImages,                  // ✅ PUBLIC IMAGE URL ARRAY
+      images: safeImages,
       allowPayAtHotel: !!allowPayAtHotel,
 
+      rooms: safeRooms,           // ✅ ROOM-WISE STRUCTURE
       metadata: metadata || {},
-      status: "active",
 
-      createdAt: FieldValue.serverTimestamp(), // ✅ NEW LISTINGS ON TOP
+      status: "DRAFT",            // ✅ DEFAULT
+      createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
 

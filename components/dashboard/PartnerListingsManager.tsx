@@ -1,59 +1,105 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase-client";
 import { apiFetch } from "@/lib/apiFetch";
 
-/* -------------------------------- TYPES -------------------------------- */
+/* ========================= TYPES ========================= */
 
-type Listing = {
-  id?: string;
-  title?: string;
-  description?: string;
-  location?: string;
-  price?: number;
-  images?: string[]; // ✅ NOW FULL PUBLIC URLS
-  allowPayAtHotel?: boolean;
+type ListingStatus =
+  | "DRAFT"
+  | "SUBMITTED"
+  | "APPROVED"
+  | "REJECTED"
+  | "DISABLED";
+
+type AvailabilityDay = {
+  date: string;
+  blocked: boolean;
 };
 
-type ImageItem =
-  | {
-      id?: string;
-      url: string;        // ✅ PUBLIC IMAGE URL
-      isExisting: true;
-      isPrimary?: boolean;
-    }
-  | {
-      id?: string;
-      file: File;
-      objectUrl: string; // ✅ LOCAL PREVIEW
-      isExisting: false;
-      isPrimary?: boolean;
-    };
+type RoomPricing = {
+  basePrice: number;
+  weekendPrice?: number;
+  festivalPrice?: number;
+  discountPercent?: number;
+  minStayNights: number;
+};
+
+type Room = {
+  id: string;
+  name: string;
+  totalRooms: number;
+  maxGuests: number;
+  pricing: RoomPricing;
+  availability: AvailabilityDay[];
+};
+
+type ListingStats = {
+  views: number;
+  bookings: number;
+};
+
+type Listing = {
+  id: string;
+  title: string;
+  location: string;
+  status: ListingStatus;
+  rejectionReason?: string;
+  featured?: boolean;
+  rooms: Room[];
+  stats?: ListingStats;
+};
+
+/* ========================= HELPERS ========================= */
+
+function formatDate(d: Date) {
+  return d.toISOString().split("T")[0];
+}
+
+function isWeekend(d: Date) {
+  const day = d.getDay();
+  return day === 0 || day === 6;
+}
+
+function calcPrice(room: Room, date: Date, festival = false) {
+  let price = room.pricing.basePrice;
+
+  if (festival && room.pricing.festivalPrice) {
+    price = room.pricing.festivalPrice;
+  } else if (isWeekend(date) && room.pricing.weekendPrice) {
+    price = room.pricing.weekendPrice;
+  }
+
+  if (room.pricing.discountPercent) {
+    price -= Math.round(
+      (price * room.pricing.discountPercent) / 100
+    );
+  }
+
+  return price;
+}
+
+function conversion(views = 0, bookings = 0) {
+  if (!views) return "0%";
+  return `${Math.round((bookings / views) * 100)}%`;
+}
+
+/* ========================= MAIN ========================= */
 
 export default function PartnerListingsManager() {
   const [listings, setListings] = useState<Listing[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [loadBusy, setLoadBusy] = useState(false);
+  const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
+  const [pricingRoom, setPricingRoom] = useState<Room | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  const [editId, setEditId] = useState<string | null>(null);
-  const [form, setForm] = useState({
-    title: "",
-    description: "",
-    location: "",
-    price: "",
-    allowPayAtHotel: false,
-  });
+  const [previewDate, setPreviewDate] = useState(
+    formatDate(new Date())
+  );
+  const [festivalMode, setFestivalMode] = useState(false);
 
-  const [images, setImages] = useState<ImageItem[]>([]);
-
-  const dragIndexRef = useRef<number | null>(null);
-  const dropIndexRef = useRef<number | null>(null);
-
-  const MAX_IMAGES = 10;
-
-  /* -------------------- AUTH + LOAD -------------------- */
+  /* ---------------- LOAD ---------------- */
 
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (u) => {
@@ -65,372 +111,339 @@ export default function PartnerListingsManager() {
   }, []);
 
   async function loadListings() {
-    try {
-      setLoadBusy(true);
-      const res = await apiFetch(`/api/partners/listings/list?page=1&limit=50`);
-      const j = await res.json();
-      if (j.ok) setListings(j.listings || []);
-    } catch (err) {
-      console.error("loadListings error:", err);
-    } finally {
-      setLoadBusy(false);
-    }
-  }
-
-  /* -------------------- FILE SELECTION -------------------- */
-
-  function handleFilesSelected(filesList: FileList) {
-    const files = Array.from(filesList);
-
-    if (images.length + files.length > MAX_IMAGES) {
-      alert(`Maximum ${MAX_IMAGES} images allowed`);
-      return;
-    }
-
-    const newItems: ImageItem[] = files.map((f) => ({
-      file: f,
-      objectUrl: URL.createObjectURL(f),
-      isExisting: false,
-      isPrimary: false,
-    }));
-
-    setImages((prev) => {
-      const merged = [...prev, ...newItems];
-      if (!merged.some((x) => x.isPrimary)) merged[0].isPrimary = true;
-      return merged;
-    });
-  }
-
-  function removeImage(index: number) {
-    const it = images[index];
-    if (!it) return;
-
-    if (!it.isExisting) URL.revokeObjectURL(it.objectUrl);
-
-    setImages((prev) => {
-      const arr = [...prev];
-      arr.splice(index, 1);
-      if (!arr.some((x) => x.isPrimary) && arr.length > 0)
-        arr[0].isPrimary = true;
-      return arr;
-    });
-  }
-
-  function setPrimary(index: number) {
-    setImages((prev) =>
-      prev.map((it, i) => ({ ...it, isPrimary: i === index }))
-    );
-  }
-
-  /* -------------------- DRAG & DROP -------------------- */
-
-  function onDragStart(e: any, idx: number) {
-    dragIndexRef.current = idx;
-    e.dataTransfer.effectAllowed = "move";
-  }
-
-  function onDragOver(e: any, idx: number) {
-    e.preventDefault();
-    dropIndexRef.current = idx;
-  }
-
-  function onDrop(e: any) {
-    e.preventDefault();
-    const from = dragIndexRef.current;
-    const to = dropIndexRef.current;
-    if (from == null || to == null || from === to) return;
-
-    setImages((prev) => {
-      const arr = [...prev];
-      const [item] = arr.splice(from, 1);
-      arr.splice(to, 0, item);
-      return arr;
-    });
-
-    dragIndexRef.current = null;
-    dropIndexRef.current = null;
-  }
-
-  /* -------------------- IMAGE UPLOAD (✅ RETURNS PUBLIC URL) -------------------- */
-
-  async function uploadFile(file: File) {
-    const fd = new FormData();
-    fd.append("file", file);
-
-    const res = await apiFetch("/api/partners/listings/upload", {
-      method: "POST",
-      body: fd,
-    });
-
+    const res = await apiFetch("/api/partners/listings/list?limit=50");
     const j = await res.json();
-    if (!j.ok) throw new Error(j.error || "Image upload failed");
-
-    return j.url as string; // ✅ FULL PUBLIC IMAGE URL
+    if (j.ok) setListings(j.listings || []);
   }
 
-  async function prepareImageUploadPayload(items: ImageItem[]) {
-    const result: string[] = [];
+  /* ---------------- AVAILABILITY ---------------- */
 
-    for (const it of items) {
-      if (it.isExisting) {
-        result.push(it.url);
-      } else {
-        const url = await uploadFile(it.file);
-        result.push(url);
-      }
+  function toggleAvailability(room: Room, date: string) {
+    const existing = room.availability.find((d) => d.date === date);
+    if (existing) {
+      existing.blocked = !existing.blocked;
+    } else {
+      room.availability.push({ date, blocked: true });
     }
-    return result;
+    setSelectedRoom({ ...room });
   }
 
-  /* -------------------- CREATE / UPDATE -------------------- */
-
-  async function handleCreateOrUpdate() {
-    if (!form.title.trim()) return alert("Enter title");
-
-    setBusy(true);
-    try {
-      let urls = await prepareImageUploadPayload(images);
-
-      const primaryIndex = images.findIndex((i) => i.isPrimary);
-      if (primaryIndex > 0) {
-        const p = urls.splice(primaryIndex, 1)[0];
-        urls.unshift(p);
-      }
-
-      const payload = {
-        title: form.title,
-        description: form.description,
-        location: form.location,
-        price: Number(form.price || 0),
-        images: urls,
-        allowPayAtHotel: form.allowPayAtHotel,
-      };
-
-      if (editId) {
-        const res = await apiFetch("/api/partners/listings/update", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: editId, ...payload }),
-        });
-
-        const j = await res.json();
-        if (!j.success) throw new Error(j.error || "Update failed");
-        alert("✅ Listing updated");
-      } else {
-        const res = await apiFetch("/api/partners/listings/create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        const j = await res.json();
-        if (!j.success) throw new Error(j.error || "Create failed");
-        alert("✅ Listing created");
-      }
-
-      resetForm();
-      loadListings();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.message || "Save failed");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* -------------------- DELETE -------------------- */
-
-  async function handleDelete(id?: string) {
-    if (!id || !confirm("Delete this listing?")) return;
-
-    setBusy(true);
-    try {
-      const res = await apiFetch("/api/partners/listings/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
-      });
-
-      const j = await res.json();
-      if (!j.success) throw new Error(j.error || "Delete failed");
-
-      alert("✅ Listing deleted");
-      loadListings();
-    } catch (err: any) {
-      console.error(err);
-      alert(err.message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /* -------------------- EDIT -------------------- */
-
-  function startEdit(l: Listing) {
-    setEditId(l.id || null);
-
-    setForm({
-      title: l.title || "",
-      description: l.description || "",
-      location: l.location || "",
-      price: (l.price || 0).toString(),
-      allowPayAtHotel: !!l.allowPayAtHotel,
+  async function saveAvailability() {
+    if (!selectedRoom) return;
+    setBusyId(selectedRoom.id);
+    await apiFetch("/api/partners/listings/availability/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roomId: selectedRoom.id,
+        availability: selectedRoom.availability,
+      }),
     });
-
-    const exImages: ImageItem[] = (l.images || []).map((url, idx) => ({
-      id: `${idx}`,
-      url,
-      isExisting: true,
-      isPrimary: idx === 0,
-    }));
-
-    setImages(exImages);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setSelectedRoom(null);
+    loadListings();
+    setBusyId(null);
   }
 
-  function resetForm() {
-    images.forEach((x) => {
-      if (!x.isExisting) URL.revokeObjectURL(x.objectUrl);
-    });
+  /* ---------------- PRICING ---------------- */
 
-    setEditId(null);
-    setForm({
-      title: "",
-      description: "",
-      location: "",
-      price: "",
-      allowPayAtHotel: false,
+  async function savePricing() {
+    if (!pricingRoom) return;
+    setBusyId(pricingRoom.id);
+    await apiFetch("/api/partners/listings/pricing/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        roomId: pricingRoom.id,
+        pricing: pricingRoom.pricing,
+      }),
     });
-    setImages([]);
+    setPricingRoom(null);
+    loadListings();
+    setBusyId(null);
   }
 
-  /* -------------------- UI -------------------- */
+  /* ---------------- STATUS ACTIONS ---------------- */
+
+  async function submitListing(id: string) {
+    setBusyId(id);
+    await apiFetch("/api/partners/listings/submit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    loadListings();
+    setBusyId(null);
+  }
+
+  async function enableListing(id: string) {
+    setBusyId(id);
+    await apiFetch("/api/partners/listings/enable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    loadListings();
+    setBusyId(null);
+  }
+
+  async function disableListing(id: string) {
+    setBusyId(id);
+    await apiFetch("/api/partners/listings/disable", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    loadListings();
+    setBusyId(null);
+  }
+
+  async function duplicateListing(id: string) {
+    setBusyId(id);
+    await apiFetch("/api/partners/listings/duplicate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    loadListings();
+    setBusyId(null);
+  }
+
+  /* ---------------- UI ---------------- */
 
   return (
-    <div className="space-y-8">
-      {/* FORM */}
-      <div className="bg-white p-6 rounded-xl shadow space-y-4 border">
-        <h2 className="text-xl font-semibold">
-          {editId ? "Edit Listing" : "Add New Listing"}
-        </h2>
-
-        <input
-          placeholder="Title"
-          className="border p-2 w-full rounded"
-          value={form.title}
-          onChange={(e) => setForm({ ...form, title: e.target.value })}
-        />
-
-        <input
-          placeholder="Location"
-          className="border p-2 w-full rounded"
-          value={form.location}
-          onChange={(e) => setForm({ ...form, location: e.target.value })}
-        />
-
-        <input
-          placeholder="Price"
-          type="number"
-          className="border p-2 w-full rounded"
-          value={form.price}
-          onChange={(e) => setForm({ ...form, price: e.target.value })}
-        />
-
-        <textarea
-          placeholder="Description"
-          className="border p-2 w-full rounded"
-          value={form.description}
-          onChange={(e) =>
-            setForm({ ...form, description: e.target.value })
-          }
-        />
-
-        <input
-          type="file"
-          multiple
-          accept="image/*"
-          onChange={(e) =>
-            e.target.files && handleFilesSelected(e.target.files)
-          }
-        />
-
-        {/* PREVIEW GRID */}
-        {images.length > 0 && (
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            {images.map((it, idx) => (
-              <div
-                key={idx}
-                draggable
-                onDragStart={(e) => onDragStart(e, idx)}
-                onDragOver={(e) => onDragOver(e, idx)}
-                onDrop={onDrop}
-                className="relative border rounded overflow-hidden"
-              >
-                <img
-                  src={it.isExisting ? it.url : it.objectUrl}
-                  className="w-full h-24 object-cover"
-                />
-
-                <button
-                  onClick={() => setPrimary(idx)}
-                  className={`absolute left-1 top-1 text-xs px-2 py-1 rounded ${
-                    it.isPrimary ? "bg-yellow-400" : "bg-white"
-                  }`}
-                >
-                  ★
-                </button>
-
-                <button
-                  onClick={() => removeImage(idx)}
-                  className="absolute right-1 top-1 bg-red-600 text-white text-xs px-2 py-1 rounded"
-                >
-                  ✕
-                </button>
-              </div>
-            ))}
+    <div className="space-y-6">
+      {listings.map((l) => (
+        <div key={l.id} className="bg-white p-6 rounded-xl border shadow">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="font-bold text-lg">{l.title}</h2>
+              <p className="text-sm text-gray-500">{l.location}</p>
+            </div>
+            <span className="text-xs font-semibold px-3 py-1 rounded bg-gray-100">
+              {l.status}
+            </span>
           </div>
-        )}
 
-        <label className="flex items-center gap-2 mt-2">
-          <input
-            type="checkbox"
-            checked={form.allowPayAtHotel}
-            onChange={(e) =>
-              setForm({ ...form, allowPayAtHotel: e.target.checked })
-            }
-          />
-          Pay at Hotel
-        </label>
+          {/* PERFORMANCE */}
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            <div>👀 {l.stats?.views || 0} Views</div>
+            <div>📆 {l.stats?.bookings || 0} Bookings</div>
+            <div>🔁 {conversion(l.stats?.views, l.stats?.bookings)}</div>
+          </div>
 
-        <Button onClick={handleCreateOrUpdate} disabled={busy}>
-          {busy ? "Saving..." : editId ? "Update Listing" : "Create Listing"}
-        </Button>
-      </div>
-
-      {/* LISTINGS */}
-      <div className="bg-white p-6 rounded-xl shadow border">
-        <h2 className="text-xl font-semibold mb-4">Your Listings</h2>
-
-        {loadBusy ? (
-          <p>Loading...</p>
-        ) : listings.length === 0 ? (
-          <p>No listings found</p>
-        ) : (
-          listings.map((l) => (
-            <div key={l.id} className="flex justify-between border-b py-2">
-              <div>
-                <h3>{l.title}</h3>
-                <p className="text-sm text-gray-500">{l.location}</p>
-                <p>₹{l.price}</p>
-              </div>
-              <div className="flex gap-2">
-                <Button onClick={() => startEdit(l)}>Edit</Button>
-                <Button onClick={() => handleDelete(l.id)}>Delete</Button>
+          {/* ROOMS */}
+          {l.rooms.map((r) => (
+            <div key={r.id} className="mt-3 border-t pt-3">
+              <div className="flex justify-between items-center">
+                <div>
+                  🛏 {r.name} | ₹{r.pricing.basePrice}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setSelectedRoom(r)}
+                  >
+                    Availability
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setPricingRoom(r)}
+                  >
+                    Pricing
+                  </Button>
+                </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+
+          {/* ACTIONS */}
+          <div className="flex gap-2 justify-end mt-4">
+            {l.status === "DRAFT" && (
+              <Button onClick={() => submitListing(l.id)}>
+                Submit
+              </Button>
+            )}
+            {l.status === "DISABLED" ? (
+              <Button onClick={() => enableListing(l.id)}>
+                Enable
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={() => disableListing(l.id)}>
+                Disable
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => duplicateListing(l.id)}>
+              Duplicate
+            </Button>
+          </div>
+        </div>
+      ))}
+
+      {/* PRICING MODAL */}
+      {pricingRoom && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl w-full max-w-xl">
+            <h3 className="font-bold mb-4">
+              Pricing – {pricingRoom.name}
+            </h3>
+
+            <input
+              type="number"
+              className="border p-2 w-full mb-2"
+              placeholder="Base Price"
+              value={pricingRoom.pricing.basePrice}
+              onChange={(e) =>
+                setPricingRoom({
+                  ...pricingRoom,
+                  pricing: {
+                    ...pricingRoom.pricing,
+                    basePrice: Number(e.target.value),
+                  },
+                })
+              }
+            />
+
+            <input
+              type="number"
+              className="border p-2 w-full mb-2"
+              placeholder="Weekend Price"
+              value={pricingRoom.pricing.weekendPrice || ""}
+              onChange={(e) =>
+                setPricingRoom({
+                  ...pricingRoom,
+                  pricing: {
+                    ...pricingRoom.pricing,
+                    weekendPrice: Number(e.target.value),
+                  },
+                })
+              }
+            />
+
+            <input
+              type="number"
+              className="border p-2 w-full mb-2"
+              placeholder="Festival Price"
+              value={pricingRoom.pricing.festivalPrice || ""}
+              onChange={(e) =>
+                setPricingRoom({
+                  ...pricingRoom,
+                  pricing: {
+                    ...pricingRoom.pricing,
+                    festivalPrice: Number(e.target.value),
+                  },
+                })
+              }
+            />
+
+            <input
+              type="number"
+              className="border p-2 w-full mb-2"
+              placeholder="Discount %"
+              value={pricingRoom.pricing.discountPercent || ""}
+              onChange={(e) =>
+                setPricingRoom({
+                  ...pricingRoom,
+                  pricing: {
+                    ...pricingRoom.pricing,
+                    discountPercent: Number(e.target.value),
+                  },
+                })
+              }
+            />
+
+            <input
+              type="number"
+              className="border p-2 w-full mb-4"
+              placeholder="Minimum Stay Nights"
+              value={pricingRoom.pricing.minStayNights}
+              onChange={(e) =>
+                setPricingRoom({
+                  ...pricingRoom,
+                  pricing: {
+                    ...pricingRoom.pricing,
+                    minStayNights: Number(e.target.value),
+                  },
+                })
+              }
+            />
+
+            <div className="flex items-center gap-3 mb-4">
+              <input
+                type="date"
+                value={previewDate}
+                onChange={(e) => setPreviewDate(e.target.value)}
+              />
+              <label className="flex gap-1 items-center">
+                <input
+                  type="checkbox"
+                  checked={festivalMode}
+                  onChange={(e) => setFestivalMode(e.target.checked)}
+                />
+                Festival
+              </label>
+              <b>
+                ₹
+                {calcPrice(
+                  pricingRoom,
+                  new Date(previewDate),
+                  festivalMode
+                )}
+              </b>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button onClick={() => setPricingRoom(null)}>
+                Cancel
+              </Button>
+              <Button onClick={savePricing}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AVAILABILITY MODAL */}
+      {selectedRoom && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-xl w-full max-w-2xl">
+            <h3 className="font-bold mb-3">
+              Availability – {selectedRoom.name}
+            </h3>
+
+            <div className="grid grid-cols-7 gap-2">
+              {Array.from({ length: 30 }).map((_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() + i);
+                const date = formatDate(d);
+                const blocked = selectedRoom.availability.find(
+                  (x) => x.date === date && x.blocked
+                );
+                return (
+                  <button
+                    key={date}
+                    onClick={() =>
+                      toggleAvailability(selectedRoom, date)
+                    }
+                    className={`p-2 text-xs rounded ${
+                      blocked
+                        ? "bg-red-200"
+                        : "bg-green-200"
+                    }`}
+                  >
+                    {d.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <Button onClick={() => setSelectedRoom(null)}>
+                Cancel
+              </Button>
+              <Button onClick={saveAvailability}>Save</Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

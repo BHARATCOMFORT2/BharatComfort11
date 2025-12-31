@@ -38,9 +38,9 @@ export default function Footer() {
         <div>
           <h3 className="text-lg font-semibold mb-3">Follow Us</h3>
           <div className="flex gap-4">
-            <Link href="https://facebook.com" target="_blank">🌐</Link>
+            <Link href="https://facebook.com" target="https://www.facebook.com/share/1Bhtdthq2x/">🌐</Link>
             <Link href="https://twitter.com" target="_blank">🐦</Link>
-            <Link href="https://instagram.com" target="_blank">📸</Link>
+            <Link href="https://instagram.com" target="https://www.instagram.com/bharatcomfort?igsh=eHB0bWF2ZWszNGI0">📸</Link>
           </div>
         </div>
       </div>

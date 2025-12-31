@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase-client";
 import { apiFetch } from "@/lib/apiFetch";
 
-/* ========================= TYPES ========================= */
+/* ===================== TYPES ===================== */
 
 type ListingStatus =
   | "DRAFT"
@@ -33,26 +33,26 @@ type Room = {
   totalRooms: number;
   maxGuests: number;
   pricing: RoomPricing;
-  availability: AvailabilityDay[];
+  availability?: AvailabilityDay[];
 };
 
 type ListingStats = {
-  views: number;
-  bookings: number;
+  views?: number;
+  bookings?: number;
 };
 
 type Listing = {
   id: string;
   title: string;
-  location: string;
-  status: ListingStatus;
+  location?: string;
+  status?: ListingStatus;
   rejectionReason?: string;
   featured?: boolean;
-  rooms: Room[];
+  rooms?: Room[];
   stats?: ListingStats;
 };
 
-/* ========================= HELPERS ========================= */
+/* ===================== HELPERS ===================== */
 
 function formatDate(d: Date) {
   return d.toISOString().split("T")[0];
@@ -64,15 +64,15 @@ function isWeekend(d: Date) {
 }
 
 function calcPrice(room: Room, date: Date, festival = false) {
-  let price = room.pricing.basePrice;
+  let price = room.pricing?.basePrice || 0;
 
-  if (festival && room.pricing.festivalPrice) {
+  if (festival && room.pricing?.festivalPrice) {
     price = room.pricing.festivalPrice;
-  } else if (isWeekend(date) && room.pricing.weekendPrice) {
+  } else if (isWeekend(date) && room.pricing?.weekendPrice) {
     price = room.pricing.weekendPrice;
   }
 
-  if (room.pricing.discountPercent) {
+  if (room.pricing?.discountPercent) {
     price -= Math.round(
       (price * room.pricing.discountPercent) / 100
     );
@@ -86,80 +86,126 @@ function conversion(views = 0, bookings = 0) {
   return `${Math.round((bookings / views) * 100)}%`;
 }
 
-/* ========================= MAIN ========================= */
+/* ===================== MAIN ===================== */
 
 export default function PartnerListingsManager() {
+  console.log("✅ PartnerListingsManager mounted");
+
   const [listings, setListings] = useState<Listing[]>([]);
+  const [loading, setLoading] = useState(true);
+
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [pricingRoom, setPricingRoom] = useState<Room | null>(null);
-  const [busyId, setBusyId] = useState<string | null>(null);
 
   const [previewDate, setPreviewDate] = useState(
     formatDate(new Date())
   );
   const [festivalMode, setFestivalMode] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  /* ---------------- LOAD ---------------- */
+  /* ---------------- LOAD LISTINGS ---------------- */
 
   useEffect(() => {
+    if (!auth) return;
+
     const unsub = auth.onAuthStateChanged(async (u) => {
-      if (!u) return;
-      await u.getIdToken(true);
-      loadListings();
+      if (!u) {
+        setLoading(false);
+        return;
+      }
+
+      try {
+        await u.getIdToken(true);
+        await loadListings();
+      } catch (e) {
+        console.error("Auth/Listings error:", e);
+      } finally {
+        setLoading(false);
+      }
     });
-    return () => unsub();
+
+    return () => unsub && unsub();
   }, []);
 
   async function loadListings() {
-    const res = await apiFetch("/api/partners/listings/list?limit=50");
-    const j = await res.json();
-    if (j.ok) setListings(j.listings || []);
+    try {
+      const res = await apiFetch(
+        "/api/partners/listings/list?limit=50"
+      );
+      const j = await res.json();
+      setListings(Array.isArray(j.listings) ? j.listings : []);
+    } catch (e) {
+      console.error("Load listings failed", e);
+      setListings([]);
+    }
   }
 
   /* ---------------- AVAILABILITY ---------------- */
 
   function toggleAvailability(room: Room, date: string) {
-    const existing = room.availability.find((d) => d.date === date);
+    const availability = room.availability ?? [];
+
+    const existing = availability.find((d) => d.date === date);
     if (existing) {
       existing.blocked = !existing.blocked;
     } else {
-      room.availability.push({ date, blocked: true });
+      availability.push({ date, blocked: true });
     }
+
+    room.availability = availability;
     setSelectedRoom({ ...room });
   }
 
   async function saveAvailability() {
     if (!selectedRoom) return;
+
     setBusyId(selectedRoom.id);
-    await apiFetch("/api/partners/listings/availability/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        roomId: selectedRoom.id,
-        availability: selectedRoom.availability,
-      }),
-    });
-    setSelectedRoom(null);
-    loadListings();
-    setBusyId(null);
+    try {
+      await apiFetch(
+        "/api/partners/listings/availability/update",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomId: selectedRoom.id,
+            availability: selectedRoom.availability ?? [],
+          }),
+        }
+      );
+      setSelectedRoom(null);
+      loadListings();
+    } catch (e) {
+      console.error("Save availability failed", e);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   /* ---------------- PRICING ---------------- */
 
   async function savePricing() {
     if (!pricingRoom) return;
+
     setBusyId(pricingRoom.id);
-    await apiFetch("/api/partners/listings/pricing/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        roomId: pricingRoom.id,
-        pricing: pricingRoom.pricing,
-      }),
-    });
-    setPricingRoom(null);
-    loadListings();
-    setBusyId(null);
+    try {
+      await apiFetch(
+        "/api/partners/listings/pricing/update",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            roomId: pricingRoom.id,
+            pricing: pricingRoom.pricing,
+          }),
+        }
+      );
+      setPricingRoom(null);
+      loadListings();
+    } catch (e) {
+      console.error("Save pricing failed", e);
+    } finally {
+      setBusyId(null);
+    }
   }
 
   /* ---------------- STATUS ACTIONS ---------------- */
@@ -208,50 +254,70 @@ export default function PartnerListingsManager() {
     setBusyId(null);
   }
 
-  /* ---------------- UI ---------------- */
+  /* ===================== UI ===================== */
+
+  if (loading) {
+    return <div className="p-6">Loading listings…</div>;
+  }
+
+  if (!listings.length) {
+    return <div className="p-6">No listings found</div>;
+  }
 
   return (
     <div className="space-y-6">
       {listings.map((l) => (
-        <div key={l.id} className="bg-white p-6 rounded-xl border shadow">
-          <div className="flex justify-between items-center">
+        <div
+          key={l.id}
+          className="bg-white p-6 rounded-xl border shadow"
+        >
+          <div className="flex justify-between">
             <div>
               <h2 className="font-bold text-lg">{l.title}</h2>
-              <p className="text-sm text-gray-500">{l.location}</p>
+              <p className="text-sm text-gray-500">
+                {l.location || "—"}
+              </p>
             </div>
-            <span className="text-xs font-semibold px-3 py-1 rounded bg-gray-100">
-              {l.status}
+            <span className="text-xs px-3 py-1 rounded bg-gray-100">
+              {l.status || "DRAFT"}
             </span>
           </div>
 
           {/* PERFORMANCE */}
-          <div className="grid grid-cols-3 gap-3 mt-4">
-            <div>👀 {l.stats?.views || 0} Views</div>
-            <div>📆 {l.stats?.bookings || 0} Bookings</div>
-            <div>🔁 {conversion(l.stats?.views, l.stats?.bookings)}</div>
+          <div className="grid grid-cols-3 gap-3 mt-3 text-sm">
+            <div>👀 {l.stats?.views || 0}</div>
+            <div>📆 {l.stats?.bookings || 0}</div>
+            <div>
+              🔁{" "}
+              {conversion(
+                l.stats?.views,
+                l.stats?.bookings
+              )}
+            </div>
           </div>
 
           {/* ROOMS */}
-          {l.rooms.map((r) => (
-            <div key={r.id} className="mt-3 border-t pt-3">
-              <div className="flex justify-between items-center">
-                <div>
-                  🛏 {r.name} | ₹{r.pricing.basePrice}
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => setSelectedRoom(r)}
-                  >
-                    Availability
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => setPricingRoom(r)}
-                  >
-                    Pricing
-                  </Button>
-                </div>
+          {l.rooms?.map((r) => (
+            <div
+              key={r.id}
+              className="border-t mt-4 pt-3 flex justify-between"
+            >
+              <div>
+                🛏 {r.name} — ₹{r.pricing?.basePrice || 0}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setSelectedRoom(r)}
+                >
+                  Availability
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setPricingRoom(r)}
+                >
+                  Pricing
+                </Button>
               </div>
             </div>
           ))}
@@ -268,11 +334,17 @@ export default function PartnerListingsManager() {
                 Enable
               </Button>
             ) : (
-              <Button variant="outline" onClick={() => disableListing(l.id)}>
+              <Button
+                variant="outline"
+                onClick={() => disableListing(l.id)}
+              >
                 Disable
               </Button>
             )}
-            <Button variant="outline" onClick={() => duplicateListing(l.id)}>
+            <Button
+              variant="outline"
+              onClick={() => duplicateListing(l.id)}
+            >
               Duplicate
             </Button>
           </div>
@@ -283,89 +355,34 @@ export default function PartnerListingsManager() {
       {pricingRoom && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white p-6 rounded-xl w-full max-w-xl">
-            <h3 className="font-bold mb-4">
+            <h3 className="font-bold mb-3">
               Pricing – {pricingRoom.name}
             </h3>
 
-            <input
-              type="number"
-              className="border p-2 w-full mb-2"
-              placeholder="Base Price"
-              value={pricingRoom.pricing.basePrice}
-              onChange={(e) =>
-                setPricingRoom({
-                  ...pricingRoom,
-                  pricing: {
-                    ...pricingRoom.pricing,
-                    basePrice: Number(e.target.value),
-                  },
-                })
-              }
-            />
-
-            <input
-              type="number"
-              className="border p-2 w-full mb-2"
-              placeholder="Weekend Price"
-              value={pricingRoom.pricing.weekendPrice || ""}
-              onChange={(e) =>
-                setPricingRoom({
-                  ...pricingRoom,
-                  pricing: {
-                    ...pricingRoom.pricing,
-                    weekendPrice: Number(e.target.value),
-                  },
-                })
-              }
-            />
-
-            <input
-              type="number"
-              className="border p-2 w-full mb-2"
-              placeholder="Festival Price"
-              value={pricingRoom.pricing.festivalPrice || ""}
-              onChange={(e) =>
-                setPricingRoom({
-                  ...pricingRoom,
-                  pricing: {
-                    ...pricingRoom.pricing,
-                    festivalPrice: Number(e.target.value),
-                  },
-                })
-              }
-            />
-
-            <input
-              type="number"
-              className="border p-2 w-full mb-2"
-              placeholder="Discount %"
-              value={pricingRoom.pricing.discountPercent || ""}
-              onChange={(e) =>
-                setPricingRoom({
-                  ...pricingRoom,
-                  pricing: {
-                    ...pricingRoom.pricing,
-                    discountPercent: Number(e.target.value),
-                  },
-                })
-              }
-            />
-
-            <input
-              type="number"
-              className="border p-2 w-full mb-4"
-              placeholder="Minimum Stay Nights"
-              value={pricingRoom.pricing.minStayNights}
-              onChange={(e) =>
-                setPricingRoom({
-                  ...pricingRoom,
-                  pricing: {
-                    ...pricingRoom.pricing,
-                    minStayNights: Number(e.target.value),
-                  },
-                })
-              }
-            />
+            {[
+              ["Base Price", "basePrice"],
+              ["Weekend Price", "weekendPrice"],
+              ["Festival Price", "festivalPrice"],
+              ["Discount %", "discountPercent"],
+              ["Min Stay Nights", "minStayNights"],
+            ].map(([label, key]) => (
+              <input
+                key={key}
+                type="number"
+                className="border p-2 w-full mb-2"
+                placeholder={label}
+                value={(pricingRoom.pricing as any)[key] || ""}
+                onChange={(e) =>
+                  setPricingRoom({
+                    ...pricingRoom,
+                    pricing: {
+                      ...pricingRoom.pricing,
+                      [key]: Number(e.target.value),
+                    },
+                  })
+                }
+              />
+            ))}
 
             <div className="flex items-center gap-3 mb-4">
               <input
@@ -377,7 +394,9 @@ export default function PartnerListingsManager() {
                 <input
                   type="checkbox"
                   checked={festivalMode}
-                  onChange={(e) => setFestivalMode(e.target.checked)}
+                  onChange={(e) =>
+                    setFestivalMode(e.target.checked)
+                  }
                 />
                 Festival
               </label>
@@ -414,7 +433,7 @@ export default function PartnerListingsManager() {
                 const d = new Date();
                 d.setDate(d.getDate() + i);
                 const date = formatDate(d);
-                const blocked = selectedRoom.availability.find(
+                const blocked = selectedRoom.availability?.find(
                   (x) => x.date === date && x.blocked
                 );
                 return (

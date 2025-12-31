@@ -56,25 +56,51 @@ export default function Footer() {
           </ul>
         </div>
 
-        {/* Social Media Links */}
-        <div>
-          <h3 className="text-lg font-semibold text-yellow-800 mb-3">Follow Us</h3>
-          <div className="flex gap-4">
-            <Link href="#" className="hover:opacity-70 transition-opacity">
-              <Facebook size={22} />
-            </Link>
-            <Link href="#" className="hover:opacity-70 transition-opacity">
-              <Twitter size={22} />
-            </Link>
-            <Link href="#" className="hover:opacity-70 transition-opacity">
-              <Instagram size={22} />
-            </Link>
-            <Link href="#" className="hover:opacity-70 transition-opacity">
-              <Youtube size={22} />
-            </Link>
-          </div>
-        </div>
-      </div>
+      {/* Social Media Links */}
+<div>
+  <h3 className="text-lg font-semibold text-yellow-800 mb-3">
+    Follow Us
+  </h3>
+  <div className="flex gap-4">
+    {/* Facebook */}
+    <a
+      href="https://www.facebook.com/share/1Bhtdthq2x/"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:opacity-70 transition-opacity"
+    >
+      <Facebook size={22} />
+    </a>
+
+    {/* Instagram */}
+    <a
+      href="https://www.instagram.com/bharatcomfort?igsh=eHB0bWF2ZWszNGI0"
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:opacity-70 transition-opacity"
+    >
+      <Instagram size={22} />
+    </a>
+
+    {/* Twitter (optional – remove if not used) */}
+    <a
+      href="#"
+      className="opacity-40 cursor-not-allowed"
+      title="Coming soon"
+    >
+      <Twitter size={22} />
+    </a>
+
+    {/* YouTube (optional – remove if not used) */}
+    <a
+      href="#"
+      className="opacity-40 cursor-not-allowed"
+      title="Coming soon"
+    >
+      <Youtube size={22} />
+    </a>
+  </div>
+</div>
 
       {/* Bottom Bar */}
       <div className="border-t border-yellow-200/40 mt-10 pt-4 text-center text-sm text-yellow-700/80">

@@ -1,7 +1,7 @@
 "use client";
 
-import ListingsPage from "@/app/listings/page";
+import PartnerListingsManager from "@/components/dashboard/PartnerListingsManager";
 
-export default function PartnerListingsBridge() {
-  return <ListingsPage />;
+export default function PartnerListingsPage() {
+  return <PartnerListingsManager />;
 }

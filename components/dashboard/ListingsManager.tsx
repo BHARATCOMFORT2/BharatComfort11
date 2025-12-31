@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/Button";
 
-/* Drag & Drop Images */
+/* Drag & Drop */
 import { DndContext, closestCenter } from "@dnd-kit/core";
 import {
   SortableContext,
@@ -13,56 +13,24 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 
-/* ================= TYPES ================= */
-
-type ListingStatus =
-  | "DRAFT"
-  | "SUBMITTED"
-  | "APPROVED"
-  | "REJECTED"
-  | "DISABLED";
-
-type RoomPricing = {
-  basePrice: number;
-  weekendPrice?: number;
-  festivalPrice?: number;
-  discountPercent?: number;
-  minStayNights: number;
-};
-
-type AvailabilityDay = {
-  date: string;
-  blocked: boolean;
-};
-
-type Room = {
+/* ----------------------------------------------------
+   Types
+---------------------------------------------------- */
+interface Listing {
   id: string;
   name: string;
-  totalRooms: number;
-  maxGuests: number;
-  pricing: RoomPricing;
-  availability?: AvailabilityDay[];
-};
+  title?: string;
+  description: string;
+  location: string;
+  price: number;
+  images: string[];
+  status: "pending" | "approved" | "rejected";
+  allowPayAtHotel?: boolean;
+}
 
-type ListingStats = {
-  views?: number;
-  bookings?: number;
-};
-
-type Listing = {
-  id: string;
-  title: string;
-  location?: string;
-  description?: string;
-  images?: string[];
-  status: ListingStatus;
-  rejectionReason?: string;
-  rooms?: Room[];
-  stats?: ListingStats;
-};
-
-/* ================= HELPERS ================= */
-
+/* ----------------------------------------------------
+   Sortable Image
+---------------------------------------------------- */
 function SortableImage({ id, url }: { id: string; url: string }) {
   const { setNodeRef, attributes, listeners, transform, transition } =
     useSortable({ id });
@@ -84,30 +52,40 @@ function SortableImage({ id, url }: { id: string; url: string }) {
   );
 }
 
-function conversion(views = 0, bookings = 0) {
-  if (!views) return "0%";
-  return `${Math.round((bookings / views) * 100)}%`;
-}
+/* ----------------------------------------------------
+   Listings Manager
+---------------------------------------------------- */
+export default function ListingsManager() {
+  const { firebaseUser, profile, loading } = useAuth();
 
-/* ================= MAIN ================= */
-
-export default function AdminListingsManager() {
-  const { firebaseUser } = useAuth();
   const [listings, setListings] = useState<Listing[]>([]);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  /* ---------------- LOAD ---------------- */
+  const [formData, setFormData] = useState({
+    name: "",
+    description: "",
+    location: "",
+    price: "",
+    images: [] as File[],
+    allowPayAtHotel: false,
+  });
 
+  const [previewUrls, setPreviewUrls] = useState<string[]>([]);
+  const [editId, setEditId] = useState<string | null>(null);
+
+  /* ----------------------------------------------------
+     Load Listings (cookie based)
+  ---------------------------------------------------- */
   const loadListings = async () => {
     try {
       const res = await fetch("/api/admin/listings", {
         credentials: "include",
       });
       const data = await res.json();
-      setListings(Array.isArray(data.listings) ? data.listings : []);
-    } catch (e) {
-      console.error("Admin listings load failed", e);
-      setListings([]);
+      if (!res.ok) throw new Error(data?.error);
+      setListings(data.listings || []);
+    } catch (e: any) {
+      alert(e.message || "Failed to load listings");
     }
   };
 
@@ -115,179 +93,306 @@ export default function AdminListingsManager() {
     loadListings();
   }, []);
 
-  if (!firebaseUser)
-    return <div className="p-6">Checking admin auth…</div>;
+  /* ----------------------------------------------------
+     Upload Images (Bearer token)
+  ---------------------------------------------------- */
+  const uploadImages = async (files: File[]) => {
+    if (!firebaseUser) throw new Error("Not authenticated");
 
-  if (!Array.isArray(listings))
-    return <div className="p-6">Loading listings…</div>;
+    const token = await firebaseUser.getIdToken(true);
+    const form = new FormData();
+    files.forEach((f) => form.append("files", f));
 
-  /* ================= UI ================= */
+    const res = await fetch("/api/uploads", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
 
-  return (
-    <div className="space-y-6">
-      {listings.map((l) => (
-        <div
-          key={l.id}
-          className="bg-white p-6 rounded-xl border shadow"
-        >
-          {/* HEADER */}
-          <div className="flex justify-between">
-            <div>
-              <h2 className="font-bold text-lg">{l.title}</h2>
-              <p className="text-sm text-gray-500">
-                {l.location || "—"}
-              </p>
-              <p className="text-xs mt-1">
-                Status: <b>{l.status}</b>
-              </p>
-            </div>
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error || "Upload failed");
+    return data.urls as string[];
+  };
 
-            <div className="flex gap-2">
-              {l.status === "SUBMITTED" && (
-                <>
-                  <Button onClick={() => approve(l.id)}>Approve</Button>
-                  <Button onClick={() => reject(l.id)}>Reject</Button>
-                </>
-              )}
+  /* ----------------------------------------------------
+     Create / Update Listing
+  ---------------------------------------------------- */
+  const handleSubmit = async () => {
+    if (loading || !firebaseUser) {
+      alert("Auth loading, please wait");
+      return;
+    }
 
-              {l.status !== "DISABLED" ? (
-                <Button
-                  variant="outline"
-                  onClick={() => disable(l.id)}
-                >
-                  Disable
-                </Button>
-              ) : (
-                <Button onClick={() => enable(l.id)}>Enable</Button>
-              )}
-            </div>
-          </div>
+    if (
+      !formData.name.trim() ||
+      !formData.location.trim() ||
+      !formData.price ||
+      isNaN(Number(formData.price))
+    ) {
+      alert("Invalid listing data");
+      return;
+    }
 
-          {/* REJECTION */}
-          {l.status === "REJECTED" && l.rejectionReason && (
-            <div className="mt-2 text-red-600 text-sm">
-              ❌ {l.rejectionReason}
-            </div>
-          )}
+    setBusy(true);
 
-          {/* PERFORMANCE */}
-          <div className="grid grid-cols-3 gap-3 mt-4 text-sm">
-            <div>👀 {l.stats?.views || 0}</div>
-            <div>📆 {l.stats?.bookings || 0}</div>
-            <div>
-              🔁 {conversion(l.stats?.views, l.stats?.bookings)}
-            </div>
-          </div>
+    try {
+      const uploaded =
+        formData.images.length > 0
+          ? await uploadImages(formData.images)
+          : [];
 
-          {/* ROOMS */}
-          <div className="mt-4 space-y-2">
-            {l.rooms?.map((r) => (
-              <div
-                key={r.id}
-                className="border rounded p-3 text-sm"
-              >
-                🛏 {r.name} | Rooms: {r.totalRooms} | Base ₹
-                {r.pricing.basePrice}
-              </div>
-            ))}
-          </div>
+      /* 🔑 BACKEND-COMPATIBLE PAYLOAD */
+      const payload = {
+        id: editId,
 
-          {/* IMAGES */}
-          {l.images?.length ? (
-            <DndContext
-              collisionDetection={closestCenter}
-              onDragEnd={({ active, over }) => {
-                if (!over || active.id === over.id) return;
+        // IMPORTANT: send both
+        name: formData.name.trim(),
+        title: formData.name.trim(),
 
-                setListings((prev) =>
-                  prev.map((x) => {
-                    if (x.id !== l.id || !x.images) return x;
+        description: formData.description.trim(),
+        location: formData.location.trim(),
+        price: Number(formData.price),
+        images: [...previewUrls, ...uploaded],
+        allowPayAtHotel: !!formData.allowPayAtHotel,
+      };
 
-                    const oldIndex = x.images.indexOf(
-                      active.id as string
-                    );
-                    const newIndex = x.images.indexOf(
-                      over.id as string
-                    );
+      const endpoint = editId
+        ? "/api/partners/listings/update"
+        : "/api/partners/listings/create";
 
-                    if (oldIndex === -1 || newIndex === -1)
-                      return x;
+      const token = await firebaseUser.getIdToken(true);
 
-                    return {
-                      ...x,
-                      images: arrayMove(
-                        x.images,
-                        oldIndex,
-                        newIndex
-                      ),
-                    };
-                  })
-                );
-              }}
-            >
-              <SortableContext items={l.images}>
-                <div className="flex gap-2 mt-3 flex-wrap">
-                  {l.images.map((url) => (
-                    <SortableImage key={url} id={url} url={url} />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          ) : null}
-        </div>
-      ))}
-    </div>
-  );
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
 
-  /* --------- ACTION HELPERS --------- */
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "Operation failed");
 
-  async function approve(id: string) {
-    setBusyId(id);
-    await fetch("/api/admin/listings/approve", {
+      alert(editId ? "✅ Listing updated" : "✅ Listing created");
+
+      setFormData({
+        name: "",
+        description: "",
+        location: "",
+        price: "",
+        images: [],
+        allowPayAtHotel: false,
+      });
+
+      setPreviewUrls([]);
+      setEditId(null);
+      loadListings();
+    } catch (e: any) {
+      alert(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* ----------------------------------------------------
+     Delete Listing
+  ---------------------------------------------------- */
+  const handleDelete = async (id: string) => {
+    if (!confirm("Delete this listing?")) return;
+    if (!firebaseUser) return;
+
+    try {
+      const token = await firebaseUser.getIdToken(true);
+
+      const res = await fetch("/api/partners/listings/delete", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ id }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error);
+
+      alert("✅ Listing deleted");
+      loadListings();
+    } catch (e: any) {
+      alert(e.message);
+    }
+  };
+
+  /* ----------------------------------------------------
+     Admin Approve / Reject
+  ---------------------------------------------------- */
+  const handleApprove = async (id: string) => {
+    const res = await fetch("/api/admin/listings/approve", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ listingId: id }),
     });
-    loadListings();
-    setBusyId(null);
-  }
+    const data = await res.json();
+    if (!res.ok) alert(data?.error);
+    else loadListings();
+  };
 
-  async function reject(id: string) {
-    const reason = prompt("Rejection reason?");
+  const handleReject = async (id: string) => {
+    const reason = prompt("Enter rejection reason");
     if (!reason) return;
-    setBusyId(id);
-    await fetch("/api/admin/listings/reject", {
+
+    const res = await fetch("/api/admin/listings/reject", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ listingId: id, reason }),
     });
-    loadListings();
-    setBusyId(null);
-  }
+    const data = await res.json();
+    if (!res.ok) alert(data?.error);
+    else loadListings();
+  };
 
-  async function disable(id: string) {
-    setBusyId(id);
-    await fetch("/api/partners/listings/disable", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+  /* ----------------------------------------------------
+     Edit Listing
+  ---------------------------------------------------- */
+  const handleEdit = (l: Listing) => {
+    setEditId(l.id);
+    setFormData({
+      name: l.name || l.title || "",
+      description: l.description,
+      location: l.location,
+      price: String(l.price),
+      images: [],
+      allowPayAtHotel: l.allowPayAtHotel ?? false,
     });
-    loadListings();
-    setBusyId(null);
-  }
+    setPreviewUrls(l.images || []);
+  };
 
-  async function enable(id: string) {
-    setBusyId(id);
-    await fetch("/api/partners/listings/enable", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    });
-    loadListings();
-    setBusyId(null);
-  }
+  /* ----------------------------------------------------
+     UI
+  ---------------------------------------------------- */
+  if (!firebaseUser) return <p>Please login</p>;
+
+  return (
+    <div className="mt-8 space-y-6">
+      {/* FORM */}
+      <div className="bg-white p-6 rounded shadow">
+        <h2 className="text-xl font-semibold mb-3">
+          {editId ? "Edit Listing" : "Add Listing"}
+        </h2>
+
+        <input
+          className="border p-2 w-full mb-2"
+          placeholder="Name"
+          value={formData.name}
+          onChange={(e) =>
+            setFormData({ ...formData, name: e.target.value })
+          }
+        />
+
+        <input
+          className="border p-2 w-full mb-2"
+          placeholder="Location"
+          value={formData.location}
+          onChange={(e) =>
+            setFormData({ ...formData, location: e.target.value })
+          }
+        />
+
+        <input
+          type="number"
+          className="border p-2 w-full mb-2"
+          placeholder="Price"
+          value={formData.price}
+          onChange={(e) =>
+            setFormData({ ...formData, price: e.target.value })
+          }
+        />
+
+        <textarea
+          className="border p-2 w-full mb-2"
+          placeholder="Description"
+          value={formData.description}
+          onChange={(e) =>
+            setFormData({ ...formData, description: e.target.value })
+          }
+        />
+
+        <input
+          type="file"
+          multiple
+          accept="image/*"
+          onChange={(e) =>
+            setFormData({
+              ...formData,
+              images: Array.from(e.target.files || []),
+            })
+          }
+        />
+
+        {/* Image Reorder */}
+        {previewUrls.length > 0 && (
+          <DndContext
+            collisionDetection={closestCenter}
+            onDragEnd={({ active, over }) => {
+              if (!over || active.id === over.id) return;
+              setPreviewUrls((items) =>
+                arrayMove(
+                  items,
+                  items.indexOf(active.id as string),
+                  items.indexOf(over.id as string)
+                )
+              );
+            }}
+          >
+            <SortableContext items={previewUrls}>
+              <div className="flex gap-2 flex-wrap mt-3">
+                {previewUrls.map((url) => (
+                  <SortableImage key={url} id={url} url={url} />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
+
+        <Button onClick={handleSubmit} disabled={busy}>
+          {editId ? "Update Listing" : "Create Listing"}
+        </Button>
+      </div>
+
+      {/* LISTINGS */}
+      <div className="bg-white p-6 rounded shadow">
+        <h2 className="text-xl font-semibold mb-4">Listings</h2>
+
+        {listings.map((l) => (
+          <div
+            key={l.id}
+            className="flex justify-between items-center border-b py-3"
+          >
+            <div>
+              <strong>{l.name || l.title}</strong>
+              <div className="text-sm">{l.location}</div>
+              <div className="text-sm">
+                ₹{l.price} • {l.status}
+              </div>
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={() => handleEdit(l)}>Edit</Button>
+              <Button onClick={() => handleDelete(l.id)}>Delete</Button>
+
+              {profile?.role === "admin" && (
+                <>
+                  <Button onClick={() => handleApprove(l.id)}>Approve</Button>
+                  <Button onClick={() => handleReject(l.id)}>Reject</Button>
+                </>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

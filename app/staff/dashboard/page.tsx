@@ -28,6 +28,16 @@ type Lead = {
   lastNote?: string;
 };
 
+type EarningRecord = {
+  id: string;
+  date: string;
+  baseAmount: number;
+  bonus: number;
+  penalty: number;
+  totalEarning: number;
+  remarks?: string;
+};
+
 /* ---------------------------------------
    CONSTANTS
 ---------------------------------------- */
@@ -80,37 +90,20 @@ export default function TelecallerDashboardPage() {
     null
   );
 
-  /* 🔹 SINGLE SOURCE OF TRUTH (FIXED DUPLICATES) */
-  const [view, setView] = useState<
-    "tasks" | "interested" | "callback"
-  >("tasks");
-
+  const [view, setView] = useState<"tasks" | "interested" | "callback">("tasks");
   const [taskRange, setTaskRange] = useState<
     "today" | "yesterday" | "week" | "month"
   >("today");
-
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
-/* ===============================
-   🔹 NEW: EARNINGS & PERFORMANCE STATE
-   (ADD ONLY – SAFE)
-================================ */
-type EarningRecord = {
-  id: string;
-  date: string;
-  baseAmount: number;
-  bonus: number;
-  penalty: number;
-  totalEarning: number;
-  remarks?: string;
-};
 
-const [earnings, setEarnings] = useState<{
-  totalEarning: number;
-  records: EarningRecord[];
-} | null>(null);
+  const [earnings, setEarnings] = useState<{
+    totalEarning: number;
+    records: EarningRecord[];
+  } | null>(null);
 
-const [weeklyPerf, setWeeklyPerf] = useState<any>(null);
-const [monthlyPerf, setMonthlyPerf] = useState<any>(null);
+  const [weeklyPerf, setWeeklyPerf] = useState<any>(null);
+  const [monthlyPerf, setMonthlyPerf] = useState<any>(null);
+
   /* ---------------------------------------
      AUTH
   ---------------------------------------- */
@@ -127,8 +120,9 @@ const [monthlyPerf, setMonthlyPerf] = useState<any>(null);
           profile.role !== "telecaller" ||
           profile.status !== "approved" ||
           profile.isActive !== true
-        )
+        ) {
           throw new Error();
+        }
 
         setStaffId(user.uid);
         setToken(await user.getIdToken());
@@ -172,7 +166,6 @@ const [monthlyPerf, setMonthlyPerf] = useState<any>(null);
         if (!res.ok || !data.success) throw new Error();
 
         setLeads(data.tasks || []);
-
         const d: Record<string, string> = {};
         data.tasks?.forEach((l: Lead) => (d[l.id] = ""));
         setNotesDraft(d);
@@ -185,37 +178,35 @@ const [monthlyPerf, setMonthlyPerf] = useState<any>(null);
 
     fetchTasks();
   }, [staffId, token, taskRange, view]);
-/* ===============================
-   🔹 NEW: FETCH EARNINGS & PERFORMANCE
-   (NO DEPENDENCY ON VIEW / TABS)
-================================ */
-useEffect(() => {
-  if (!token) return;
 
-  const fetchPerformance = async () => {
-    try {
-      const headers = { Authorization: `Bearer ${token}` };
+  /* ---------------------------------------
+     FETCH EARNINGS & PERFORMANCE
+  ---------------------------------------- */
+  useEffect(() => {
+    if (!token) return;
 
-      const [eRes, wRes, mRes] = await Promise.all([
-        fetch("/api/staff/earnings?range=month", { headers }),
-        fetch("/api/staff/performance/weekly", { headers }),
-        fetch("/api/staff/performance/monthly", { headers }),
-      ]);
+    const fetchPerformance = async () => {
+      try {
+        const headers = { Authorization: `Bearer ${token}` };
 
-      const eData = await eRes.json();
-      const wData = await wRes.json();
-      const mData = await mRes.json();
+        const [eRes, wRes, mRes] = await Promise.all([
+          fetch("/api/staff/earnings?range=month", { headers }),
+          fetch("/api/staff/performance/weekly", { headers }),
+          fetch("/api/staff/performance/monthly", { headers }),
+        ]);
 
-      if (eData?.success) setEarnings(eData);
-      if (wData?.success) setWeeklyPerf(wData);
-      if (mData?.success) setMonthlyPerf(mData);
-    } catch {
-      // silent fail – dashboard must never break
-    }
-  };
+        const eData = await eRes.json();
+        const wData = await wRes.json();
+        const mData = await mRes.json();
 
-  fetchPerformance();
-}, [token]);
+        if (eData?.success) setEarnings(eData);
+        if (wData?.success) setWeeklyPerf(wData);
+        if (mData?.success) setMonthlyPerf(mData);
+      } catch {}
+    };
+
+    fetchPerformance();
+  }, [token]);
 
   /* ---------------------------------------
      SIDEBAR HANDLER
@@ -229,146 +220,6 @@ useEffect(() => {
     if (action.type === "status") {
       setView(action.value);
     }
-  };
-
-  /* ---------------------------------------
-     STATUS UPDATE
-  ---------------------------------------- */
-  const updateStatus = async (
-    leadId: string,
-    status: string,
-    callbackDate?: string
-  ) => {
-    if (status === "callback" && !callbackDate) {
-      return toast.error("Callback date zaroori hai");
-    }
-
-    try {
-      const res = await fetch("/api/staff/leads/update-status", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leadId, status, callbackDate }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error();
-
-      setLeads((prev) =>
-        prev.map((l) =>
-          l.id === leadId
-            ? { ...l, status, followupDate: callbackDate }
-            : l
-        )
-      );
-    } catch {
-      toast.error("Status update failed");
-    }
-  };
-
-  /* ---------------------------------------
-     SAVE NOTE
-  ---------------------------------------- */
-  const saveNote = async (leadId: string) => {
-    const text = notesDraft[leadId];
-    if (!text) return toast.error("Note khali hai");
-
-    try {
-      const res = await fetch("/api/staff/leads/update-notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leadId, text }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error();
-
-      setLeads((p) =>
-        p.map((l) => (l.id === leadId ? { ...l, lastNote: text } : l))
-      );
-      setNotesDraft((p) => ({ ...p, [leadId]: "" }));
-    } catch {
-      toast.error("Note save failed");
-    }
-  };
-
-  /* ---------------------------------------
-     CALL LOG (FIXED – MOVED OUT OF JSX)
-  ---------------------------------------- */
-  const logCall = async (lead: Lead) => {
-    try {
-      await fetch("/api/staff/calls/log", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          leadId: lead.id,
-          phone: lead.phone,
-          outcome: "dialed",
-        }),
-      });
-    } catch {}
-  };
-
-  /* ---------------------------------------
-     WHATSAPP
-  ---------------------------------------- */
-  const openWhatsApp = (phone?: string, name?: string) => {
-    if (!phone) return toast.error("Phone number nahi mila");
-
-    const clean = phone.replace(/\D/g, "");
-    const message = `Namaste Sir/Ma'am ${name || ""},
-
-   BharatComfort team se aapse aapke business ka free listings ke regarding contact kar rahe hain.
-
-Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details chahiye:
-
-🏨 Hotel / Property Photos
-🛏 Room Categories
-💰 Room Prices
-📍 Complete Address
-🧾 GST (optional)
-🪪 Owner Aadhaar (optional)
-
-Aap yeh details yahin WhatsApp par bhej sakte hain.
-
-Dhanyavaad 🙏
-BharatComfort Team`;
-
-    window.location.href = `https://wa.me/91${clean}?text=${encodeURIComponent(
-      message
-    )}`;
-  };
-
-  /* ---------------------------------------
-     EMAIL
-  ---------------------------------------- */
-  const openEmail = (email?: string, name?: string) => {
-    if (!email) return toast.error("Email address nahi mila");
-
-    const subject = "Regarding Your Business Listing – BharatComfort";
-    const body = `Hello ${name || ""},
-
-This is ${staffProfile?.name || "Telecaller"} from BharatComfort.
-
-We are reaching out regarding listing your business with us.
-Please share required details at your convenience.
-
-Website: https://www.bharatcomfort.online
-
-Thank you,
-BharatComfort Team`;
-
-    window.location.href = `mailto:${email}?subject=${encodeURIComponent(
-      subject
-    )}&body=${encodeURIComponent(body)}`;
   };
 
   /* ---------------------------------------
@@ -392,84 +243,53 @@ BharatComfort Team`;
       profile={staffProfile || undefined}
     >
       <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
-    <TaskSidebar token={token} onSelect={handleSidebarSelect} />
+        <TaskSidebar token={token} onSelect={handleSidebarSelect} />
 
-<div className="space-y-4">
-  {/* ===============================
-     🔹 NEW: EARNINGS & PERFORMANCE
-     (ADD ONLY – READ ONLY)
-  ================================ */}
-  <div className="bg-white rounded shadow p-4">
-    <h2 className="font-semibold mb-3">📊 Earnings & Performance</h2>
+        {/* ================= RIGHT CONTENT ================= */}
+        <div className="space-y-4">
 
-    {/* STATS GRID */}
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-      <div className="bg-gray-50 p-3 rounded text-center">
-        <div className="text-xs text-gray-500">This Month Earnings</div>
-        <div className="text-lg font-bold">
-          ₹ {earnings?.totalEarning || 0}
-        </div>
-      </div>
+          {/* ===== Earnings & Performance ===== */}
+          <div className="bg-white rounded shadow p-4">
+            <h2 className="font-semibold mb-3">📊 Earnings & Performance</h2>
 
-      <div className="bg-gray-50 p-3 rounded text-center">
-        <div className="text-xs text-gray-500">Weekly Rating</div>
-        <div className="text-lg font-bold">
-          {weeklyPerf?.data?.rating ?? "-"} ⭐
-        </div>
-      </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <Stat label="This Month Earnings" value={`₹ ${earnings?.totalEarning || 0}`} />
+              <Stat label="Weekly Rating" value={`${weeklyPerf?.data?.rating ?? "-"} ⭐`} />
+              <Stat label="Monthly Rating" value={`${monthlyPerf?.data?.rating ?? "-"} ⭐`} />
+              <Stat label="Monthly Conversions" value={monthlyPerf?.data?.conversions ?? "-"} />
+            </div>
 
-      <div className="bg-gray-50 p-3 rounded text-center">
-        <div className="text-xs text-gray-500">Monthly Rating</div>
-        <div className="text-lg font-bold">
-          {monthlyPerf?.data?.rating ?? "-"} ⭐
-        </div>
-      </div>
+            {earnings?.records?.length ? (
+              <table className="w-full text-sm border">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="p-2">Date</th>
+                    <th className="p-2">Base</th>
+                    <th className="p-2">Bonus</th>
+                    <th className="p-2">Penalty</th>
+                    <th className="p-2">Total</th>
+                    <th className="p-2">Remarks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {earnings.records.map((e) => (
+                    <tr key={e.id} className="border-t">
+                      <td className="p-2">{e.date}</td>
+                      <td className="p-2">₹{e.baseAmount}</td>
+                      <td className="p-2">₹{e.bonus}</td>
+                      <td className="p-2">₹{e.penalty}</td>
+                      <td className="p-2 font-semibold">₹{e.totalEarning}</td>
+                      <td className="p-2">{e.remarks}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="text-xs text-gray-500">No earnings data available</p>
+            )}
+          </div>
 
-      <div className="bg-gray-50 p-3 rounded text-center">
-        <div className="text-xs text-gray-500">Monthly Conversions</div>
-        <div className="text-lg font-bold">
-          {monthlyPerf?.data?.conversions ?? "-"}
-        </div>
-      </div>
-    </div> {/* ✅ GRID CLOSED PROPERLY */}
-
-    {/* EARNINGS TABLE */}
-    {earnings?.records?.length ? (
-      <table className="w-full text-sm border">
-        <thead className="bg-gray-100">
-          <tr>
-            <th className="p-2">Date</th>
-            <th className="p-2">Base</th>
-            <th className="p-2">Bonus</th>
-            <th className="p-2">Penalty</th>
-            <th className="p-2">Total</th>
-            <th className="p-2">Remarks</th>
-          </tr>
-        </thead>
-        <tbody>
-          {earnings?.records?.map((e) => (
-            <tr key={e.id} className="border-t">
-              <td className="p-2">{e.date}</td>
-              <td className="p-2">₹{e.baseAmount}</td>
-              <td className="p-2">₹{e.bonus}</td>
-              <td className="p-2">₹{e.penalty}</td>
-              <td className="p-2 font-semibold">
-                ₹{e.totalEarning}
-              </td>
-              <td className="p-2">{e.remarks}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    ) : (
-      <p className="text-xs text-gray-500">No earnings data available</p>
-    )}
-  </div>
-</div>
-  {/* 👇 Yahin se tumhara PURANA content continue hoga
-      (Tabs / Tasks / CallLogs / Callback / Interested) */}
-</div>
-      {/* TABS */}
+          {/* ===== TABS ===== */}
           {view === "tasks" && (
             <>
               <div className="flex gap-4 border-b pb-2">
@@ -500,12 +320,10 @@ BharatComfort Team`;
             </>
           )}
 
-          {view === "interested" && (
-            <InterestedPartnersPage token={token} />
-          )}
-
+          {view === "interested" && <InterestedPartnersPage token={token} />}
           {view === "callback" && <CallbackLeadsPage token={token} />}
 
+          {/* ===== TASKS TABLE ===== */}
           {view === "tasks" && activeTab === "tasks" && (
             <div className="bg-white rounded shadow overflow-x-auto">
               <table className="min-w-full text-sm">
@@ -524,9 +342,7 @@ BharatComfort Team`;
                     <tr
                       key={lead.id}
                       className={`border-t ${
-                        isOverdue(lead.followupDate)
-                          ? "bg-red-50"
-                          : ""
+                        isOverdue(lead.followupDate) ? "bg-red-50" : ""
                       }`}
                     >
                       <td className="p-2">
@@ -575,11 +391,7 @@ BharatComfort Team`;
                             <div className="flex gap-1 mt-1">
                               <button
                                 onClick={() =>
-                                  updateStatus(
-                                    lead.id,
-                                    "callback",
-                                    todayStr()
-                                  )
+                                  updateStatus(lead.id, "callback", todayStr())
                                 }
                                 className="text-xs px-1 bg-gray-200"
                               >
@@ -693,5 +505,17 @@ BharatComfort Team`;
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ---------------------------------------
+   SMALL UI COMPONENT
+---------------------------------------- */
+function Stat({ label, value }: { label: string; value: any }) {
+  return (
+    <div className="bg-gray-50 p-3 rounded text-center">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className="text-lg font-bold">{value}</div>
+    </div>
   );
 }

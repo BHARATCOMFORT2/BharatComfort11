@@ -90,7 +90,27 @@ export default function TelecallerDashboardPage() {
   >("today");
 
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
+/* ===============================
+   🔹 NEW: EARNINGS & PERFORMANCE STATE
+   (ADD ONLY – SAFE)
+================================ */
+type EarningRecord = {
+  id: string;
+  date: string;
+  baseAmount: number;
+  bonus: number;
+  penalty: number;
+  totalEarning: number;
+  remarks?: string;
+};
 
+const [earnings, setEarnings] = useState<{
+  totalEarning: number;
+  records: EarningRecord[];
+} | null>(null);
+
+const [weeklyPerf, setWeeklyPerf] = useState<any>(null);
+const [monthlyPerf, setMonthlyPerf] = useState<any>(null);
   /* ---------------------------------------
      AUTH
   ---------------------------------------- */
@@ -165,6 +185,37 @@ export default function TelecallerDashboardPage() {
 
     fetchTasks();
   }, [staffId, token, taskRange, view]);
+/* ===============================
+   🔹 NEW: FETCH EARNINGS & PERFORMANCE
+   (NO DEPENDENCY ON VIEW / TABS)
+================================ */
+useEffect(() => {
+  if (!token) return;
+
+  const fetchPerformance = async () => {
+    try {
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const [eRes, wRes, mRes] = await Promise.all([
+        fetch("/api/staff/earnings?range=month", { headers }),
+        fetch("/api/staff/performance/weekly", { headers }),
+        fetch("/api/staff/performance/monthly", { headers }),
+      ]);
+
+      const eData = await eRes.json();
+      const wData = await wRes.json();
+      const mData = await mRes.json();
+
+      if (eData?.success) setEarnings(eData);
+      if (wData?.success) setWeeklyPerf(wData);
+      if (mData?.success) setMonthlyPerf(mData);
+    } catch {
+      // silent fail – dashboard must never break
+    }
+  };
+
+  fetchPerformance();
+}, [token]);
 
   /* ---------------------------------------
      SIDEBAR HANDLER
@@ -341,10 +392,84 @@ BharatComfort Team`;
       profile={staffProfile || undefined}
     >
       <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
-        <TaskSidebar token={token} onSelect={handleSidebarSelect} />
+    <TaskSidebar token={token} onSelect={handleSidebarSelect} />
 
-        <div className="space-y-4">
-          {/* TABS */}
+<div className="space-y-4">
+  {/* ===============================
+     🔹 NEW: EARNINGS & PERFORMANCE
+     (ADD ONLY – READ ONLY)
+  ================================ */}
+  <div className="bg-white rounded shadow p-4">
+    <h2 className="font-semibold mb-3">📊 Earnings & Performance</h2>
+
+    {/* STATS GRID */}
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <div className="bg-gray-50 p-3 rounded text-center">
+        <div className="text-xs text-gray-500">This Month Earnings</div>
+        <div className="text-lg font-bold">
+          ₹ {earnings?.totalEarning || 0}
+        </div>
+      </div>
+
+      <div className="bg-gray-50 p-3 rounded text-center">
+        <div className="text-xs text-gray-500">Weekly Rating</div>
+        <div className="text-lg font-bold">
+          {weeklyPerf?.data?.rating ?? "-"} ⭐
+        </div>
+      </div>
+
+      <div className="bg-gray-50 p-3 rounded text-center">
+        <div className="text-xs text-gray-500">Monthly Rating</div>
+        <div className="text-lg font-bold">
+          {monthlyPerf?.data?.rating ?? "-"} ⭐
+        </div>
+      </div>
+
+      <div className="bg-gray-50 p-3 rounded text-center">
+        <div className="text-xs text-gray-500">Monthly Conversions</div>
+        <div className="text-lg font-bold">
+          {monthlyPerf?.data?.conversions ?? "-"}
+        </div>
+      </div>
+    </div> {/* ✅ GRID CLOSED PROPERLY */}
+
+    {/* EARNINGS TABLE */}
+    {earnings?.records?.length ? (
+      <table className="w-full text-sm border">
+        <thead className="bg-gray-100">
+          <tr>
+            <th className="p-2">Date</th>
+            <th className="p-2">Base</th>
+            <th className="p-2">Bonus</th>
+            <th className="p-2">Penalty</th>
+            <th className="p-2">Total</th>
+            <th className="p-2">Remarks</th>
+          </tr>
+        </thead>
+        <tbody>
+          {earnings?.records?.map((e) => (
+            <tr key={e.id} className="border-t">
+              <td className="p-2">{e.date}</td>
+              <td className="p-2">₹{e.baseAmount}</td>
+              <td className="p-2">₹{e.bonus}</td>
+              <td className="p-2">₹{e.penalty}</td>
+              <td className="p-2 font-semibold">
+                ₹{e.totalEarning}
+              </td>
+              <td className="p-2">{e.remarks}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    ) : (
+      <p className="text-xs text-gray-500">No earnings data available</p>
+    )}
+  </div>
+</div>
+  {/* 👇 Yahin se tumhara PURANA content continue hoga
+      (Tabs / Tasks / CallLogs / Callback / Interested) */}
+</div>
+      {/* TABS */}
           {view === "tasks" && (
             <>
               <div className="flex gap-4 border-b pb-2">

@@ -343,25 +343,35 @@ const saveNote = async (leadId: string) => {
     toast.error("Note save failed");
   }
 };
-  /* ---------------------------------------
-     CALL LOG (FIXED – MOVED OUT OF JSX)
-  ---------------------------------------- */
-  const logCall = async (lead: Lead) => {
-    try {
-      await fetch("/api/staff/calls/log", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          leadId: lead.id,
-          phone: lead.phone,
-          outcome: "dialed",
-        }),
-      });
-    } catch {}
-  };
+ /* ---------------------------------------
+   CALL LOG
+---------------------------------------- */
+const logCall = async (lead: Lead) => {
+  if (!token || !lead?.id || !lead?.phone) return;
+
+  try {
+    const res = await fetch("/api/staff/calls/log", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        leadId: lead.id,
+        phone: lead.phone,
+        outcome: "dialed",
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok || !data?.success) {
+      throw new Error("Call log failed");
+    }
+  } catch (err) {
+    console.error("Call log error:", err);
+  }
+};
 
   /* ---------------------------------------
      WHATSAPP

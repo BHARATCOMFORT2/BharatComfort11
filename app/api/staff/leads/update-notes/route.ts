@@ -20,7 +20,7 @@ function getAuthHeader(req: Request) {
 export async function POST(req: Request) {
   try {
     /* ---------------------------------------
-       1️⃣ TOKEN VERIFY (SAFE)
+       1️⃣ TOKEN VERIFY
     ---------------------------------------- */
     const authHeader = getAuthHeader(req);
     if (!authHeader) {
@@ -39,8 +39,6 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-
-    // 🔥 FIX: revocation check OFF
     const decoded = await adminAuth.verifyIdToken(m[1]);
     const staffId = decoded.uid;
 
@@ -112,25 +110,33 @@ export async function POST(req: Request) {
     }
 
     /* ---------------------------------------
-       5️⃣ UPDATE LEAD NOTES (FINAL)
+       5️⃣ UPDATE LEAD NOTES
     ---------------------------------------- */
+    const notePayload = {
+      text: cleanText,
+      by: staffId,
+      staffName: staffData?.name || "",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
     await leadRef.update({
       lastNote: cleanText,
-
-      notes: admin.firestore.FieldValue.arrayUnion({
-        text: cleanText,
-        by: staffId,
-        staffName: staffData?.name || "",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      }),
-
+      notes: admin.firestore.FieldValue.arrayUnion(notePayload),
       lastUpdatedBy: staffId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     });
 
+    /* ---------------------------------------
+       6️⃣ STRONG RESPONSE (FIX)
+    ---------------------------------------- */
     return NextResponse.json({
       success: true,
-      message: "Lead note saved successfully",
+      note: {
+        text: cleanText,
+        by: staffId,
+        staffName: staffData?.name || "",
+        createdAt: new Date().toISOString(),
+      },
     });
   } catch (err) {
     console.error("❌ Lead note update error:", err);

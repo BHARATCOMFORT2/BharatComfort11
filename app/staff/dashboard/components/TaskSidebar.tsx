@@ -21,14 +21,26 @@ type SummaryResponse = {
   yesterday: Task[];
   week: Task[];
   month: Task[];
+  lastMonth?: Task[];
+  all?: Task[];
 };
 
 export type SidebarAction =
-  | { type: "range"; value: "today" | "yesterday" | "week" | "month" }
+  | {
+      type: "range";
+      value:
+        | "today"
+        | "yesterday"
+        | "week"
+        | "month"
+        | "last_month"
+        | "all"
+        | "custom";
+    }
   | { type: "status"; value: "interested" | "callback" };
 
 type Props = {
-  token: string; // ✅ Staff JWT token
+  token: string;
   onSelect: (action: SidebarAction) => void;
 };
 
@@ -40,7 +52,7 @@ export default function TaskSidebar({ token, onSelect }: Props) {
   const [loading, setLoading] = useState(true);
 
   const [activeRange, setActiveRange] = useState<
-    "today" | "yesterday" | "week" | "month"
+    "today" | "yesterday" | "week" | "month" | "last_month" | "all" | "custom"
   >("today");
 
   const [activeStatus, setActiveStatus] = useState<
@@ -52,10 +64,12 @@ export default function TaskSidebar({ token, onSelect }: Props) {
     yesterday: [],
     week: [],
     month: [],
+    lastMonth: [],
+    all: [],
   });
 
   /* ---------------------------------------
-     FETCH TASK SUMMARY (DATE BASED)
+     FETCH TASK SUMMARY
   ---------------------------------------- */
   useEffect(() => {
     if (!token) return;
@@ -73,7 +87,6 @@ export default function TaskSidebar({ token, onSelect }: Props) {
         });
 
         const data = await res.json();
-
         if (!res.ok || !data.success) {
           throw new Error(data?.message || "Failed to load tasks");
         }
@@ -83,6 +96,8 @@ export default function TaskSidebar({ token, onSelect }: Props) {
           yesterday: data.summary?.yesterday || [],
           week: data.summary?.week || [],
           month: data.summary?.month || [],
+          lastMonth: data.summary?.lastMonth || [],
+          all: data.summary?.all || [],
         });
       } catch (err: any) {
         console.error("Task sidebar error:", err);
@@ -100,7 +115,14 @@ export default function TaskSidebar({ token, onSelect }: Props) {
   ---------------------------------------- */
 
   const handleRangeSelect = (
-    range: "today" | "yesterday" | "week" | "month"
+    range:
+      | "today"
+      | "yesterday"
+      | "week"
+      | "month"
+      | "last_month"
+      | "all"
+      | "custom"
   ) => {
     setActiveRange(range);
     setActiveStatus(null);
@@ -156,7 +178,7 @@ export default function TaskSidebar({ token, onSelect }: Props) {
         <>
           <button
             onClick={() => handleRangeSelect("today")}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded text-left ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded ${
               activeRange === "today" && !activeStatus
                 ? "bg-black text-white"
                 : "hover:bg-gray-100"
@@ -168,21 +190,19 @@ export default function TaskSidebar({ token, onSelect }: Props) {
 
           <button
             onClick={() => handleRangeSelect("yesterday")}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded text-left ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded ${
               activeRange === "yesterday" && !activeStatus
                 ? "bg-black text-white"
                 : "hover:bg-gray-100"
             }`}
           >
             <span>Yesterday</span>
-            <span className="text-xs">
-              {summary.yesterday.length}
-            </span>
+            <span className="text-xs">{summary.yesterday.length}</span>
           </button>
 
           <button
             onClick={() => handleRangeSelect("week")}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded text-left ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded ${
               activeRange === "week" && !activeStatus
                 ? "bg-black text-white"
                 : "hover:bg-gray-100"
@@ -194,7 +214,7 @@ export default function TaskSidebar({ token, onSelect }: Props) {
 
           <button
             onClick={() => handleRangeSelect("month")}
-            className={`w-full flex items-center justify-between px-3 py-2 rounded text-left ${
+            className={`w-full flex items-center justify-between px-3 py-2 rounded ${
               activeRange === "month" && !activeStatus
                 ? "bg-black text-white"
                 : "hover:bg-gray-100"
@@ -202,6 +222,45 @@ export default function TaskSidebar({ token, onSelect }: Props) {
           >
             <span>This Month</span>
             <span className="text-xs">{summary.month.length}</span>
+          </button>
+
+          <button
+            onClick={() => handleRangeSelect("last_month")}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded ${
+              activeRange === "last_month" && !activeStatus
+                ? "bg-black text-white"
+                : "hover:bg-gray-100"
+            }`}
+          >
+            <span>Last Month</span>
+            <span className="text-xs">
+              {summary.lastMonth?.length || 0}
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleRangeSelect("all")}
+            className={`w-full flex items-center justify-between px-3 py-2 rounded ${
+              activeRange === "all" && !activeStatus
+                ? "bg-black text-white"
+                : "hover:bg-gray-100"
+            }`}
+          >
+            <span>Total Leads</span>
+            <span className="text-xs">
+              {summary.all?.length || 0}
+            </span>
+          </button>
+
+          <button
+            onClick={() => handleRangeSelect("custom")}
+            className={`w-full flex items-center px-3 py-2 rounded ${
+              activeRange === "custom" && !activeStatus
+                ? "bg-black text-white"
+                : "hover:bg-gray-100"
+            }`}
+          >
+            📅 Custom Date
           </button>
         </>
       )}

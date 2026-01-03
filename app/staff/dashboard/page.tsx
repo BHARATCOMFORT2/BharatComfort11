@@ -403,49 +403,67 @@ BharatComfort Team`;
     )}&body=${encodeURIComponent(body)}`;
   };
 
-  /* UI */
-  if (loadingUser) {
-    return (
-      <DashboardLayout title="Telecaller Dashboard">
-        <div className="h-64 flex items-center justify-center text-sm text-gray-500">
-          Checking staff access...
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (!staffId) return null;
-
+/* UI */
+if (loadingUser) {
   return (
-    <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
-      <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
-        <TaskSidebar token={token} onSelect={handleSidebarSelect} />
- {/* ================= RIGHT CONTENT ================= */}
+    <DashboardLayout title="Telecaller Dashboard">
+      <div className="h-64 flex items-center justify-center text-sm text-gray-500">
+        Checking staff access...
+      </div>
+    </DashboardLayout>
+  );
+}
+
+if (!staffId) return null;
+
+return (
+  <DashboardLayout
+    title="Telecaller Dashboard"
+    profile={staffProfile || undefined}
+  >
+    <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
+      <TaskSidebar token={token} onSelect={handleSidebarSelect} />
+
+      {/* ================= RIGHT CONTENT ================= */}
       <div className="space-y-6">
         {/* 💰 EARNINGS */}
         <StaffEarningsModule token={token} />
 
         {/* 📊 PERFORMANCE */}
         <StaffPerformanceModule token={token} />
+
         <div className="space-y-4">
           {taskRange === "custom" && (
             <div className="flex gap-2">
-              <input type="date" value={customFromDate} onChange={(e) => setCustomFromDate(e.target.value)} />
-              <input type="date" value={customToDate} onChange={(e) => setCustomToDate(e.target.value)} />
+              <input
+                type="date"
+                value={customFromDate}
+                onChange={(e) => setCustomFromDate(e.target.value)}
+              />
+              <input
+                type="date"
+                value={customToDate}
+                onChange={(e) => setCustomToDate(e.target.value)}
+              />
             </div>
           )}
 
           <div className="text-xs text-gray-600">
-            Showing <b>{leads.length}</b> leads {taskRange === "all" && "(All Time)"}
+            Showing <b>{leads.length}</b> leads{" "}
+            {taskRange === "all" && "(All Time)"}
           </div>
 
           <div className="flex gap-4 border-b pb-2">
             <button onClick={() => setActiveTab("tasks")}>Tasks</button>
-            <button onClick={() => setActiveTab("calllogs")}>📞 Call Logs</button>
+            <button onClick={() => setActiveTab("calllogs")}>
+              📞 Call Logs
+            </button>
           </div>
 
           {activeTab === "calllogs" && <CallLogsTab token={token} />}
-          {view === "interested" && <InterestedPartnersPage token={token} />}
+          {view === "interested" && (
+            <InterestedPartnersPage token={token} />
+          )}
           {view === "callback" && <CallbackLeadsPage token={token} />}
 
           {view === "tasks" && activeTab === "tasks" && (
@@ -634,6 +652,6 @@ BharatComfort Team`;
           )}
         </div>
       </div>
-    </DashboardLayout>
-  );
-}
+    </div>
+  </DashboardLayout>
+);

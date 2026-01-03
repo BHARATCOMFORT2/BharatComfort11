@@ -41,23 +41,91 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
-/* ---------------------------------------
-   DATE HELPERS
+ /*---------------------------------------
+   DATE HELPERS (FINAL + COMPLETE)
 ---------------------------------------- */
-const todayStr = () => new Date().toISOString().slice(0, 10);
-const tomorrowStr = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-};
-const nextWeekStr = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 7);
-  return d.toISOString().slice(0, 10);
-};
-const isOverdue = (date?: string) =>
-  date ? new Date(date) < new Date(new Date().toDateString()) : false;
+const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
 
+const startOfToday = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+const todayStr = () => toDateStr(startOfToday());
+
+const tomorrowStr = () => {
+  const d = startOfToday();
+  d.setDate(d.getDate() + 1);
+  return toDateStr(d);
+};
+
+const nextWeekStr = () => {
+  const d = startOfToday();
+  d.setDate(d.getDate() + 7);
+  return toDateStr(d);
+};
+
+type DateRangeType =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "last_month"
+  | "custom"
+  | "all";
+
+const rangeToDates = (
+  range: DateRangeType,
+  customFrom?: string,
+  customTo?: string
+) => {
+  const today = startOfToday();
+  let from: Date | null = new Date(today);
+  let to: Date | null = new Date(today);
+
+  switch (range) {
+    case "today":
+      break;
+
+    case "yesterday":
+      from!.setDate(from!.getDate() - 1);
+      to!.setDate(to!.getDate() - 1);
+      break;
+
+    case "week":
+      from!.setDate(from!.getDate() - 6);
+      break;
+
+    case "month":
+      from = new Date(today.getFullYear(), today.getMonth(), 1);
+      break;
+
+    case "last_month":
+      from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      to = new Date(today.getFullYear(), today.getMonth(), 0);
+      break;
+
+    case "custom":
+      if (!customFrom || !customTo) {
+        throw new Error("Custom date range missing");
+      }
+      from = new Date(customFrom);
+      to = new Date(customTo);
+      break;
+
+    case "all":
+      return { fromDate: null, toDate: null };
+  }
+
+  return {
+    fromDate: from ? toDateStr(from) : null,
+    toDate: to ? toDateStr(to) : null,
+  };
+};
+
+const isOverdue = (date?: string) =>
+  date ? new Date(date) < startOfToday() : false;
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
@@ -85,9 +153,11 @@ export default function TelecallerDashboardPage() {
     "tasks" | "interested" | "callback"
   >("tasks");
 
-  const [taskRange, setTaskRange] = useState<
-    "today" | "yesterday" | "week" | "month"
-  >("today");
+ const [taskRange, setTaskRange] = useState<DateRangeType>("today");
+
+const [customFromDate, setCustomFromDate] = useState("");
+const [customToDate, setCustomToDate] = useState("");
+
 
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
 
@@ -130,55 +200,66 @@ export default function TelecallerDashboardPage() {
     return () => unsub();
   }, [router]);
 
-  /* ---------------------------------------
-     FETCH TASKS
-  ---------------------------------------- */
   useEffect(() => {
-    if (!staffId || !token || view !== "tasks") return;
+  if (!staffId || !token || view !== "tasks") return;
+if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
-    const fetchTasks = async () => {
-      setLoadingLeads(true);
-      try {
-        const res = await fetch("/api/staff/leads/by-range", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ range: taskRange }),
-        });
+  const fetchTasks = async () => {
+    setLoadingLeads(true);
+    try {
+      const { fromDate, toDate } = rangeToDates(
+        taskRange,
+        customFromDate,
+        customToDate
+      );
 
-        const data = await res.json();
-        if (!res.ok || !data.success) throw new Error();
+      const res = await fetch("/api/staff/leads/by-range", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          range: taskRange,
+          fromDate,
+          toDate,
+        }),
+      });
 
-        setLeads(data.tasks || []);
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error();
 
-        const d: Record<string, string> = {};
-        data.tasks?.forEach((l: Lead) => (d[l.id] = ""));
-        setNotesDraft(d);
-      } catch {
-        toast.error("Tasks load nahi ho paaye");
-      } finally {
-        setLoadingLeads(false);
-      }
-    };
+      setLeads(data.tasks || []);
 
-    fetchTasks();
-  }, [staffId, token, taskRange, view]);
-
-  /* ---------------------------------------
-     SIDEBAR HANDLER
-  ---------------------------------------- */
-  const handleSidebarSelect = (action: SidebarAction) => {
-    if (action.type === "range") {
-      setView("tasks");
-      setTaskRange(action.value);
-      setActiveTab("tasks");
-    }
-    if (action.type === "status") {
-      setView(action.value);
+      const d: Record<string, string> = {};
+      data.tasks?.forEach((l: Lead) => (d[l.id] = ""));
+      setNotesDraft(d);
+    } catch (e) {
+      toast.error("Tasks load nahi ho paaye");
+    } finally {
+      setLoadingLeads(false);
     }
   };
+
+  fetchTasks();
+}, [
+  staffId,
+  token,
+  taskRange,
+  customFromDate,
+  customToDate,
+  view,
+]);
+ const handleSidebarSelect = (action: SidebarAction) => {
+  if (action.type === "range") {
+    setView("tasks");
+    setTaskRange(action.value as DateRangeType);
+    setActiveTab("tasks");
+  }
+  if (action.type === "status") {
+    setView(action.value);
+  }
+};
 
   /* ---------------------------------------
      STATUS UPDATE
@@ -320,9 +401,7 @@ BharatComfort Team`;
     )}&body=${encodeURIComponent(body)}`;
   };
 
-  /* ---------------------------------------
-     UI
-  ---------------------------------------- */
+  /* UI */
   if (loadingUser) {
     return (
       <DashboardLayout title="Telecaller Dashboard">
@@ -336,49 +415,29 @@ BharatComfort Team`;
   if (!staffId) return null;
 
   return (
-    <DashboardLayout
-      title="Telecaller Dashboard"
-      profile={staffProfile || undefined}
-    >
+    <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
       <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
         <TaskSidebar token={token} onSelect={handleSidebarSelect} />
 
         <div className="space-y-4">
-          {/* TABS */}
-          {view === "tasks" && (
-            <>
-              <div className="flex gap-4 border-b pb-2">
-                <button
-                  onClick={() => setActiveTab("tasks")}
-                  className={`text-sm px-2 pb-1 ${
-                    activeTab === "tasks"
-                      ? "border-b-2 border-black font-medium"
-                      : "text-gray-500"
-                  }`}
-                >
-                  Tasks
-                </button>
-
-                <button
-                  onClick={() => setActiveTab("calllogs")}
-                  className={`text-sm px-2 pb-1 ${
-                    activeTab === "calllogs"
-                      ? "border-b-2 border-black font-medium"
-                      : "text-gray-500"
-                  }`}
-                >
-                  📞 Call Logs
-                </button>
-              </div>
-
-              {activeTab === "calllogs" && <CallLogsTab token={token} />}
-            </>
+          {taskRange === "custom" && (
+            <div className="flex gap-2">
+              <input type="date" value={customFromDate} onChange={(e) => setCustomFromDate(e.target.value)} />
+              <input type="date" value={customToDate} onChange={(e) => setCustomToDate(e.target.value)} />
+            </div>
           )}
 
-          {view === "interested" && (
-            <InterestedPartnersPage token={token} />
-          )}
+          <div className="text-xs text-gray-600">
+            Showing <b>{leads.length}</b> leads {taskRange === "all" && "(All Time)"}
+          </div>
 
+          <div className="flex gap-4 border-b pb-2">
+            <button onClick={() => setActiveTab("tasks")}>Tasks</button>
+            <button onClick={() => setActiveTab("calllogs")}>📞 Call Logs</button>
+          </div>
+
+          {activeTab === "calllogs" && <CallLogsTab token={token} />}
+          {view === "interested" && <InterestedPartnersPage token={token} />}
           {view === "callback" && <CallbackLeadsPage token={token} />}
 
           {view === "tasks" && activeTab === "tasks" && (

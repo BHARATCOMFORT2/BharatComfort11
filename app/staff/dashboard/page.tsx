@@ -300,35 +300,49 @@ if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
     }
   };
 
-  /* ---------------------------------------
-     SAVE NOTE
-  ---------------------------------------- */
-  const saveNote = async (leadId: string) => {
-    const text = notesDraft[leadId];
-    if (!text) return toast.error("Note khali hai");
+ /* ---------------------------------------
+   SAVE NOTE
+---------------------------------------- */
+const saveNote = async (leadId: string) => {
+  const text = notesDraft[leadId];
 
-    try {
-      const res = await fetch("/api/staff/leads/update-notes", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leadId, text }),
-      });
+  // ✅ empty / spaces-only note block
+  if (!text?.trim()) {
+    return toast.error("Note khali hai");
+  }
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error();
+  try {
+    const res = await fetch("/api/staff/leads/update-notes", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ leadId, text }),
+    });
 
-      setLeads((p) =>
-        p.map((l) => (l.id === leadId ? { ...l, lastNote: text } : l))
-      );
-      setNotesDraft((p) => ({ ...p, [leadId]: "" }));
-    } catch {
-      toast.error("Note save failed");
+    const data = await res.json();
+
+    // ✅ strong success check
+    if (!res.ok || !data.success || !data.note) {
+      throw new Error();
     }
-  };
 
+    // ✅ backend-returned note se UI sync
+    setLeads((p) =>
+      p.map((l) =>
+        l.id === leadId
+          ? { ...l, lastNote: data.note.text }
+          : l
+      )
+    );
+
+    // ✅ clear textarea
+    setNotesDraft((p) => ({ ...p, [leadId]: "" }));
+  } catch {
+    toast.error("Note save failed");
+  }
+};
   /* ---------------------------------------
      CALL LOG (FIXED – MOVED OUT OF JSX)
   ---------------------------------------- */

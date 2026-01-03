@@ -4,6 +4,10 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
 
+/* ---------------------------------------
+   HELPERS
+---------------------------------------- */
+
 // ✅ Auth header helper
 function getAuthHeader(req: Request) {
   return (req as any).headers?.get
@@ -11,7 +15,7 @@ function getAuthHeader(req: Request) {
     : (req as any).headers?.authorization;
 }
 
-// ✅ IST DATE HELPER
+// ✅ IST now
 function getISTNow() {
   return new Date(
     new Date().toLocaleString("en-US", { timeZone: "Asia/Kolkata" })
@@ -54,9 +58,14 @@ function isThisMonth(d: Date, now: Date) {
   );
 }
 
+/* ---------------------------------------
+   API
+---------------------------------------- */
 export async function POST(req: Request) {
   try {
-    // ✅ TOKEN VERIFY
+    /* -----------------------------------
+       AUTH
+    ------------------------------------ */
     const authHeader = getAuthHeader(req);
     if (!authHeader)
       return NextResponse.json(
@@ -75,10 +84,15 @@ export async function POST(req: Request) {
     const decoded = await adminAuth.verifyIdToken(m[1], true);
     const staffId = decoded.uid;
 
+    /* -----------------------------------
+       BODY
+    ------------------------------------ */
     const body = await req.json().catch(() => ({}));
-    const { range } = body || {};
+    const { range, fromDate, toDate } = body || {};
 
-    // ✅ VERIFY STAFF
+    /* -----------------------------------
+       STAFF VERIFY
+    ------------------------------------ */
     const staffSnap = await adminDb.collection("staff").doc(staffId).get();
     if (!staffSnap.exists)
       return NextResponse.json(
@@ -97,7 +111,9 @@ export async function POST(req: Request) {
         { status: 403 }
       );
 
-    // ✅ FETCH ALL ASSIGNED TASKS
+    /* -----------------------------------
+       FETCH LEADS
+    ------------------------------------ */
     const snapshot = await adminDb
       .collection("leads")
       .where("assignedTo", "==", staffId)
@@ -109,11 +125,27 @@ export async function POST(req: Request) {
     const yesterdayTasks: any[] = [];
     const weekTasks: any[] = [];
     const monthTasks: any[] = [];
+    const customTasks: any[] = [];
+    const allTasks: any[] = [];
+
+    const customFrom = fromDate ? new Date(fromDate) : null;
+    const customTo = toDate ? new Date(toDate) : null;
+
+    const lastMonthStart = new Date(
+      now.getFullYear(),
+      now.getMonth() - 1,
+      1
+    );
+    const lastMonthEnd = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      0
+    );
 
     snapshot.forEach((docSnap) => {
       const d = docSnap.data();
 
-      // ✅ ✅ ✅ TASK DATE = ASSIGN > FOLLOWUP > CREATED
+      // ✅ TASK DATE PRIORITY
       const assigned = toJSDate(d.assignedAt);
       const followup = toJSDate(d.followupDate);
       const created = toJSDate(d.createdAt);
@@ -125,39 +157,71 @@ export async function POST(req: Request) {
         id: docSnap.id,
         name: d.name || "",
         businessName: d.businessName || "",
-        contactPerson: d.contactPerson || "",
-        phone: d.phone || d.mobile || d.contact || "",
+        phone: d.phone || d.mobile || "",
         email: d.email || "",
         city: d.city || "",
-        address: d.address || d.location || "",
-        category: d.category || "",
         status: d.status || "new",
         followupDate: d.followupDate || "",
-        adminNote: d.adminNote || "",
-        partnerNotes: d.partnerNotes || "",
         lastCalledAt: d.lastCalledAt || null,
         createdAt: d.createdAt || null,
         updatedAt: d.updatedAt || null,
-        lastUpdatedBy: d.lastUpdatedBy || null,
       };
+
+      // ALL TIME
+      allTasks.push(task);
 
       if (isToday(taskDate, now)) todayTasks.push(task);
       if (isYesterday(taskDate, now)) yesterdayTasks.push(task);
       if (isThisWeek(taskDate, now)) weekTasks.push(task);
       if (isThisMonth(taskDate, now)) monthTasks.push(task);
+
+      // LAST MONTH
+      if (
+        taskDate >= lastMonthStart &&
+        taskDate <= lastMonthEnd
+      ) {
+        customTasks.push(task);
+      }
+
+      // CUSTOM RANGE
+      if (
+        range === "custom" &&
+        customFrom &&
+        customTo &&
+        taskDate >= customFrom &&
+        taskDate <= customTo
+      ) {
+        customTasks.push(task);
+      }
     });
 
-    // ✅ SINGLE RANGE RESPONSE
+    /* -----------------------------------
+       RESPONSE (SINGLE RANGE)
+    ------------------------------------ */
     if (range === "today")
       return NextResponse.json({ success: true, tasks: todayTasks });
+
     if (range === "yesterday")
       return NextResponse.json({ success: true, tasks: yesterdayTasks });
+
     if (range === "week")
       return NextResponse.json({ success: true, tasks: weekTasks });
+
     if (range === "month")
       return NextResponse.json({ success: true, tasks: monthTasks });
 
-    // ✅ SUMMARY (SIDEBAR)
+    if (range === "last_month")
+      return NextResponse.json({ success: true, tasks: customTasks });
+
+    if (range === "custom")
+      return NextResponse.json({ success: true, tasks: customTasks });
+
+    if (range === "all")
+      return NextResponse.json({ success: true, tasks: allTasks });
+
+    /* -----------------------------------
+       FALLBACK (SIDEBAR SUMMARY)
+    ------------------------------------ */
     return NextResponse.json({
       success: true,
       summary: {
@@ -165,6 +229,8 @@ export async function POST(req: Request) {
         yesterday: yesterdayTasks,
         week: weekTasks,
         month: monthTasks,
+        lastMonth: customTasks,
+        all: allTasks,
       },
     });
   } catch (err) {

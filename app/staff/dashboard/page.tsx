@@ -12,6 +12,8 @@ import TaskSidebar, { SidebarAction } from "./components/TaskSidebar";
 import InterestedPartnersPage from "../InterestedPartners/page";
 import CallbackLeadsPage from "../CallbackLeads/page";
 import CallLogsTab from "./components/CallLogsTab";
+import StaffEarningsModule from "./earnings/StaffEarningsModule";
+import StaffPerformanceModule from "./performance/StaffPerformanceModule";
 
 /* ---------------------------------------
    TYPES
@@ -418,7 +420,13 @@ BharatComfort Team`;
     <DashboardLayout title="Telecaller Dashboard" profile={staffProfile || undefined}>
       <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
         <TaskSidebar token={token} onSelect={handleSidebarSelect} />
+ {/* ================= RIGHT CONTENT ================= */}
+      <div className="space-y-6">
+        {/* 💰 EARNINGS */}
+        <StaffEarningsModule token={token} />
 
+        {/* 📊 PERFORMANCE */}
+        <StaffPerformanceModule token={token} />
         <div className="space-y-4">
           {taskRange === "custom" && (
             <div className="flex gap-2">

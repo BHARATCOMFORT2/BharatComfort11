@@ -43,8 +43,6 @@ export async function POST(req: Request) {
     }
 
     const { auth: adminAuth, db: adminDb } = getFirebaseAdmin();
-
-    // ✅ revocation check OFF (stable)
     const decoded = await adminAuth.verifyIdToken(tokenMatch[1]);
     const staffId = decoded.uid;
 
@@ -58,8 +56,9 @@ export async function POST(req: Request) {
     }
 
     const leadId = body?.leadId;
+    const callbackDate = body?.callbackDate || null;
 
-    // 🔥 FINAL FIX: STATUS NORMALIZATION
+    // 🔥 STATUS NORMALIZATION
     const rawStatus = body?.status;
     const status =
       typeof rawStatus === "string"
@@ -78,6 +77,14 @@ export async function POST(req: Request) {
     if (!ALLOWED_STATUS.includes(status)) {
       return NextResponse.json(
         { success: false, message: "Invalid status value" },
+        { status: 400 }
+      );
+    }
+
+    /* ---------- CALLBACK VALIDATION ---------- */
+    if (status === "callback" && !callbackDate) {
+      return NextResponse.json(
+        { success: false, message: "Callback date is required" },
         { status: 400 }
       );
     }
@@ -122,12 +129,24 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ---------- UPDATE STATUS (OVERWRITE ALLOWED) ---------- */
-    await leadRef.update({
-      status, // callback / contacted / interested / etc.
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    /* ---------- UPDATE STATUS (FINAL LOGIC) ---------- */
+    const updateData: any = {
+      status,
       lastUpdatedBy: staffId,
-    });
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    // ✅ callback → save followupDate
+    if (status === "callback") {
+      updateData.followupDate = callbackDate;
+    }
+
+    // ✅ non-callback → clear followupDate
+    if (status !== "callback" && leadData?.followupDate) {
+      updateData.followupDate = admin.firestore.FieldValue.delete();
+    }
+
+    await leadRef.update(updateData);
 
     return NextResponse.json({
       success: true,

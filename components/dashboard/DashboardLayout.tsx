@@ -84,10 +84,15 @@ export default function DashboardLayout({ title, children, profile }: Props) {
     { name: "Policies", path: "/partner/policies" },
   ];
 
-  const staffLinks = [
-    { name: "My Tasks", path: "/staff/dashboard" },
-    { name: "⚙️ Settings", path: "/staff/settings" },
-  ];
+ const staffLinks = [
+  { name: "📊 Dashboard", path: "/staff/dashboard" },
+  { name: "📞 Leads / Tasks", path: "/staff/dashboard" },
+  { name: "⭐ Interested Partners", path: "/staff/InterestedPartners" },
+  { name: "⏰ Callbacks", path: "/staff/CallbackLeads" },
+  { name: "📈 Performance", path: "/staff/performance" },
+  { name: "💰 Earnings", path: "/staff/earnings" },
+  { name: "⚙️ Settings", path: "/staff/settings" },
+];
 
   const adminLinks = [
     { name: "Dashboard", path: "/admin/dashboard" },

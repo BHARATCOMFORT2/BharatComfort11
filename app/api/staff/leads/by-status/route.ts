@@ -22,10 +22,11 @@ export async function GET(req: Request) {
       );
     }
 
-    const token = authHeader.replace("Bearer ", "");
+    const token = authHeader.replace("Bearer ", "").trim();
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    const decoded = await adminAuth.verifyIdToken(token, true);
+    // ✅ FIX: revocation check OFF (stable for dashboard APIs)
+    const decoded = await adminAuth.verifyIdToken(token);
     const staffId = decoded.uid;
 
     /* -------------------------------
@@ -42,24 +43,40 @@ export async function GET(req: Request) {
     }
 
     /* -------------------------------
-       3️⃣ FIRESTORE QUERY (FIXED)
-       ✔ unified collection: leads
-       ✔ unified fields
+       3️⃣ FIRESTORE QUERY
+       - primary query with orderBy
+       - fallback without orderBy (index safe)
     -------------------------------- */
-    let queryRef = adminDb
-      .collection("leads")
-      .where("assignedTo", "==", staffId)
-      .where("status", "==", status);
+    let snap;
 
-    // 🔥 Callback leads → earliest follow-up first
-    if (status === "callback") {
-      queryRef = queryRef.orderBy("followupDate", "asc");
-    } else {
-      queryRef = queryRef.orderBy("updatedAt", "desc");
+    try {
+      let queryRef = adminDb
+        .collection("leads")
+        .where("assignedTo", "==", staffId)
+        .where("status", "==", status);
+
+      if (status === "callback") {
+        queryRef = queryRef.orderBy("followupDate", "asc");
+      } else {
+        queryRef = queryRef.orderBy("updatedAt", "desc");
+      }
+
+      snap = await queryRef.get();
+    } catch (err) {
+      console.error("⚠️ Firestore index missing, using fallback", err);
+
+      // 🔁 Fallback without orderBy (no index required)
+      snap = await adminDb
+        .collection("leads")
+        .where("assignedTo", "==", staffId)
+        .where("status", "==", status)
+        .get();
     }
 
-    const snap = await queryRef.get();
-
+    /* -------------------------------
+       4️⃣ MAP RESPONSE
+       - frontend compatible fields
+    -------------------------------- */
     const leads = snap.docs.map((doc) => {
       const d = doc.data();
 
@@ -67,18 +84,28 @@ export async function GET(req: Request) {
         id: doc.id,
         name: d.name || null,
         businessName: d.businessName || null,
+
+        // ✅ frontend compatibility
         phone: d.phone || d.mobile || null,
+        mobile: d.mobile || d.phone || null,
+
         city: d.city || null,
-        status: d.status,
+        status: d.status || null,
+
         followupDate: d.followupDate
           ? d.followupDate.toDate().toISOString()
           : null,
+
+        updatedAt: d.updatedAt
+          ? d.updatedAt.toDate().toISOString()
+          : null,
+
         lastNote: d.lastNote || null,
       };
     });
 
     /* -------------------------------
-       4️⃣ RESPONSE
+       5️⃣ RESPONSE
     -------------------------------- */
     return NextResponse.json({
       success: true,

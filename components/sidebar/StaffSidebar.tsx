@@ -7,12 +7,18 @@ import { onAuthStateChanged } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase-client";
 
+/* ---------------------------------------
+   TYPES
+---------------------------------------- */
 type StaffProfile = {
   name?: string;
   photoURL?: string;
   role?: string;
 };
 
+/* ---------------------------------------
+   COMPONENT
+---------------------------------------- */
 export default function StaffSidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -24,7 +30,7 @@ export default function StaffSidebar() {
   });
 
   /* ---------------------------------------
-     LOAD STAFF PROFILE (REAL)
+     LOAD STAFF PROFILE
   ---------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -48,6 +54,9 @@ export default function StaffSidebar() {
     return () => unsub();
   }, []);
 
+  /* ---------------------------------------
+     HELPERS
+  ---------------------------------------- */
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
 
@@ -71,6 +80,9 @@ export default function StaffSidebar() {
     </Link>
   );
 
+  /* ---------------------------------------
+     UI
+  ---------------------------------------- */
   return (
     <aside className="w-[240px] min-h-screen border-r bg-white flex flex-col">
       {/* ================= STAFF PROFILE ================= */}
@@ -100,24 +112,64 @@ export default function StaffSidebar() {
         </div>
       </div>
 
-      {/* ================= MENU ================= */}
+      {/* ================= MAIN MENU ================= */}
       <nav className="flex-1 p-3 space-y-1">
         <Item href="/staff/dashboard" label="📊 Dashboard" />
         <Item href="/staff/dashboard" label="📞 Leads / Tasks" />
-        <Item
-          href="/staff/InterestedPartners"
-          label="⭐ Interested Partners"
-        />
-        <Item
-          href="/staff/CallbackLeads"
-          label="⏰ Callbacks"
-        />
-        <Item
-          href="/staff/performance"
-          label="📈 Performance"
-        />
+        <Item href="/staff/InterestedPartners" label="⭐ Interested Partners" />
+        <Item href="/staff/CallbackLeads" label="⏰ Callbacks" />
+        <Item href="/staff/performance" label="📈 Performance" />
         <Item href="/staff/earnings" label="💰 Earnings" />
         <Item href="/staff/settings" label="⚙️ Settings" />
+
+        {/* ================= TASK / LEADS SECTION ================= */}
+        <div className="mt-4 border-t pt-4">
+          <p className="text-xs font-semibold text-gray-500 mb-2">
+            TASK RANGE
+          </p>
+
+          <Link
+            href="/staff/dashboard?range=today"
+            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
+          >
+            Today
+          </Link>
+
+          <Link
+            href="/staff/dashboard?range=yesterday"
+            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
+          >
+            Yesterday
+          </Link>
+
+          <Link
+            href="/staff/dashboard?range=week"
+            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
+          >
+            This Week
+          </Link>
+
+          <Link
+            href="/staff/dashboard?range=month"
+            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
+          >
+            This Month
+          </Link>
+
+          <Link
+            href="/staff/dashboard?range=last_month"
+            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
+          >
+            Last Month
+          </Link>
+
+          <Link
+            href="/staff/dashboard?range=all"
+            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
+          >
+            Total Leads
+          </Link>
+        </div>
       </nav>
 
       {/* ================= LOGOUT ================= */}

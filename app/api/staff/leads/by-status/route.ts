@@ -25,7 +25,6 @@ export async function GET(req: Request) {
     const token = authHeader.replace("Bearer ", "").trim();
     const { adminAuth, adminDb } = getFirebaseAdmin();
 
-    // ✅ FIX: revocation check OFF (stable for dashboard APIs)
     const decoded = await adminAuth.verifyIdToken(token);
     const staffId = decoded.uid;
 
@@ -33,7 +32,8 @@ export async function GET(req: Request) {
        2️⃣ READ QUERY PARAM
     -------------------------------- */
     const url = new URL(req.url);
-    const status = url.searchParams.get("status");
+    const rawStatus = url.searchParams.get("status");
+    const status = rawStatus?.trim().toLowerCase();
 
     if (!status || !["interested", "callback"].includes(status)) {
       return NextResponse.json(
@@ -43,39 +43,17 @@ export async function GET(req: Request) {
     }
 
     /* -------------------------------
-       3️⃣ FIRESTORE QUERY
-       - primary query with orderBy
-       - fallback without orderBy (index safe)
+       3️⃣ FIRESTORE QUERY (SAFE)
+       ❌ orderBy REMOVED (mixed data)
     -------------------------------- */
-    let snap;
-
-    try {
-      let queryRef = adminDb
-        .collection("leads")
-        .where("assignedTo", "==", staffId)
-        .where("status", "==", status);
-
-      if (status === "callback") {
-        queryRef = queryRef.orderBy("followupDate", "asc");
-      } else {
-        queryRef = queryRef.orderBy("updatedAt", "desc");
-      }
-
-      snap = await queryRef.get();
-    } catch (err) {
-      console.error("⚠️ Firestore index missing, using fallback", err);
-
-      // 🔁 Fallback without orderBy (no index required)
-      snap = await adminDb
-        .collection("leads")
-        .where("assignedTo", "==", staffId)
-        .where("status", "==", status)
-        .get();
-    }
+    const snap = await adminDb
+      .collection("leads")
+      .where("assignedTo", "==", staffId)
+      .where("status", "==", status)
+      .get();
 
     /* -------------------------------
        4️⃣ MAP RESPONSE
-       - frontend compatible fields
     -------------------------------- */
     const leads = snap.docs.map((doc) => {
       const d = doc.data();
@@ -84,41 +62,30 @@ export async function GET(req: Request) {
         id: doc.id,
         name: d.name || null,
         businessName: d.businessName || null,
-
-        // ✅ frontend compatibility
         phone: d.phone || d.mobile || null,
         mobile: d.mobile || d.phone || null,
-
         city: d.city || null,
         status: d.status || null,
-
-        followupDate: d.followupDate
-          ? d.followupDate.toDate().toISOString()
-          : null,
-
-        updatedAt: d.updatedAt
-          ? d.updatedAt.toDate().toISOString()
-          : null,
-
+        followupDate:
+          d.followupDate && d.followupDate.toDate
+            ? d.followupDate.toDate().toISOString()
+            : null,
+        updatedAt:
+          d.updatedAt && d.updatedAt.toDate
+            ? d.updatedAt.toDate().toISOString()
+            : null,
         lastNote: d.lastNote || null,
       };
     });
 
-    /* -------------------------------
-       5️⃣ RESPONSE
-    -------------------------------- */
     return NextResponse.json({
       success: true,
       leads,
     });
   } catch (error) {
     console.error("❌ by-status API error:", error);
-
     return NextResponse.json(
-      {
-        success: false,
-        message: "Failed to fetch leads",
-      },
+      { success: false, message: "Failed to fetch leads" },
       { status: 500 }
     );
   }

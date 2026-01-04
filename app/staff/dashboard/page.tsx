@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import toast from "react-hot-toast";
 
 import TaskSidebar, { SidebarAction } from "./components/TaskSidebar";
@@ -430,21 +429,13 @@ BharatComfort Team`;
 /* UI */
 if (loadingUser) {
   return (
-    <DashboardLayout title="Telecaller Dashboard">
-      <div className="h-64 flex items-center justify-center text-sm text-gray-500">
-        Checking staff access...
-      </div>
-    </DashboardLayout>
+    <div>Checking staff access...</div>
   );
 }
 
 if (!staffId) return null;
 
 return (
-  <DashboardLayout
-    title="Telecaller Dashboard"
-    profile={staffProfile || undefined}
-  >
     <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
       <TaskSidebar token={token} onSelect={handleSidebarSelect} />
 
@@ -677,6 +668,5 @@ return (
         </div>
       </div>
     </div>
-  </DashboardLayout>
 );
 }

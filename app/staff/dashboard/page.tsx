@@ -7,9 +7,6 @@ import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
 
-import TaskSidebar, { SidebarAction } from "./components/TaskSidebar";
-import InterestedPartnersPage from "../InterestedPartners/page";
-import CallbackLeadsPage from "../CallbackLeads/page";
 import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
 import StaffPerformanceModule from "./performance/StaffPerformanceModule";
@@ -149,10 +146,6 @@ export default function TelecallerDashboardPage() {
     null
   );
 
-  /* 🔹 SINGLE SOURCE OF TRUTH (FIXED DUPLICATES) */
-  const [view, setView] = useState<
-    "tasks" | "interested" | "callback"
-  >("tasks");
 
  const [taskRange, setTaskRange] = useState<DateRangeType>("today");
 
@@ -202,7 +195,7 @@ const [customToDate, setCustomToDate] = useState("");
   }, [router]);
 
   useEffect(() => {
-  if (!staffId || !token || view !== "tasks") return;
+ if (!staffId || !token) return;
 if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
   const fetchTasks = async () => {
@@ -249,19 +242,9 @@ if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
   taskRange,
   customFromDate,
   customToDate,
-  view,
 ]);
- const handleSidebarSelect = (action: SidebarAction) => {
-  if (action.type === "range") {
-    setView("tasks");
-    setTaskRange(action.value as DateRangeType);
-    setActiveTab("tasks");
-  }
-  if (action.type === "status") {
-    setView(action.value);
-  }
-};
 
+   
   /* ---------------------------------------
      STATUS UPDATE
   ---------------------------------------- */
@@ -437,8 +420,7 @@ if (!staffId) return null;
 
 return (
     <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
-      <TaskSidebar token={token} onSelect={handleSidebarSelect} />
-
+     
       {/* ================= RIGHT CONTENT ================= */}
       <div className="space-y-6">
         {/* 💰 EARNINGS */}
@@ -476,10 +458,6 @@ return (
           </div>
 
           {activeTab === "calllogs" && <CallLogsTab token={token} />}
-          {view === "interested" && (
-            <InterestedPartnersPage token={token} />
-          )}
-          {view === "callback" && <CallbackLeadsPage token={token} />}
 
           {view === "tasks" && activeTab === "tasks" && (
             <div className="bg-white rounded shadow overflow-x-auto">

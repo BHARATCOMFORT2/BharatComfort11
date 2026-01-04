@@ -56,15 +56,15 @@ export async function POST(req: Request) {
     }
 
     const leadId = body?.leadId;
-    const callbackDate = body?.callbackDate || null;
+    const callbackDate = body?.callbackDate;
 
-    // 🔥 STATUS NORMALIZATION
+    // 🔥 FIX 1: STATUS NORMALIZATION (trim + lowercase)
     const rawStatus = body?.status;
     const status =
       typeof rawStatus === "string"
-        ? rawStatus.toLowerCase()
+        ? rawStatus.trim().toLowerCase()
         : typeof rawStatus === "object" && rawStatus?.value
-        ? String(rawStatus.value).toLowerCase()
+        ? String(rawStatus.value).trim().toLowerCase()
         : null;
 
     if (!leadId || !status) {
@@ -129,21 +129,22 @@ export async function POST(req: Request) {
       );
     }
 
-    /* ---------- UPDATE STATUS (FINAL LOGIC) ---------- */
+    /* ---------- UPDATE STATUS (FINAL FIX) ---------- */
     const updateData: any = {
       status,
       lastUpdatedBy: staffId,
       updatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
 
-    // ✅ callback → save followupDate
+    // 🔥 FIX 2: callbackDate ALWAYS save as Timestamp
     if (status === "callback") {
-      updateData.followupDate = callbackDate;
-    }
-
-    // ✅ non-callback → clear followupDate
-    if (status !== "callback" && leadData?.followupDate) {
-      updateData.followupDate = admin.firestore.FieldValue.delete();
+      updateData.followupDate =
+        admin.firestore.Timestamp.fromDate(
+          new Date(callbackDate)
+        );
+    } else if (leadData?.followupDate) {
+      updateData.followupDate =
+        admin.firestore.FieldValue.delete();
     }
 
     await leadRef.update(updateData);

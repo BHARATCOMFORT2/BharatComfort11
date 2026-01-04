@@ -31,7 +31,11 @@ export default function InterestedPartnersPage({ token }: Props) {
      FETCH INTERESTED LEADS
   ---------------------------------------- */
   useEffect(() => {
-    if (!token) return;
+    // 🔥 FIX: token nahi hai to loading off karo
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     const loadInterestedLeads = async () => {
       try {
@@ -47,6 +51,7 @@ export default function InterestedPartnersPage({ token }: Props) {
         );
 
         const data = await res.json();
+
         if (!res.ok || !data.success) {
           throw new Error(data?.message || "Failed to load leads");
         }
@@ -65,7 +70,7 @@ export default function InterestedPartnersPage({ token }: Props) {
           err.message || "Failed to load interested partners"
         );
       } finally {
-        setLoading(false);
+        setLoading(false); // 🔥 GUARANTEED EXIT
       }
     };
 
@@ -76,6 +81,8 @@ export default function InterestedPartnersPage({ token }: Props) {
      MARK AS CONVERTED
   ---------------------------------------- */
   const markConverted = async (leadId: string) => {
+    if (!token) return;
+
     try {
       const res = await fetch("/api/staff/leads/update-status", {
         method: "POST",

@@ -13,7 +13,7 @@ type Lead = {
   mobile?: string;
   city?: string;
   status?: string;
-  followupDate?: string;
+  followupDate?: string | null;
 };
 
 type Props = {
@@ -28,17 +28,23 @@ const isSameDay = (a: Date, b: Date) =>
   a.getMonth() === b.getMonth() &&
   a.getDate() === b.getDate();
 
-const isOverdue = (date?: string) => {
-  if (!date) return false;
-  return new Date(date) < new Date(new Date().toDateString());
+const startOfToday = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
 };
 
-const isToday = (date?: string) => {
+const isOverdue = (date?: string | null) => {
+  if (!date) return false;
+  return new Date(date) < startOfToday();
+};
+
+const isToday = (date?: string | null) => {
   if (!date) return false;
   return isSameDay(new Date(date), new Date());
 };
 
-const isTomorrow = (date?: string) => {
+const isTomorrow = (date?: string | null) => {
   if (!date) return false;
   const t = new Date();
   t.setDate(t.getDate() + 1);
@@ -59,7 +65,7 @@ export default function CallbackLeadsPage({ token }: Props) {
      FETCH CALLBACK LEADS
   ---------------------------------------- */
   useEffect(() => {
-    // 🔥 FIX: token nahi hai to loading band karo
+    // 🔥 token late aata hai → loading band
     if (!token) {
       setLoading(false);
       return;
@@ -88,7 +94,7 @@ export default function CallbackLeadsPage({ token }: Props) {
         console.error("Callback leads error:", err);
         toast.error(err.message || "Failed to load callback leads");
       } finally {
-        setLoading(false); // 🔥 GUARANTEED EXIT
+        setLoading(false);
       }
     };
 
@@ -96,7 +102,7 @@ export default function CallbackLeadsPage({ token }: Props) {
   }, [token]);
 
   /* ---------------------------------------
-     AUTO REMINDER
+     AUTO REMINDER (INFO ONLY)
   ---------------------------------------- */
   useEffect(() => {
     if (!leads.length) return;
@@ -117,19 +123,25 @@ export default function CallbackLeadsPage({ token }: Props) {
   }, [leads]);
 
   /* ---------------------------------------
-     FILTERED LEADS
+     FILTERED LEADS (SAFE)
   ---------------------------------------- */
   const filteredLeads = useMemo(() => {
     return leads.filter((l) => {
-      if (filter === "today") return isToday(l.followupDate);
-      if (filter === "tomorrow") return isTomorrow(l.followupDate);
-      if (filter === "overdue") return isOverdue(l.followupDate);
-      return true;
+      if (filter === "today")
+        return l.followupDate && isToday(l.followupDate);
+
+      if (filter === "tomorrow")
+        return l.followupDate && isTomorrow(l.followupDate);
+
+      if (filter === "overdue")
+        return l.followupDate && isOverdue(l.followupDate);
+
+      return true; // all
     });
   }, [leads, filter]);
 
   /* ---------------------------------------
-     CALLBACK COMPLETE
+     MARK CALLBACK COMPLETE
   ---------------------------------------- */
   const markCompleted = async (leadId: string) => {
     try {
@@ -168,7 +180,7 @@ export default function CallbackLeadsPage({ token }: Props) {
     );
   }
 
-  if (!leads.length) {
+  if (!filteredLeads.length) {
     return (
       <div className="p-6 text-sm text-gray-500">
         No callback leads 🎉
@@ -176,6 +188,9 @@ export default function CallbackLeadsPage({ token }: Props) {
     );
   }
 
+  /* ---------------------------------------
+     UI
+  ---------------------------------------- */
   return (
     <div className="p-6 space-y-4">
       <h1 className="text-lg font-semibold">⏰ Callback Leads</h1>

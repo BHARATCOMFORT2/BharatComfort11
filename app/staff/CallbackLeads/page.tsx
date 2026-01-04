@@ -13,7 +13,7 @@ type Lead = {
   mobile?: string;
   city?: string;
   status?: string;
-  followupDate?: string; // backend field
+  followupDate?: string;
 };
 
 type Props = {
@@ -59,7 +59,11 @@ export default function CallbackLeadsPage({ token }: Props) {
      FETCH CALLBACK LEADS
   ---------------------------------------- */
   useEffect(() => {
-    if (!token) return;
+    // 🔥 FIX: token nahi hai to loading band karo
+    if (!token) {
+      setLoading(false);
+      return;
+    }
 
     const load = async () => {
       try {
@@ -84,7 +88,7 @@ export default function CallbackLeadsPage({ token }: Props) {
         console.error("Callback leads error:", err);
         toast.error(err.message || "Failed to load callback leads");
       } finally {
-        setLoading(false);
+        setLoading(false); // 🔥 GUARANTEED EXIT
       }
     };
 
@@ -92,7 +96,7 @@ export default function CallbackLeadsPage({ token }: Props) {
   }, [token]);
 
   /* ---------------------------------------
-     AUTO REMINDER (ONCE PER LOAD)
+     AUTO REMINDER
   ---------------------------------------- */
   useEffect(() => {
     if (!leads.length) return;

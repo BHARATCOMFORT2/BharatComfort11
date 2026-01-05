@@ -228,7 +228,7 @@ const res = await fetch(
      setLeads(data.leads || []);
 
       const d: Record<string, string> = {};
-      data.tasks?.forEach((l: Lead) => (d[l.id] = ""));
+      data.leads?.forEach((l: Lead) => (d[l.id] = ""));
       setNotesDraft(d);
     } catch (e) {
       toast.error("Tasks load nahi ho paaye");

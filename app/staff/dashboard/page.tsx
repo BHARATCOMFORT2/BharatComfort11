@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
@@ -10,7 +9,7 @@ import toast from "react-hot-toast";
 import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
 import StaffPerformanceModule from "./performance/StaffPerformanceModule";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 /* ---------------------------------------
    TYPES
 ---------------------------------------- */
@@ -129,6 +128,7 @@ const isOverdue = (date?: string) =>
 ---------------------------------------- */
 export default function TelecallerDashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams(); // ✅ FIXED: defined properly
 
   const [staffId, setStaffId] = useState<string | null>(null);
   const [token, setToken] = useState("");
@@ -142,26 +142,19 @@ export default function TelecallerDashboardPage() {
     {}
   );
 
-  const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
-    null
-  );
-
-
- const [taskRange, setTaskRange] = useState<DateRangeType>("today");
-
-const [customFromDate, setCustomFromDate] = useState("");
-const [customToDate, setCustomToDate] = useState("");
-
+  const [taskRange, setTaskRange] = useState<DateRangeType>("today");
+  const [customFromDate, setCustomFromDate] = useState("");
+  const [customToDate, setCustomToDate] = useState("");
 
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
-/* ---------------------------------------
-   READ RANGE FROM URL (SIDEBAR SUPPORT)
----------------------------------------- */
- useEffect(() => {
+
+  /* ---------------------------------------
+     READ RANGE FROM URL (FIXED)
+  ---------------------------------------- */
+  useEffect(() => {
     const r = searchParams.get("range") as DateRangeType | null;
     setTaskRange(r || "today");
   }, [searchParams]);
-
   /* ---------------------------------------
      AUTH
   ---------------------------------------- */

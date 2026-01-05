@@ -6,7 +6,6 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
-import { useSearchParams } from "next/navigation";
 
 import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
@@ -214,11 +213,17 @@ useEffect(() => {
         customToDate
       );
 
-      const params = new URLSearchParams({
-        range: taskRange,
-        ...(fromDate ? { from: fromDate } : {}),
-        ...(toDate ? { to: toDate } : {}),
-      }).toString();
+     /* ---------------------------------------
+   READ RANGE FROM URL (SIDEBAR SUPPORT)
+---------------------------------------- */
+useEffect(() => {
+  if (typeof window === "undefined") return;
+
+  const params = new URLSearchParams(window.location.search);
+  const r = params.get("range") as DateRangeType | null;
+
+  if (r) setTaskRange(r);
+}, []);
 
       const res = await fetch(
         `/api/staff/leads/by-range?${params}`,

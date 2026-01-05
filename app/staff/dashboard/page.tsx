@@ -195,8 +195,8 @@ const [customToDate, setCustomToDate] = useState("");
   }, [router]);
 
   useEffect(() => {
- if (!token) return;
-if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
+  if (!token || !staffId) return; // 🔥 MOST IMPORTANT
+  if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
   const fetchTasks = async () => {
     setLoadingLeads(true);
@@ -207,30 +207,29 @@ if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
         customToDate
       );
 
-    const params = new URLSearchParams({
-  range: taskRange,
-  ...(fromDate ? { from: fromDate } : {}),
-  ...(toDate ? { to: toDate } : {}),
-}).toString();
+      const params = new URLSearchParams({
+        range: taskRange,
+        ...(fromDate ? { from: fromDate } : {}),
+        ...(toDate ? { to: toDate } : {}),
+      }).toString();
 
-const res = await fetch(
-  `/api/staff/leads/by-range?${params}`,
-  {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  }
-);
-       
+      const res = await fetch(
+        `/api/staff/leads/by-range?${params}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
 
-     setLeads(data.leads || []);
-
+      setLeads(data.leads || []);
       const d: Record<string, string> = {};
       data.leads?.forEach((l: Lead) => (d[l.id] = ""));
       setNotesDraft(d);
-    } catch (e) {
+    } catch {
       toast.error("Tasks load nahi ho paaye");
     } finally {
       setLoadingLeads(false);
@@ -240,6 +239,7 @@ const res = await fetch(
   fetchTasks();
 }, [
   token,
+  staffId,          // 🔥 ADD THIS
   taskRange,
   customFromDate,
   customToDate,

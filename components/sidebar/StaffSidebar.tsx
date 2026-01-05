@@ -36,6 +36,7 @@ export default function StaffSidebar({
   const Item = ({ href, label }: { href: string; label: string }) => (
     <Link
       href={href}
+      prefetch={false} // 🔥 VERY IMPORTANT: prevent RSC + 404 prefetch
       className={`block px-4 py-2 rounded text-sm transition ${
         isActive(href)
           ? "bg-black text-white"
@@ -77,24 +78,33 @@ export default function StaffSidebar({
 
       {/* MENU */}
       <nav className="flex-1 p-3 space-y-1">
+        {/* SINGLE DASHBOARD ENTRY */}
         <Item href="/staff/dashboard" label="📊 Dashboard" />
-        <Item href="/staff/dashboard" label="📞 Leads / Tasks" />
-        <Item href="/staff/InterestedPartners" label="⭐ Interested Partners" />
+
+        <Item
+          href="/staff/InterestedPartners"
+          label="⭐ Interested Partners"
+        />
         <Item href="/staff/CallbackLeads" label="⏰ Callbacks" />
-        <Item href="/staff/performance" label="📈 Performance" />
-        <Item href="/staff/earnings" label="💰 Earnings" />
         <Item href="/staff/settings" label="⚙️ Settings" />
 
+        {/* TASK RANGE FILTERS (SAFE – SAME PAGE) */}
         <div className="mt-4 border-t pt-4">
           <p className="text-xs font-semibold text-gray-500 mb-2">
             TASK RANGE
           </p>
 
           <Item href="/staff/dashboard?range=today" label="Today" />
-          <Item href="/staff/dashboard?range=yesterday" label="Yesterday" />
+          <Item
+            href="/staff/dashboard?range=yesterday"
+            label="Yesterday"
+          />
           <Item href="/staff/dashboard?range=week" label="This Week" />
           <Item href="/staff/dashboard?range=month" label="This Month" />
-          <Item href="/staff/dashboard?range=last_month" label="Last Month" />
+          <Item
+            href="/staff/dashboard?range=last_month"
+            label="Last Month"
+          />
           <Item href="/staff/dashboard?range=all" label="Total Leads" />
         </div>
       </nav>

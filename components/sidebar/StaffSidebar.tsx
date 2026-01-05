@@ -2,10 +2,6 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { onAuthStateChanged } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase-client";
 
 /* ---------------------------------------
    TYPES
@@ -19,44 +15,14 @@ type StaffProfile = {
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
-export default function StaffSidebar() {
+export default function StaffSidebar({
+  staff,
+}: {
+  staff: StaffProfile | null;
+}) {
   const pathname = usePathname();
   const router = useRouter();
 
-  const [staff, setStaff] = useState<StaffProfile>({
-    name: "",
-    photoURL: "",
-    role: "Staff",
-  });
-
-  /* ---------------------------------------
-     LOAD STAFF PROFILE
-  ---------------------------------------- */
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) return;
-
-      try {
-        const snap = await getDoc(doc(db, "staff", user.uid));
-        if (!snap.exists()) return;
-
-        const data = snap.data();
-        setStaff({
-          name: data?.name || user.displayName || "Staff",
-          photoURL: data?.photoURL || "",
-          role: data?.role || "Staff",
-        });
-      } catch (err) {
-        console.error("Sidebar staff load error", err);
-      }
-    });
-
-    return () => unsub();
-  }, []);
-
-  /* ---------------------------------------
-     HELPERS
-  ---------------------------------------- */
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
 
@@ -80,15 +46,12 @@ export default function StaffSidebar() {
     </Link>
   );
 
-  /* ---------------------------------------
-     UI
-  ---------------------------------------- */
   return (
     <aside className="w-[240px] min-h-screen border-r bg-white flex flex-col">
-      {/* ================= STAFF PROFILE ================= */}
+      {/* STAFF PROFILE */}
       <div className="p-4 border-b flex items-center gap-3">
         <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-          {staff.photoURL ? (
+          {staff?.photoURL ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={staff.photoURL}
@@ -97,22 +60,22 @@ export default function StaffSidebar() {
             />
           ) : (
             <span className="text-sm font-semibold text-gray-600">
-              {staff.name?.charAt(0) || "S"}
+              {staff?.name?.charAt(0) || "S"}
             </span>
           )}
         </div>
 
         <div>
           <div className="text-sm font-semibold">
-            {staff.name}
+            {staff?.name || "Staff"}
           </div>
           <div className="text-xs text-gray-500">
-            {staff.role}
+            {staff?.role || "Staff"}
           </div>
         </div>
       </div>
 
-      {/* ================= MAIN MENU ================= */}
+      {/* MENU */}
       <nav className="flex-1 p-3 space-y-1">
         <Item href="/staff/dashboard" label="📊 Dashboard" />
         <Item href="/staff/dashboard" label="📞 Leads / Tasks" />
@@ -122,57 +85,21 @@ export default function StaffSidebar() {
         <Item href="/staff/earnings" label="💰 Earnings" />
         <Item href="/staff/settings" label="⚙️ Settings" />
 
-        {/* ================= TASK / LEADS SECTION ================= */}
         <div className="mt-4 border-t pt-4">
           <p className="text-xs font-semibold text-gray-500 mb-2">
             TASK RANGE
           </p>
 
-          <Link
-            href="/staff/dashboard?range=today"
-            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
-          >
-            Today
-          </Link>
-
-          <Link
-            href="/staff/dashboard?range=yesterday"
-            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
-          >
-            Yesterday
-          </Link>
-
-          <Link
-            href="/staff/dashboard?range=week"
-            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
-          >
-            This Week
-          </Link>
-
-          <Link
-            href="/staff/dashboard?range=month"
-            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
-          >
-            This Month
-          </Link>
-
-          <Link
-            href="/staff/dashboard?range=last_month"
-            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
-          >
-            Last Month
-          </Link>
-
-          <Link
-            href="/staff/dashboard?range=all"
-            className="block px-4 py-2 rounded text-sm hover:bg-gray-100 text-gray-700"
-          >
-            Total Leads
-          </Link>
+          <Item href="/staff/dashboard?range=today" label="Today" />
+          <Item href="/staff/dashboard?range=yesterday" label="Yesterday" />
+          <Item href="/staff/dashboard?range=week" label="This Week" />
+          <Item href="/staff/dashboard?range=month" label="This Month" />
+          <Item href="/staff/dashboard?range=last_month" label="Last Month" />
+          <Item href="/staff/dashboard?range=all" label="Total Leads" />
         </div>
       </nav>
 
-      {/* ================= LOGOUT ================= */}
+      {/* LOGOUT */}
       <div className="p-3 border-t">
         <button
           onClick={logout}

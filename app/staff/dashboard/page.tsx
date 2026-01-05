@@ -195,7 +195,7 @@ const [customToDate, setCustomToDate] = useState("");
   }, [router]);
 
   useEffect(() => {
- if (!staffId || !token) return;
+ if (!token) return;
 if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
   const fetchTasks = async () => {

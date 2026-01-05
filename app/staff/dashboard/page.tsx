@@ -6,6 +6,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
 import { doc, getDoc } from "firebase/firestore";
 import toast from "react-hot-toast";
+import { useSearchParams } from "next/navigation";
 
 import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
@@ -154,6 +155,12 @@ const [customToDate, setCustomToDate] = useState("");
 
 
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
+const searchParams = useSearchParams();
+
+useEffect(() => {
+  const r = searchParams.get("range") as DateRangeType | null;
+  if (r) setTaskRange(r);
+}, [searchParams]);
 
   /* ---------------------------------------
      AUTH

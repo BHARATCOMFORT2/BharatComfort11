@@ -10,7 +10,7 @@ import toast from "react-hot-toast";
 import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
 import StaffPerformanceModule from "./performance/StaffPerformanceModule";
-
+import { useSearchParams } from "next/navigation";
 /* ---------------------------------------
    TYPES
 ---------------------------------------- */
@@ -157,14 +157,10 @@ const [customToDate, setCustomToDate] = useState("");
 /* ---------------------------------------
    READ RANGE FROM URL (SIDEBAR SUPPORT)
 ---------------------------------------- */
-useEffect(() => {
-  if (typeof window === "undefined") return;
-
-  const params = new URLSearchParams(window.location.search);
-  const r = params.get("range") as DateRangeType | null;
-
-  if (r) setTaskRange(r);
-}, []);
+ useEffect(() => {
+    const r = searchParams.get("range") as DateRangeType | null;
+    setTaskRange(r || "today");
+  }, [searchParams]);
 
   /* ---------------------------------------
      AUTH
@@ -208,6 +204,8 @@ useEffect(() => {
   if (!token || !staffId) return;
   if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
+  let alive = true; // ✅ guard
+
   const fetchTasks = async () => {
     setLoadingLeads(true);
     try {
@@ -235,29 +233,26 @@ useEffect(() => {
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
 
-      setLeads(data.leads || []);
-
-      const d: Record<string, string> = {};
-      data.leads?.forEach((l: Lead) => {
-        d[l.id] = "";
-      });
-      setNotesDraft(d);
+      if (alive) {
+        setLeads(data.leads || []);
+        setNotesDraft(
+          Object.fromEntries(
+            (data.leads || []).map((l: Lead) => [l.id, ""])
+          )
+        );
+      }
     } catch {
-      toast.error("Tasks load nahi ho paaye");
+      if (alive) setLeads([]);
     } finally {
-      setLoadingLeads(false);
+      if (alive) setLoadingLeads(false);
     }
   };
 
   fetchTasks();
-}, [
-  token,
-  staffId,
-  taskRange,
-  customFromDate,
-  customToDate,
-]);
-
+  return () => {
+    alive = false; // ✅ prevent stale overwrite
+  };
+}, [token, staffId, taskRange, customFromDate, customToDate]);
 
    
   /* ---------------------------------------

@@ -154,12 +154,17 @@ const [customToDate, setCustomToDate] = useState("");
 
 
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
-const searchParams = useSearchParams();
-
+/* ---------------------------------------
+   READ RANGE FROM URL (SIDEBAR SUPPORT)
+---------------------------------------- */
 useEffect(() => {
-  const r = searchParams.get("range") as DateRangeType | null;
+  if (typeof window === "undefined") return;
+
+  const params = new URLSearchParams(window.location.search);
+  const r = params.get("range") as DateRangeType | null;
+
   if (r) setTaskRange(r);
-}, [searchParams]);
+}, []);
 
   /* ---------------------------------------
      AUTH

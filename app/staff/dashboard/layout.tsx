@@ -1,16 +1,13 @@
 import StaffSidebar from "@/components/sidebar/StaffSidebar";
-import { getStaffSession } from "@/lib/staff-session"; // example
 
-export default async function StaffLayout({
+export default function StaffDashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const staff = await getStaffSession(); // 👈 STAFF FETCH
-
   return (
     <div className="flex min-h-screen">
-      <StaffSidebar staff={staff} /> {/* ✅ REQUIRED */}
+      <StaffSidebar /> {/* ❌ no staff-session */}
       <main className="flex-1 bg-gray-50">{children}</main>
     </div>
   );

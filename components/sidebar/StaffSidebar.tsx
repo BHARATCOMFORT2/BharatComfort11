@@ -4,22 +4,10 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 /* ---------------------------------------
-   TYPES
----------------------------------------- */
-type StaffProfile = {
-  name?: string;
-  photoURL?: string;
-  role?: string;
-};
-
-/* ---------------------------------------
    COMPONENT
+   (SAFE • NO AUTH • NO STAFF DEPENDENCY)
 ---------------------------------------- */
-export default function StaffSidebar({
-  staff,
-}: {
-  staff: StaffProfile | null;
-}) {
+export default function StaffSidebar() {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -36,7 +24,7 @@ export default function StaffSidebar({
   const Item = ({ href, label }: { href: string; label: string }) => (
     <Link
       href={href}
-      prefetch={false} // 🔥 VERY IMPORTANT: prevent RSC + 404 prefetch
+      prefetch={false} // 🔥 prevent RSC / prefetch race issues
       className={`block px-4 py-2 rounded text-sm transition ${
         isActive(href)
           ? "bg-black text-white"
@@ -49,38 +37,21 @@ export default function StaffSidebar({
 
   return (
     <aside className="w-[240px] min-h-screen border-r bg-white flex flex-col">
-      {/* STAFF PROFILE */}
+      {/* STATIC STAFF HEADER (NO DATA DEPENDENCY) */}
       <div className="p-4 border-b flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
-          {staff?.photoURL ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={staff.photoURL}
-              alt="Staff"
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <span className="text-sm font-semibold text-gray-600">
-              {staff?.name?.charAt(0) || "S"}
-            </span>
-          )}
+        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+          <span className="text-sm font-semibold text-gray-600">S</span>
         </div>
 
         <div>
-          <div className="text-sm font-semibold">
-            {staff?.name || "Staff"}
-          </div>
-          <div className="text-xs text-gray-500">
-            {staff?.role || "Staff"}
-          </div>
+          <div className="text-sm font-semibold">Staff</div>
+          <div className="text-xs text-gray-500">Telecaller</div>
         </div>
       </div>
 
       {/* MENU */}
       <nav className="flex-1 p-3 space-y-1">
-        {/* SINGLE DASHBOARD ENTRY */}
         <Item href="/staff/dashboard" label="📊 Dashboard" />
-
         <Item
           href="/staff/InterestedPartners"
           label="⭐ Interested Partners"
@@ -88,7 +59,7 @@ export default function StaffSidebar({
         <Item href="/staff/CallbackLeads" label="⏰ Callbacks" />
         <Item href="/staff/settings" label="⚙️ Settings" />
 
-        {/* TASK RANGE FILTERS (SAFE – SAME PAGE) */}
+        {/* TASK RANGE FILTERS */}
         <div className="mt-4 border-t pt-4">
           <p className="text-xs font-semibold text-gray-500 mb-2">
             TASK RANGE

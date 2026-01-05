@@ -114,7 +114,7 @@ async function handleRequest(
   ------------------------------------ */
   const snapshot = await adminDb
     .collection("leads")
-    .where("assignedStaffId", "==", staffId) // ✅ FIXED
+    .where("assignedTo", "==", staffId)
     .get();
 
   const now = getISTNow();

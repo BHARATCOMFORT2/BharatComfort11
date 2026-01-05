@@ -199,8 +199,7 @@ useEffect(() => {
 
     return () => unsub();
   }, [router]);
-
- useEffect(() => {
+useEffect(() => {
   if (!token || !staffId) return;
   if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 

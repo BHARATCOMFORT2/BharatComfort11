@@ -1,15 +1,62 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 /* ---------------------------------------
+   TYPES
+---------------------------------------- */
+type StaffProfile = {
+  name?: string;
+  photoURL?: string;
+  role?: string;
+};
+
+/* ---------------------------------------
    COMPONENT
-   (SAFE • NO AUTH • NO STAFF DEPENDENCY)
 ---------------------------------------- */
 export default function StaffSidebar() {
   const pathname = usePathname();
   const router = useRouter();
+
+  const [staff, setStaff] = useState<StaffProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  /* ---------------------------------------
+     FETCH STAFF PROFILE (CLIENT SAFE)
+  ---------------------------------------- */
+  useEffect(() => {
+    let mounted = true;
+
+    const loadStaff = async () => {
+      try {
+        const res = await fetch("/api/auth/me", {
+          credentials: "include",
+        });
+
+        if (!res.ok) return;
+
+        const data = await res.json();
+        if (mounted && data?.user?.role === "staff") {
+          setStaff({
+            name: data.user.name,
+            photoURL: data.user.photoURL,
+            role: data.user.staffRole || "Telecaller",
+          });
+        }
+      } catch {
+        // silent fail (do not break sidebar)
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    loadStaff();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const isActive = (href: string) =>
     pathname === href || pathname.startsWith(href + "/");
@@ -24,7 +71,7 @@ export default function StaffSidebar() {
   const Item = ({ href, label }: { href: string; label: string }) => (
     <Link
       href={href}
-      prefetch={false} // 🔥 prevent RSC / prefetch race issues
+      prefetch={false} // 🔥 prevent RSC / prefetch race
       className={`block px-4 py-2 rounded text-sm transition ${
         isActive(href)
           ? "bg-black text-white"
@@ -37,15 +84,30 @@ export default function StaffSidebar() {
 
   return (
     <aside className="w-[240px] min-h-screen border-r bg-white flex flex-col">
-      {/* STATIC STAFF HEADER (NO DATA DEPENDENCY) */}
+      {/* STAFF PROFILE (SAFE) */}
       <div className="p-4 border-b flex items-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-          <span className="text-sm font-semibold text-gray-600">S</span>
+        <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center overflow-hidden">
+          {!loading && staff?.photoURL ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={staff.photoURL}
+              alt="Staff"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <span className="text-sm font-semibold text-gray-600">
+              {staff?.name?.charAt(0) || "S"}
+            </span>
+          )}
         </div>
 
         <div>
-          <div className="text-sm font-semibold">Staff</div>
-          <div className="text-xs text-gray-500">Telecaller</div>
+          <div className="text-sm font-semibold">
+            {staff?.name || "Staff"}
+          </div>
+          <div className="text-xs text-gray-500">
+            {staff?.role || "Telecaller"}
+          </div>
         </div>
       </div>
 

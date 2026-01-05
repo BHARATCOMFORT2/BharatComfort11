@@ -207,19 +207,21 @@ if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
         customToDate
       );
 
-      const res = await fetch("/api/staff/leads/by-range", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          range: taskRange,
-          fromDate,
-          toDate,
-        }),
-      });
+    const params = new URLSearchParams({
+  range: taskRange,
+  ...(fromDate ? { from: fromDate } : {}),
+  ...(toDate ? { to: toDate } : {}),
+}).toString();
 
+const res = await fetch(
+  `/api/staff/leads/by-range?${params}`,
+  {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  }
+);
+       
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
 

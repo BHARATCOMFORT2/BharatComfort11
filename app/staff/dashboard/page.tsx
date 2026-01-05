@@ -200,8 +200,8 @@ useEffect(() => {
     return () => unsub();
   }, [router]);
 
-  useEffect(() => {
-  if (!token || !staffId) return; // 🔥 MOST IMPORTANT
+ useEffect(() => {
+  if (!token || !staffId) return;
   if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
   const fetchTasks = async () => {
@@ -213,17 +213,11 @@ useEffect(() => {
         customToDate
       );
 
-     /* ---------------------------------------
-   READ RANGE FROM URL (SIDEBAR SUPPORT)
----------------------------------------- */
-useEffect(() => {
-  if (typeof window === "undefined") return;
-
-  const params = new URLSearchParams(window.location.search);
-  const r = params.get("range") as DateRangeType | null;
-
-  if (r) setTaskRange(r);
-}, []);
+      const params = new URLSearchParams({
+        range: taskRange,
+        ...(fromDate ? { from: fromDate } : {}),
+        ...(toDate ? { to: toDate } : {}),
+      }).toString();
 
       const res = await fetch(
         `/api/staff/leads/by-range?${params}`,
@@ -238,8 +232,11 @@ useEffect(() => {
       if (!res.ok || !data.success) throw new Error();
 
       setLeads(data.leads || []);
+
       const d: Record<string, string> = {};
-      data.leads?.forEach((l: Lead) => (d[l.id] = ""));
+      data.leads?.forEach((l: Lead) => {
+        d[l.id] = "";
+      });
       setNotesDraft(d);
     } catch {
       toast.error("Tasks load nahi ho paaye");
@@ -251,11 +248,12 @@ useEffect(() => {
   fetchTasks();
 }, [
   token,
-  staffId,          // 🔥 ADD THIS
+  staffId,
   taskRange,
   customFromDate,
   customToDate,
 ]);
+
 
    
   /* ---------------------------------------

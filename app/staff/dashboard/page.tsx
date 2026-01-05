@@ -1,5 +1,5 @@
 "use client";
-
+export const dynamic = "force-dynamic";
 import React, { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
@@ -132,7 +132,9 @@ export default function TelecallerDashboardPage() {
 
   const [staffId, setStaffId] = useState<string | null>(null);
   const [token, setToken] = useState("");
-
+const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
+  null
+);
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingLeads, setLoadingLeads] = useState(false);
 

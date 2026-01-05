@@ -223,7 +223,7 @@ if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
       const data = await res.json();
       if (!res.ok || !data.success) throw new Error();
 
-      setLeads(data.tasks || []);
+     setLeads(data.leads || []);
 
       const d: Record<string, string> = {};
       data.tasks?.forEach((l: Lead) => (d[l.id] = ""));
@@ -237,7 +237,6 @@ if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
   fetchTasks();
 }, [
-  staffId,
   token,
   taskRange,
   customFromDate,
@@ -419,7 +418,7 @@ if (loadingUser) {
 if (!staffId) return null;
 
 return (
-    <div className="grid grid-cols-[260px_1fr] gap-4 p-4">
+   <div className="p-4">
      
       {/* ================= RIGHT CONTENT ================= */}
       <div className="space-y-6">

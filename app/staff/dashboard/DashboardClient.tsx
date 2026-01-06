@@ -282,6 +282,7 @@ useEffect(() => {
             : l
         )
       );
+       setCallbackDates((p) => ({ ...p, [leadId]: "" }));
     } catch {
       toast.error("Status update failed");
     }
@@ -531,57 +532,58 @@ return (
                             />
 
                             <div className="flex gap-1 mt-1">
-                              <button
-                                onClick={() =>
-                                  updateStatus(
-                                    lead.id,
-                                    "callback",
-                                    todayStr()
-                                  )
-                                }
-                                className="text-xs px-1 bg-gray-200"
-                              >
-                                Today
-                              </button>
-                              <button
-                                onClick={() =>
-                                  updateStatus(
-                                    lead.id,
-                                    "callback",
-                                    tomorrowStr()
-                                  )
-                                }
-                                className="text-xs px-1 bg-gray-200"
-                              >
-                                Tomorrow
-                              </button>
-                              <button
-                                onClick={() =>
-                                  updateStatus(
-                                    lead.id,
-                                    "callback",
-                                    nextWeekStr()
-                                  )
-                                }
-                                className="text-xs px-1 bg-gray-200"
-                              >
-                                Next Week
-                              </button>
-                            </div>
+                             <button
+  onClick={() =>
+    setCallbackDates((p) => ({
+      ...p,
+      [lead.id]: todayStr(),
+    }))
+  }
+  className="text-xs px-1 bg-gray-200"
+>
+  Today
+</button>
+                             <button
+  onClick={() =>
+    setCallbackDates((p) => ({
+      ...p,
+      [lead.id]: tomorrowStr(),
+    }))
+  }
+  className="text-xs px-1 bg-gray-200"
+>
+  Tomorrow
+</button>
 
-                            <button
-                              onClick={() =>
-                                updateStatus(
-                                  lead.id,
-                                  "callback",
-                                  callbackDates[lead.id]
-                                )
-                              }
-                              className="mt-1 bg-orange-600 text-white text-xs px-2 py-1"
-                            >
-                              Save Callback
-                            </button>
-                          </>
+<button
+  onClick={() =>
+    setCallbackDates((p) => ({
+      ...p,
+      [lead.id]: nextWeekStr(),
+    }))
+  }
+  className="text-xs px-1 bg-gray-200"
+>
+  Next Week
+</button>
+ </div>
+<button
+  onClick={() => {
+    const date =
+      callbackDates[lead.id] || lead.followupDate;
+
+    if (!date) {
+      toast.error("Callback date select karo");
+      return;
+    }
+
+    updateStatus(lead.id, "callback", date);
+  }}
+  className="mt-1 bg-orange-600 text-white text-xs px-2 py-1"
+>
+  Save Callback
+</button>
+
                         )}
                       </td>
 

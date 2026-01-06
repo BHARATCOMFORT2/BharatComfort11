@@ -1,5 +1,4 @@
 "use client";
-export const dynamic = "force-dynamic";
 import React, { useEffect, useState } from "react";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { auth, db } from "@/lib/firebase-client";
@@ -10,6 +9,7 @@ import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
 import StaffPerformanceModule from "./performance/StaffPerformanceModule";
 import { useRouter, useSearchParams } from "next/navigation";
+export const dynamic = "force-dynamic";
 /* ---------------------------------------
    TYPES
 ---------------------------------------- */

@@ -192,7 +192,6 @@ const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
         setLoadingUser(false);
       }
     });
-
     return () => unsub();
   }, [router]);
 useEffect(() => {

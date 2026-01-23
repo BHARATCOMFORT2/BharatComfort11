@@ -386,45 +386,46 @@ if (loadingUser) {
 if (!staffId) return null;
 
 return (
-  <div className="space-y-6">
-        {/* 💰 EARNINGS */}
-        <StaffEarningsModule token={token} />
+  <>
+    <div className="space-y-6">
+      {/* 💰 EARNINGS */}
+      <StaffEarningsModule token={token} />
 
-        {/* 📊 PERFORMANCE */}
-        <StaffPerformanceModule token={token} />
+      {/* 📊 PERFORMANCE */}
+      <StaffPerformanceModule token={token} />
 
-        <div className="space-y-4">
-          {taskRange === "custom" && (
-            <div className="flex gap-2">
-              <input
-                type="date"
-                value={customFromDate}
-                onChange={(e) => setCustomFromDate(e.target.value)}
-              />
-              <input
-                type="date"
-                value={customToDate}
-                onChange={(e) => setCustomToDate(e.target.value)}
-              />
-            </div>
-          )}
-
-          <div className="text-xs text-gray-600">
-            Showing <b>{leads.length}</b> leads{" "}
-            {taskRange === "all" && "(All Time)"}
+      <div className="space-y-4">
+        {taskRange === "custom" && (
+          <div className="flex gap-2">
+            <input
+              type="date"
+              value={customFromDate}
+              onChange={(e) => setCustomFromDate(e.target.value)}
+            />
+            <input
+              type="date"
+              value={customToDate}
+              onChange={(e) => setCustomToDate(e.target.value)}
+            />
           </div>
+        )}
 
-          <div className="flex gap-4 border-b pb-2">
-            <button onClick={() => setActiveTab("tasks")}>Tasks</button>
-            <button onClick={() => setActiveTab("calllogs")}>
-              📞 Call Logs
-            </button>
-          </div>
+        <div className="text-xs text-gray-600">
+          Showing <b>{leads.length}</b> leads{" "}
+          {taskRange === "all" && "(All Time)"}
+        </div>
 
-          {activeTab === "calllogs" && <CallLogsTab token={token} />}
+        <div className="flex gap-4 border-b pb-2">
+          <button onClick={() => setActiveTab("tasks")}>Tasks</button>
+          <button onClick={() => setActiveTab("calllogs")}>
+            📞 Call Logs
+          </button>
+        </div>
 
-          {activeTab === "tasks" && (
-  <div className="bg-white rounded shadow overflow-x-auto">
+        {activeTab === "calllogs" && <CallLogsTab token={token} />}
+
+        {activeTab === "tasks" && (
+          <div className="bg-white rounded shadow overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-100">
                   <tr>

@@ -1,15 +1,19 @@
 "use client";
-import React, { useEffect, useState } from "react";
-import { onAuthStateChanged, signOut } from "firebase/auth";
-import { auth, db } from "@/lib/firebase-client";
-import { doc, getDoc } from "firebase/firestore";
+
+import { useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
+
+import { onAuthStateChanged, signOut } from "firebase/auth";
+import { doc, getDoc, Timestamp } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase-client";
 
 import CallLogsTab from "./components/CallLogsTab";
 import StaffEarningsModule from "./earnings/StaffEarningsModule";
 import StaffPerformanceModule from "./performance/StaffPerformanceModule";
-import { useRouter, useSearchParams } from "next/navigation";
+
 export const dynamic = "force-dynamic";
+
 /* ---------------------------------------
    TYPES
 ---------------------------------------- */
@@ -21,9 +25,18 @@ type Lead = {
   email?: string;
   status: string;
   followupDate?: string;
-  lastCalledAt?: any;
+  lastCalledAt?: Timestamp | null;
   lastNote?: string;
 };
+
+type DateRangeType =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "month"
+  | "last_month"
+  | "custom"
+  | "all";
 
 /* ---------------------------------------
    CONSTANTS
@@ -38,8 +51,8 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
- /*---------------------------------------
-   DATE HELPERS (FINAL + COMPLETE)
+/* ---------------------------------------
+   DATE HELPERS
 ---------------------------------------- */
 const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -63,39 +76,37 @@ const nextWeekStr = () => {
   return toDateStr(d);
 };
 
-type DateRangeType =
-  | "today"
-  | "yesterday"
-  | "week"
-  | "month"
-  | "last_month"
-  | "custom"
-  | "all";
-
 const rangeToDates = (
   range: DateRangeType,
   customFrom?: string,
   customTo?: string
 ) => {
   const today = startOfToday();
-  let from: Date | null = new Date(today);
-  let to: Date | null = new Date(today);
+  let from: Date | null = null;
+  let to: Date | null = null;
 
   switch (range) {
     case "today":
+      from = today;
+      to = today;
       break;
 
     case "yesterday":
-      from!.setDate(from!.getDate() - 1);
-      to!.setDate(to!.getDate() - 1);
+      from = new Date(today);
+      to = new Date(today);
+      from.setDate(from.getDate() - 1);
+      to.setDate(to.getDate() - 1);
       break;
 
     case "week":
-      from!.setDate(from!.getDate() - 6);
+      from = new Date(today);
+      from.setDate(from.getDate() - 6);
+      to = today;
       break;
 
     case "month":
       from = new Date(today.getFullYear(), today.getMonth(), 1);
+      to = today;
       break;
 
     case "last_month":
@@ -104,9 +115,7 @@ const rangeToDates = (
       break;
 
     case "custom":
-      if (!customFrom || !customTo) {
-        throw new Error("Custom date range missing");
-      }
+      if (!customFrom || !customTo) throw new Error();
       from = new Date(customFrom);
       to = new Date(customTo);
       break;
@@ -123,18 +132,20 @@ const rangeToDates = (
 
 const isOverdue = (date?: string) =>
   date ? new Date(date) < startOfToday() : false;
+
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
 export default function TelecallerDashboardPage() {
   const router = useRouter();
-  const searchParams = useSearchParams(); // ✅ FIXED: defined properly
+  const searchParams = useSearchParams();
 
   const [staffId, setStaffId] = useState<string | null>(null);
   const [token, setToken] = useState("");
-const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
-  null
-);
+  const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
+    null
+  );
+
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingLeads, setLoadingLeads] = useState(false);
 
@@ -151,14 +162,15 @@ const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
   const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
 
   /* ---------------------------------------
-     READ RANGE FROM URL (FIXED)
+     READ RANGE FROM URL
   ---------------------------------------- */
   useEffect(() => {
-    const r = searchParams.get("range") as DateRangeType | null;
-    setTaskRange(r || "today");
+    const r = searchParams.get("range");
+    if (r) setTaskRange(r as DateRangeType);
   }, [searchParams]);
+
   /* ---------------------------------------
-     AUTH
+     AUTH CHECK
   ---------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
@@ -182,8 +194,7 @@ const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
           name:
             profile.name ||
             user.displayName ||
-            user.email?.split("@")[0] ||
-            "Telecaller",
+            user.email?.split("@")[0],
         });
       } catch {
         await signOut(auth);
@@ -192,63 +203,65 @@ const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
         setLoadingUser(false);
       }
     });
+
     return () => unsub();
   }, [router]);
-useEffect(() => {
-  if (!token || !staffId) return;
-  if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
-  let alive = true; // ✅ guard
+  /* ---------------------------------------
+     FETCH LEADS
+  ---------------------------------------- */
+  useEffect(() => {
+    if (!token || !staffId) return;
+    if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
 
-  const fetchTasks = async () => {
-    setLoadingLeads(true);
-    try {
-      const { fromDate, toDate } = rangeToDates(
-        taskRange,
-        customFromDate,
-        customToDate
-      );
+    let alive = true;
 
-      const params = new URLSearchParams({
-        range: taskRange,
-        ...(fromDate ? { from: fromDate } : {}),
-        ...(toDate ? { to: toDate } : {}),
-      }).toString();
-
-      const res = await fetch(
-        `/api/staff/leads/by-range?${params}`,
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error();
-
-      if (alive) {
-        setLeads(data.leads || []);
-        setNotesDraft(
-          Object.fromEntries(
-            (data.leads || []).map((l: Lead) => [l.id, ""])
-          )
+    const fetchLeads = async () => {
+      setLoadingLeads(true);
+      try {
+        const { fromDate, toDate } = rangeToDates(
+          taskRange,
+          customFromDate,
+          customToDate
         );
+
+        const params = new URLSearchParams({
+          range: taskRange,
+          ...(fromDate ? { from: fromDate } : {}),
+          ...(toDate ? { to: toDate } : {}),
+        });
+
+        const res = await fetch(
+          `/api/staff/leads/by-range?${params.toString()}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        const data = await res.json();
+        if (!res.ok || !data.success) throw new Error();
+
+        if (alive) {
+          setLeads(data.leads || []);
+          setNotesDraft(
+            Object.fromEntries(
+              (data.leads || []).map((l: Lead) => [l.id, ""])
+            )
+          );
+        }
+      } catch {
+        if (alive) toast.error("Failed to load leads");
+      } finally {
+        if (alive) setLoadingLeads(false);
       }
-    } catch {
-      if (alive) setLeads([]);
-    } finally {
-      if (alive) setLoadingLeads(false);
-    }
-  };
+    };
 
-  fetchTasks();
-  return () => {
-    alive = false; // ✅ prevent stale overwrite
-  };
-}, [token, staffId, taskRange, customFromDate, customToDate]);
+    fetchLeads();
+    return () => {
+      alive = false;
+    };
+  }, [token, staffId, taskRange, customFromDate, customToDate]);
 
-   
   /* ---------------------------------------
      STATUS UPDATE
   ---------------------------------------- */
@@ -258,7 +271,7 @@ useEffect(() => {
     callbackDate?: string
   ) => {
     if (status === "callback" && !callbackDate) {
-      return toast.error("Callback date zaroori hai");
+      return toast.error("Callback date is required");
     }
 
     try {
@@ -281,140 +294,89 @@ useEffect(() => {
             : l
         )
       );
-       setCallbackDates((p) => ({ ...p, [leadId]: "" }));
+      setCallbackDates((p) => ({ ...p, [leadId]: "" }));
     } catch {
       toast.error("Status update failed");
     }
   };
 
- /* ---------------------------------------
-   SAVE NOTE
----------------------------------------- */
-const saveNote = async (leadId: string) => {
-  const text = notesDraft[leadId];
-
-  // ✅ empty / spaces-only note block
-  if (!text?.trim()) {
-    return toast.error("Note khali hai");
-  }
-
-  try {
-    const res = await fetch("/api/staff/leads/update-notes", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({ leadId, text }),
-    });
-
-    const data = await res.json();
-
-    // ✅ strong success check
-    if (!res.ok || !data.success || !data.note) {
-      throw new Error();
-    }
-
-    // ✅ backend-returned note se UI sync
-    setLeads((p) =>
-      p.map((l) =>
-        l.id === leadId
-          ? { ...l, lastNote: data.note.text }
-          : l
-      )
-    );
-
-    // ✅ clear textarea
-    setNotesDraft((p) => ({ ...p, [leadId]: "" }));
-  } catch {
-    toast.error("Note save failed");
-  }
-};
- /* ---------------------------------------
-   CALL LOG
----------------------------------------- */
-const logCall = async (lead: Lead) => {
-  if (!token || !lead?.id || !lead?.phone) return;
-
-  try {
-    const res = await fetch("/api/staff/calls/log", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        leadId: lead.id,
-        phone: lead.phone,
-        outcome: "dialed",
-      }),
-    });
-
-    const data = await res.json().catch(() => null);
-
-    if (!res.ok || !data?.success) {
-      throw new Error("Call log failed");
-    }
-  } catch (err) {
-    console.error("Call log error:", err);
-  }
-};
-
   /* ---------------------------------------
-     WHATSAPP
+     SAVE NOTE
   ---------------------------------------- */
-  const openWhatsApp = (phone?: string, name?: string) => {
-    if (!phone) return toast.error("Phone number nahi mila");
+  const saveNote = async (leadId: string) => {
+    const text = notesDraft[leadId];
+    if (!text?.trim()) return toast.error("Note is empty");
 
-    const clean = phone.replace(/\D/g, "");
-    const message = `Namaste Sir/Ma'am ${name || ""},
+    try {
+      const res = await fetch("/api/staff/leads/update-notes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ leadId, text }),
+      });
 
-   BharatComfort team se aapse aapke business ka free listings ke regarding contact kar rahe hain.
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error();
 
-Aapke hotel/business ko BharatComfort par list karne ke liye kuch basic details chahiye:
+      setLeads((p) =>
+        p.map((l) =>
+          l.id === leadId ? { ...l, lastNote: data.note.text } : l
+        )
+      );
 
-🏨 Hotel / Property Photos
-🛏 Room Categories
-💰 Room Prices
-📍 Complete Address
-🧾 GST (optional)
-🪪 Owner Aadhaar (optional)
-
-Aap yeh details yahin WhatsApp par bhej sakte hain.
-
-Dhanyavaad 🙏
-BharatComfort Team`;
-
-    window.location.href = `https://wa.me/91${clean}?text=${encodeURIComponent(
-      message
-    )}`;
+      setNotesDraft((p) => ({ ...p, [leadId]: "" }));
+    } catch {
+      toast.error("Note save failed");
+    }
   };
 
   /* ---------------------------------------
-     EMAIL
+     ACTION HELPERS (FIXED)
   ---------------------------------------- */
+  const logCall = async (lead: Lead) => {
+    if (!token || !lead.id || !lead.phone) return;
+    try {
+      await fetch("/api/staff/calls/log", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          leadId: lead.id,
+          phone: lead.phone,
+          outcome: "dialed",
+        }),
+      });
+    } catch {}
+  };
+
+  const openWhatsApp = (phone?: string, name?: string) => {
+    if (!phone) return toast.error("Phone number missing");
+
+    const clean = phone.replace(/\D/g, "");
+    const message = `Hello ${name || ""}, this is BharatComfort team.`;
+
+    window.open(
+      `https://wa.me/91${clean}?text=${encodeURIComponent(message)}`,
+      "_blank"
+    );
+  };
+
   const openEmail = (email?: string, name?: string) => {
-    if (!email) return toast.error("Email address nahi mila");
+    if (!email) return toast.error("Email missing");
 
-    const subject = "Regarding Your Business Listing – BharatComfort";
-    const body = `Hello ${name || ""},
-
-This is ${staffProfile?.name || "Telecaller"} from BharatComfort.
-
-We are reaching out regarding listing your business with us.
-Please share required details at your convenience.
-
-Website: https://www.bharatcomfort.online
-
-Thank you,
-BharatComfort Team`;
+    const subject = "Regarding your business – BharatComfort";
+    const body = `Hello ${name || ""},\n\nTeam BharatComfort here.`;
 
     window.location.href = `mailto:${email}?subject=${encodeURIComponent(
       subject
     )}&body=${encodeURIComponent(body)}`;
   };
 
-/* UI */
+ /* UI */
 if (loadingUser) {
   return (
     <div>Checking staff access...</div>
@@ -654,4 +616,3 @@ return (
     </div>
 );
 }
-

@@ -386,9 +386,7 @@ if (loadingUser) {
 if (!staffId) return null;
 
 return (
-   <div className="p-4">  
-      {/* ================= RIGHT CONTENT ================= */}
-      <div className="space-y-6">
+  <div className="space-y-6">
         {/* 💰 EARNINGS */}
         <StaffEarningsModule token={token} />
 

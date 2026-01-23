@@ -1,11 +1,123 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Facebook, Twitter, Instagram, Youtube } from "lucide-react";
+
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  where,
+} from "firebase/firestore";
+import { getDownloadURL, ref } from "firebase/storage";
+import { db, storage } from "@/lib/firebase-client";
+
+/* ================================
+   Investors & Contributors Section
+================================ */
+
+type Person = {
+  id: string;
+  name: string;
+  type: "investor" | "contributor";
+  contribution: string;
+  qualification?: string;
+  photoPath: string;
+  photoURL?: string;
+};
+
+function InvestorsContributors() {
+  const [people, setPeople] = useState<Person[]>([]);
+
+  useEffect(() => {
+    const fetchPeople = async () => {
+      const q = query(
+        collection(db, "investorsContributors"),
+        where("isVisible", "==", true),
+        orderBy("order", "asc")
+      );
+
+      const snap = await getDocs(q);
+
+      const list = await Promise.all(
+        snap.docs.map(async (doc) => {
+          const data = doc.data() as Person;
+
+          let photoURL = "";
+          if (data.photoPath) {
+            photoURL = await getDownloadURL(
+              ref(storage, data.photoPath)
+            );
+          }
+
+          return {
+            id: doc.id,
+            ...data,
+            photoURL,
+          };
+        })
+      );
+
+      setPeople(list.slice(0, 6)); // footer limit
+    };
+
+    fetchPeople();
+  }, []);
+
+  if (!people.length) return null;
+
+  return (
+    <div className="max-w-7xl mx-auto px-6 mb-14">
+      <h3 className="text-xl font-semibold text-yellow-800 text-center mb-2">
+        Investors & Contributors
+      </h3>
+
+      <p className="text-center text-sm text-yellow-700/70 mb-6">
+        Supported by investors and contributors who believe in our vision
+      </p>
+
+      <div className="flex flex-wrap justify-center gap-8">
+        {people.map((p) => (
+          <div key={p.id} className="text-center max-w-[180px]">
+            <img
+              src={p.photoURL || "/avatar.png"}
+              alt={p.name}
+              className="w-14 h-14 rounded-full mx-auto mb-2 object-cover border border-yellow-300"
+            />
+
+            <p className="text-sm font-medium text-yellow-900">
+              {p.name}
+            </p>
+
+            <p className="text-xs text-yellow-800/80 mt-1">
+              {p.type === "investor" ? "Investor" : p.contribution}
+            </p>
+
+            {p.qualification && (
+              <p className="text-xs text-yellow-700/60 mt-1">
+                {p.qualification}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ================================
+   Footer
+================================ */
 
 export default function Footer() {
   return (
     <footer className="bg-gradient-to-br from-[#fff8f0] via-[#fff5e8] to-[#fff1dd] text-yellow-900 pt-16 pb-6 mt-16">
+
+      {/* Investors & Contributors */}
+      <InvestorsContributors />
+
       {/* GRID */}
       <div className="max-w-7xl mx-auto px-6 grid md:grid-cols-4 gap-10">
         {/* Brand Section */}
@@ -97,7 +209,6 @@ export default function Footer() {
           </div>
         </div>
       </div>
-      {/* GRID END */}
 
       {/* Bottom Bar */}
       <div className="border-t border-yellow-200/40 mt-10 pt-4 text-center text-sm text-yellow-700/80">

@@ -424,12 +424,13 @@ if (loadingUser) {
 if (!staffId) return null;
 
 return (
-
+<>
         {/* 💰 EARNINGS */}
         <StaffEarningsModule token={token} />
 
         {/* 📊 PERFORMANCE */}
         <StaffPerformanceModule token={token} />
+  </>
 
         <div className="space-y-4">
           {taskRange === "custom" && (

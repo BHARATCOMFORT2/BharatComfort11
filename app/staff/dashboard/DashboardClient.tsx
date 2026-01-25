@@ -413,7 +413,7 @@ BharatComfort Team`;
       subject
     )}&body=${encodeURIComponent(body)}`;
   };
-/* UI */
+
 if (loadingUser) {
   return (
     <div>Checking staff access...</div>

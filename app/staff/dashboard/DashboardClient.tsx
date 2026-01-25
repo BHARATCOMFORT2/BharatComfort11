@@ -1,18 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
-import toast from "react-hot-toast";
-
+import React, { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import { doc, getDoc, Timestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase-client";
-
-import CallLogsTab from "./components/CallLogsTab";
-import StaffEarningsModule from "./earnings/StaffEarningsModule";
-import StaffPerformanceModule from "./performance/StaffPerformanceModule";
-
-export const dynamic = "force-dynamic";
+import { doc, getDoc } from "firebase/firestore";
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import toast from "react-hot-toast";
+import TaskSidebar from "./components/TaskSidebar";
 
 /* ---------------------------------------
    TYPES
@@ -21,27 +16,23 @@ type Lead = {
   id: string;
   name?: string;
   businessName?: string;
+  address?: string;
   phone?: string;
+  contactPerson?: string;
   email?: string;
   status: string;
   followupDate?: string;
-  lastCalledAt?: Timestamp | null;
-  lastNote?: string;
+  category?: string;
+  adminNote?: string;
+  dueDate?: any;
+  lastCalledAt?: any;
 };
-
-type DateRangeType =
-  | "today"
-  | "yesterday"
-  | "week"
-  | "month"
-  | "last_month"
-  | "custom"
-  | "all";
 
 /* ---------------------------------------
    CONSTANTS
 ---------------------------------------- */
 const STATUS_OPTIONS = [
+  "all",
   "new",
   "contacted",
   "interested",
@@ -51,150 +42,86 @@ const STATUS_OPTIONS = [
   "invalid",
 ];
 
-/* ---------------------------------------
-   DATE HELPERS
----------------------------------------- */
-const toDateStr = (d: Date) => d.toISOString().slice(0, 10);
-
-const startOfToday = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
-const todayStr = () => toDateStr(startOfToday());
-
-const tomorrowStr = () => {
-  const d = startOfToday();
-  d.setDate(d.getDate() + 1);
-  return toDateStr(d);
-};
-
-const nextWeekStr = () => {
-  const d = startOfToday();
-  d.setDate(d.getDate() + 7);
-  return toDateStr(d);
-};
-
-const rangeToDates = (
-  range: DateRangeType,
-  customFrom?: string,
-  customTo?: string
-) => {
-  const today = startOfToday();
-  let from: Date | null = null;
-  let to: Date | null = null;
-
-  switch (range) {
-    case "today":
-      from = today;
-      to = today;
-      break;
-
-    case "yesterday":
-      from = new Date(today);
-      to = new Date(today);
-      from.setDate(from.getDate() - 1);
-      to.setDate(to.getDate() - 1);
-      break;
-
-    case "week":
-      from = new Date(today);
-      from.setDate(from.getDate() - 6);
-      to = today;
-      break;
-
-    case "month":
-      from = new Date(today.getFullYear(), today.getMonth(), 1);
-      to = today;
-      break;
-
-    case "last_month":
-      from = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      to = new Date(today.getFullYear(), today.getMonth(), 0);
-      break;
-
-    case "custom":
-      if (!customFrom || !customTo) throw new Error();
-      from = new Date(customFrom);
-      to = new Date(customTo);
-      break;
-
-    case "all":
-      return { fromDate: null, toDate: null };
-  }
-
-  return {
-    fromDate: from ? toDateStr(from) : null,
-    toDate: to ? toDateStr(to) : null,
-  };
-};
-
-const isOverdue = (date?: string) =>
-  date ? new Date(date) < startOfToday() : false;
+const CALL_FILTERS = ["all", "called", "not_called"];
+const FOLLOWUP_FILTERS = ["all", "today", "upcoming", "overdue"];
 
 /* ---------------------------------------
    COMPONENT
 ---------------------------------------- */
 export default function TelecallerDashboardPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
 
   const [staffId, setStaffId] = useState<string | null>(null);
-  const [token, setToken] = useState("");
-  const [staffProfile, setStaffProfile] = useState<{ name?: string } | null>(
-    null
-  );
+  const [token, setToken] = useState<string>("");
 
   const [loadingUser, setLoadingUser] = useState(true);
   const [loadingLeads, setLoadingLeads] = useState(false);
 
   const [leads, setLeads] = useState<Lead[]>([]);
   const [notesDraft, setNotesDraft] = useState<Record<string, string>>({});
-  const [callbackDates, setCallbackDates] = useState<Record<string, string>>(
-    {}
-  );
 
-  const [taskRange, setTaskRange] = useState<DateRangeType>("today");
-  const [customFromDate, setCustomFromDate] = useState("");
-  const [customToDate, setCustomToDate] = useState("");
+  const [staffProfile, setStaffProfile] = useState<{
+    name?: string;
+    role?: "staff";
+  } | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"tasks" | "calllogs">("tasks");
+  // ✅ FILTER STATES
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [callFilter, setCallFilter] = useState("all");
+  const [followupFilter, setFollowupFilter] = useState("all");
+
+  // ✅ My Tasks Range
+  const [taskRange, setTaskRange] = useState<
+    "today" | "yesterday" | "week" | "month"
+  >("today");
 
   /* ---------------------------------------
-     READ RANGE FROM URL
-  ---------------------------------------- */
-  useEffect(() => {
-    const r = searchParams.get("range");
-    if (r) setTaskRange(r as DateRangeType);
-  }, [searchParams]);
-
-  /* ---------------------------------------
-     AUTH CHECK
+     ✅ AUTH
   ---------------------------------------- */
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (user) => {
-      if (!user) return router.push("/staff/login");
+      if (!user) {
+        setStaffId(null);
+        setLoadingUser(false);
+        router.push("/staff/login");
+        return;
+      }
 
       try {
         const snap = await getDoc(doc(db, "staff", user.uid));
-        if (!snap.exists()) throw new Error();
+
+        if (!snap.exists()) {
+          await signOut(auth);
+          router.push("/staff/login");
+          return;
+        }
 
         const profile = snap.data();
-        if (
-          profile.role !== "telecaller" ||
-          profile.status !== "approved" ||
-          profile.isActive !== true
-        )
-          throw new Error();
+
+        if (profile.role !== "telecaller") {
+          await signOut(auth);
+          router.push("/staff/login");
+          return;
+        }
+
+        if (profile.status !== "approved" || profile.isActive !== true) {
+          await signOut(auth);
+          router.push("/staff/login");
+          return;
+        }
 
         setStaffId(user.uid);
-        setToken(await user.getIdToken());
+        const t = await user.getIdToken();
+        setToken(t);
+
         setStaffProfile({
           name:
             profile.name ||
             user.displayName ||
-            user.email?.split("@")[0],
+            user.email?.split("@")[0] ||
+            "Telecaller",
+          role: "staff",
         });
       } catch {
         await signOut(auth);
@@ -208,107 +135,113 @@ export default function TelecallerDashboardPage() {
   }, [router]);
 
   /* ---------------------------------------
-     FETCH LEADS
+     ✅ FETCH TASKS (BY RANGE)
   ---------------------------------------- */
   useEffect(() => {
-    if (!token || !staffId) return;
-    if (taskRange === "custom" && (!customFromDate || !customToDate)) return;
-
-    let alive = true;
+    if (!staffId || !token) return;
 
     const fetchLeads = async () => {
       setLoadingLeads(true);
       try {
-        const { fromDate, toDate } = rangeToDates(
-          taskRange,
-          customFromDate,
-          customToDate
-        );
-
-        const params = new URLSearchParams({
-          range: taskRange,
-          ...(fromDate ? { from: fromDate } : {}),
-          ...(toDate ? { to: toDate } : {}),
+        const res = await fetch("/api/staff/leads/by-range", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ range: taskRange }),
         });
-
-        const res = await fetch(
-          `/api/staff/leads/by-range?${params.toString()}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
 
         const data = await res.json();
         if (!res.ok || !data.success) throw new Error();
 
-        if (alive) {
-          setLeads(data.leads || []);
-          setNotesDraft(
-            Object.fromEntries(
-              (data.leads || []).map((l: Lead) => [l.id, ""])
-            )
-          );
-        }
+        const list: Lead[] = data.tasks || [];
+        setLeads(list);
+
+        const draft: Record<string, string> = {};
+        list.forEach((lead) => (draft[lead.id] = ""));
+        setNotesDraft(draft);
       } catch {
-        if (alive) toast.error("Failed to load leads");
+        toast.error("Tasks load nahi ho paaye");
       } finally {
-        if (alive) setLoadingLeads(false);
+        setLoadingLeads(false);
       }
     };
 
     fetchLeads();
-    return () => {
-      alive = false;
-    };
-  }, [token, staffId, taskRange, customFromDate, customToDate]);
+  }, [staffId, token, taskRange]);
 
   /* ---------------------------------------
-     STATUS UPDATE
+     ✅ FILTER LOGIC
   ---------------------------------------- */
-  const updateStatus = async (
-    leadId: string,
-    status: string,
-    callbackDate?: string
-  ) => {
-    if (status === "callback" && !callbackDate) {
-      return toast.error("Callback date is required");
-    }
+  const filteredLeads = useMemo(() => {
+    const now = new Date();
 
+    return leads.filter((lead) => {
+      if (
+        search &&
+        !(
+          lead.name?.toLowerCase().includes(search.toLowerCase()) ||
+          lead.businessName?.toLowerCase().includes(search.toLowerCase()) ||
+          lead.phone?.includes(search)
+        )
+      )
+        return false;
+
+      if (statusFilter !== "all" && lead.status !== statusFilter) return false;
+      if (callFilter === "called" && !lead.lastCalledAt) return false;
+      if (callFilter === "not_called" && lead.lastCalledAt) return false;
+
+      if (followupFilter !== "all" && lead.followupDate) {
+        const f = new Date(lead.followupDate);
+        if (
+          followupFilter === "today" &&
+          f.toDateString() !== now.toDateString()
+        )
+          return false;
+        if (followupFilter === "upcoming" && f <= now) return false;
+        if (followupFilter === "overdue" && f >= now) return false;
+      }
+
+      return true;
+    });
+  }, [leads, search, statusFilter, callFilter, followupFilter]);
+
+  /* ---------------------------------------
+     ✅ STATUS UPDATE
+  ---------------------------------------- */
+  const updateStatus = async (leadId: string, status: string) => {
     try {
-      const res = await fetch("/api/staff/leads/update-status", {
+      await fetch("/api/staff/leads/update-status", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ leadId, status, callbackDate }),
+        body: JSON.stringify({ leadId, status }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error();
-
       setLeads((prev) =>
-        prev.map((l) =>
-          l.id === leadId
-            ? { ...l, status, followupDate: callbackDate }
-            : l
+        prev.map((lead) =>
+          lead.id === leadId ? { ...lead, status } : lead
         )
       );
-      setCallbackDates((p) => ({ ...p, [leadId]: "" }));
+
+      toast.success("Status updated ✅");
     } catch {
       toast.error("Status update failed");
     }
   };
 
   /* ---------------------------------------
-     SAVE NOTE
+     ✅ NOTES UPDATE
   ---------------------------------------- */
   const saveNote = async (leadId: string) => {
     const text = notesDraft[leadId];
-    if (!text?.trim()) return toast.error("Note is empty");
+    if (!text) return toast.error("Note khali hai");
 
     try {
-      const res = await fetch("/api/staff/leads/update-notes", {
+      await fetch("/api/staff/leads/update-notes", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -317,15 +250,7 @@ export default function TelecallerDashboardPage() {
         body: JSON.stringify({ leadId, text }),
       });
 
-      const data = await res.json();
-      if (!res.ok || !data.success) throw new Error();
-
-      setLeads((p) =>
-        p.map((l) =>
-          l.id === leadId ? { ...l, lastNote: data.note.text } : l
-        )
-      );
-
+      toast.success("Note saved ✅");
       setNotesDraft((p) => ({ ...p, [leadId]: "" }));
     } catch {
       toast.error("Note save failed");
@@ -333,282 +258,234 @@ export default function TelecallerDashboardPage() {
   };
 
   /* ---------------------------------------
-     ACTION HELPERS (FIXED)
+     ✅ WHATSAPP + EMAIL
   ---------------------------------------- */
-  const logCall = async (lead: Lead) => {
-    if (!token || !lead.id || !lead.phone) return;
-    try {
-      await fetch("/api/staff/calls/log", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          leadId: lead.id,
-          phone: lead.phone,
-          outcome: "dialed",
-        }),
-      });
-    } catch {}
-  };
-
   const openWhatsApp = (phone?: string, name?: string) => {
-    if (!phone) return toast.error("Phone number missing");
+    if (!phone) return toast.error("Phone number nahi mila");
 
-    const clean = phone.replace(/\D/g, "");
-    const message = `Hello ${name || ""}, this is BharatComfort team.`;
+    const cleanPhone = phone.replace(/\D/g, "");
+    const message = `Hello ${name || ""},\n\nThis is ${
+      staffProfile?.name || "Telecaller"
+    } from BharatComfort.\nWe contacted you regarding your business listing.\nPlease tell a good time to connect.`;
 
-    window.open(
-      `https://wa.me/91${clean}?text=${encodeURIComponent(message)}`,
-      "_blank"
-    );
+    window.location.href = `https://wa.me/91${cleanPhone}?text=${encodeURIComponent(
+      message
+    )}`;
   };
 
   const openEmail = (email?: string, name?: string) => {
-    if (!email) return toast.error("Email missing");
+    if (!email) return toast.error("Email address nahi mila");
 
-    const subject = "Regarding your business – BharatComfort";
-    const body = `Hello ${name || ""},\n\nTeam BharatComfort here.`;
+    const subject = "Regarding your Business Listing – BharatComfort";
+    const body = `Hello ${name || ""},\n\nThis is ${
+      staffProfile?.name || "Telecaller"
+    } from BharatComfort.\nWe contacted you regarding your business listing.\nPlease let us know a suitable time to connect.\n\nThank you.`;
 
     window.location.href = `mailto:${email}?subject=${encodeURIComponent(
       subject
     )}&body=${encodeURIComponent(body)}`;
   };
 
- /* UI */
-if (loadingUser) {
-  return (
-    <div>Checking staff access...</div>
-  );
-}
-
-if (!staffId) return null;
-
-return (
-    <div className="space-y-6">
-      {/* 💰 EARNINGS */}
-      <StaffEarningsModule token={token} />
-
-      {/* 📊 PERFORMANCE */}
-      <StaffPerformanceModule token={token} />
-
-      <div className="space-y-4">
-        {taskRange === "custom" && (
-          <div className="flex gap-2">
-            <input
-              type="date"
-              value={customFromDate}
-              onChange={(e) => setCustomFromDate(e.target.value)}
-            />
-            <input
-              type="date"
-              value={customToDate}
-              onChange={(e) => setCustomToDate(e.target.value)}
-            />
-          </div>
-        )}
-
-        <div className="text-xs text-gray-600">
-          Showing <b>{leads.length}</b> leads{" "}
-          {taskRange === "all" && "(All Time)"}
+  /* ---------------------------------------
+     ✅ UI
+  ---------------------------------------- */
+  if (loadingUser) {
+    return (
+      <DashboardLayout
+        title="Telecaller Dashboard"
+        profile={staffProfile || undefined}
+      >
+        <div className="flex items-center justify-center h-64 text-sm text-gray-500">
+          Checking staff access...
         </div>
+      </DashboardLayout>
+    );
+  }
 
-        <div className="flex gap-4 border-b pb-2">
-          <button onClick={() => setActiveTab("tasks")}>Tasks</button>
-          <button onClick={() => setActiveTab("calllogs")}>
-            📞 Call Logs
+  if (!staffId) return null;
+
+  return (
+    <DashboardLayout
+      title="Telecaller Dashboard"
+      profile={staffProfile || undefined}
+    >
+      <div className="p-4 space-y-4">
+
+        {/* ✅ HEADER BAR WITH SETTINGS */}
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">My Tasks</h2>
+          <button
+            onClick={() => router.push("/staff/settings")}
+            className="bg-black text-white px-3 py-1 text-sm rounded"
+          >
+            ⚙️ Settings
           </button>
         </div>
 
-        {activeTab === "calllogs" && <CallLogsTab token={token} />}
+        {/* ✅ TASK RANGE */}
+        <div className="bg-white rounded shadow p-2">
+          <TaskSidebar token={token} onRangeSelect={setTaskRange} />
+        </div>
 
-        {activeTab === "tasks" && (
-          <div className="bg-white rounded shadow overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="p-2">Name</th>
-                    <th className="p-2">Phone</th>
-                    <th className="p-2">Status</th>
-                    <th className="p-2">Callback</th>
-                    <th className="p-2">Note</th>
-                    <th className="p-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.map((lead) => (
-                    <tr
-                      key={lead.id}
-                      className={`border-t ${
-                        isOverdue(lead.followupDate)
-                          ? "bg-red-50"
-                          : ""
-                      }`}
-                    >
-                      <td className="p-2">
-                        {lead.name || lead.businessName}
-                      </td>
-                      <td className="p-2">{lead.phone}</td>
+        {/* ✅ FILTER BAR */}
+        <div className="bg-white p-3 rounded shadow flex flex-wrap gap-3 items-center">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name / business / phone"
+            className="border px-3 py-1 text-sm w-64"
+          />
 
-                      <td className="p-2">
-                        <select
-                          value={lead.status}
-                          onChange={(e) => {
-                            const st = e.target.value;
-                            if (st !== "callback") {
-                              updateStatus(lead.id, st);
-                            }
-                          }}
-                          className="border text-xs"
-                        >
-                          {STATUS_OPTIONS.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="border px-3 py-1 text-sm"
+          >
+            {STATUS_OPTIONS.map((st) => (
+              <option key={st} value={st}>
+                {st.toUpperCase()}
+              </option>
+            ))}
+          </select>
 
-                      <td className="p-2">
-                        {lead.status === "callback" && (
-                          <>
-                            <input
-                              type="date"
-                              value={
-                                callbackDates[lead.id] ||
-                                lead.followupDate ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                setCallbackDates((p) => ({
-                                  ...p,
-                                  [lead.id]: e.target.value,
-                                }))
-                              }
-                              className="border text-xs"
-                            />
+          <select
+            value={callFilter}
+            onChange={(e) => setCallFilter(e.target.value)}
+            className="border px-3 py-1 text-sm"
+          >
+            {CALL_FILTERS.map((c) => (
+              <option key={c} value={c}>
+                {c.replace("_", " ").toUpperCase()}
+              </option>
+            ))}
+          </select>
 
-                            <div className="flex gap-1 mt-1">
-                             <button
-  onClick={() =>
-    setCallbackDates((p) => ({
-      ...p,
-      [lead.id]: todayStr(),
-    }))
-  }
-  className="text-xs px-1 bg-gray-200"
->
-  Today
-</button>
-                             <button
-  onClick={() =>
-    setCallbackDates((p) => ({
-      ...p,
-      [lead.id]: tomorrowStr(),
-    }))
-  }
-  className="text-xs px-1 bg-gray-200"
->
-  Tomorrow
-</button>
+          <select
+            value={followupFilter}
+            onChange={(e) => setFollowupFilter(e.target.value)}
+            className="border px-3 py-1 text-sm"
+          >
+            {FOLLOWUP_FILTERS.map((f) => (
+              <option key={f} value={f}>
+                {f.toUpperCase()}
+              </option>
+            ))}
+          </select>
+        </div>
 
-<button
-  onClick={() =>
-    setCallbackDates((p) => ({
-      ...p,
-      [lead.id]: nextWeekStr(),
-    }))
-  }
-  className="text-xs px-1 bg-gray-200"
->
-  Next Week
-</button>
- </div>
-<button
-  onClick={() => {
-    const date =
-      callbackDates[lead.id] || lead.followupDate;
-
-    if (!date) {
-      toast.error("Callback date select karo");
-      return;
-    }
-
-    updateStatus(lead.id, "callback", date);
-  }}
-  className="mt-1 bg-orange-600 text-white text-xs px-2 py-1"
->
-  Save Callback
-</button>
-
-                        )}
-                      </td>
-
-                      <td className="p-2">
-                        <textarea
-                          className="border w-full text-xs"
-                          value={notesDraft[lead.id] || ""}
-                          onChange={(e) =>
-                            setNotesDraft((p) => ({
-                              ...p,
-                              [lead.id]: e.target.value,
-                            }))
-                          }
-                        />
-                        <button
-                          onClick={() => saveNote(lead.id)}
-                          className="bg-black text-white text-xs px-2 py-1 mt-1"
-                        >
-                          Save
-                        </button>
-                        {lead.lastNote && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            Last: {lead.lastNote}
-                          </p>
-                        )}
-                      </td>
-
-                      <td className="p-2 space-y-1">
-                        <button
-                          onClick={() => {
-                            logCall(lead);
-                            window.location.href = `tel:${lead.phone}`;
-                          }}
-                          className="bg-green-600 text-white text-xs px-2 py-1 w-full"
-                        >
-                          📞 Call
-                        </button>
-                        <button
-                          onClick={() =>
-                            openWhatsApp(
-                              lead.phone,
-                              lead.name || lead.businessName
-                            )
-                          }
-                          className="bg-green-500 text-white text-xs px-2 py-1 w-full"
-                        >
-                          🟢 WhatsApp
-                        </button>
-                        <button
-                          onClick={() =>
-                            openEmail(
-                              lead.email,
-                              lead.name || lead.businessName
-                            )
-                          }
-                          className="bg-blue-600 text-white text-xs px-2 py-1 w-full"
-                        >
-                          📧 Email
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {/* ✅ TABLE */}
+        <div className="bg-white rounded-lg shadow overflow-x-auto">
+          {loadingLeads ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              Loading your tasks...
             </div>
+          ) : filteredLeads.length === 0 ? (
+            <div className="p-6 text-center text-sm text-gray-500">
+              Koi matching lead nahi mili.
+            </div>
+          ) : (
+            <table className="min-w-full text-sm">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="p-3 text-left">Name</th>
+                  <th className="p-3 text-left">Business</th>
+                  <th className="p-3 text-left">Phone</th>
+                  <th className="p-3 text-left">Address</th>
+                  <th className="p-3 text-left">Status</th>
+                  <th className="p-3 text-left">Note</th>
+                  <th className="p-3 text-left">Actions</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {filteredLeads.map((lead) => (
+                  <tr key={lead.id} className="border-t">
+                    <td className="p-3">
+                      {lead.name || lead.businessName || "-"}
+                    </td>
+                    <td className="p-3">{lead.businessName || "-"}</td>
+                    <td className="p-3">{lead.phone || "-"}</td>
+                    <td className="p-3">{lead.address || "-"}</td>
+
+                    <td className="p-3">
+                      <select
+                        className="border px-2 py-1 text-xs"
+                        value={lead.status}
+                        onChange={(e) =>
+                          updateStatus(lead.id, e.target.value)
+                        }
+                      >
+                        {STATUS_OPTIONS.filter((s) => s !== "all").map(
+                          (st) => (
+                            <option key={st} value={st}>
+                              {st}
+                            </option>
+                          )
+                        )}
+                      </select>
+                    </td>
+
+                    <td className="p-3">
+                      <textarea
+                        className="border w-full p-1 text-xs"
+                        value={notesDraft[lead.id] || ""}
+                        onChange={(e) =>
+                          setNotesDraft((p) => ({
+                            ...p,
+                            [lead.id]: e.target.value,
+                          }))
+                        }
+                      />
+                      <button
+                        onClick={() => saveNote(lead.id)}
+                        className="mt-1 bg-black text-white px-2 py-1 text-xs rounded"
+                      >
+                        Save
+                      </button>
+                    </td>
+
+                    <td className="p-3 space-y-1">
+                      <button
+                        onClick={() =>
+                          (window.location.href = `tel:${lead.phone || ""}`)
+                        }
+                        className="w-full bg-green-600 text-white text-xs px-3 py-1 rounded"
+                      >
+                        📞 Call
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          openWhatsApp(
+                            lead.phone,
+                            lead.name || lead.businessName
+                          )
+                        }
+                        className="w-full bg-green-500 text-white text-xs px-3 py-1 rounded"
+                      >
+                        🟢 WhatsApp
+                      </button>
+
+                      <button
+                        onClick={() =>
+                          openEmail(
+                            lead.email,
+                            lead.name || lead.businessName
+                          )
+                        }
+                        className="w-full bg-blue-600 text-white text-xs px-3 py-1 rounded"
+                      >
+                        📧 Email
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           )}
+        </div>
+
       </div>
-    </div>
-);
+    </DashboardLayout>
+  );
 }

@@ -386,7 +386,6 @@ if (loadingUser) {
 if (!staffId) return null;
 
 return (
-  <>
     <div className="space-y-6">
       {/* 💰 EARNINGS */}
       <StaffEarningsModule token={token} />
@@ -611,6 +610,5 @@ return (
           )}
       </div>
     </div>
- </>
 );
 }

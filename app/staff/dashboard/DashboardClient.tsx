@@ -460,7 +460,7 @@ return (
 
           {activeTab === "calllogs" && <CallLogsTab token={token} />}
 
-          activeTab === "tasks" && (
+           {activeTab === "tasks" && (
   <div className="bg-white rounded shadow overflow-x-auto">
               <table className="min-w-full text-sm">
                 <thead className="bg-gray-100">
@@ -646,7 +646,6 @@ return (
             </div>
           )}
         </div>
-      </div>
    </div>
 );
 }

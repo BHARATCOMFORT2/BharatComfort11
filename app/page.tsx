@@ -28,7 +28,10 @@ const CertificationsSection = dynamic(
   () => import("@/components/home/CertificationsSection"),
   { ssr: false }
 );
-
+const FounderSection = dynamic(
+  () => import("@/components/home/FounderSection"),
+  { ssr: false }
+);
 /* ✅✅✅ SAMPLE DATA (UNCHANGED) ✅✅✅ */
 
 const SAMPLE_HERO = [
@@ -161,6 +164,12 @@ export default function HomePage() {
           <Testimonials />
         </div>
       </motion.section>
+      {/* ✅ FOUNDER SECTION */}
+<motion.section className="py-20 container mx-auto px-4">
+  <div className="rounded-[2rem] bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl p-6">
+    <FounderSection />
+  </div>
+</motion.section>
 {/* ✅ INVESTORS & CONTRIBUTORS */}
 <motion.section className="py-20 container mx-auto px-4">
   <div className="rounded-[2rem] bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl p-6">

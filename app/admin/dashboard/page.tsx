@@ -437,7 +437,26 @@ export default function AdminDashboardPage() {
           ))}
         </div>
       </section>
+{/* WEBSITE CMS */}
+<section className="mb-12">
+  <h3 className="font-semibold mb-4">Website CMS</h3>
 
+  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+    <Link
+      href="/admin/website/founder-profile"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      👤 Founder Profile
+    </Link>
+
+    <Link
+      href="/admin/website/homepage"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      🏠 Homepage Content
+    </Link>
+  </div>
+</section>
       {/* CHART */}
       <section className="bg-white shadow rounded-lg p-6 mb-12">
         <h3 className="font-semibold mb-4">Bookings (Last 7 Days)</h3>

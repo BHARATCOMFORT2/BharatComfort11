@@ -33,7 +33,7 @@ export default function ImageUpload({
 
     for (const file of valid) {
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("files", file);
 
       const xhr = new XMLHttpRequest();
       xhr.open("POST", "/api/uploads", true);

@@ -20,6 +20,10 @@ const Testimonials = dynamic(() => import("@/components/home/Testimonials"));
 const NewsletterSignup = dynamic(() => import("@/components/home/NewsletterSignup"));
 const Footer = dynamic(() => import("@/components/home/Footer"));
 const AIRecommendations = dynamic(() => import("@/components/home/AIRecommendations"));
+const PeopleSection = dynamic(
+  () => import("@/components/home/PeopleSection"),
+  { ssr: false }
+);
 
 /* ✅✅✅ SAMPLE DATA (UNCHANGED) ✅✅✅ */
 
@@ -153,6 +157,12 @@ export default function HomePage() {
           <Testimonials />
         </div>
       </motion.section>
+{/* ✅ INVESTORS & CONTRIBUTORS */}
+<motion.section className="py-20 container mx-auto px-4">
+  <div className="rounded-[2rem] bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl p-6">
+    <PeopleSection />
+  </div>
+</motion.section>
 
       {/* ✅ NEWSLETTER */}
       <motion.section className="py-20 container mx-auto px-4 text-center">

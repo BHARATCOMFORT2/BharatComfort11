@@ -6,7 +6,7 @@ type ImageUploadProps = {
   images: string[];
   onChange: (urls: string[]) => void;
   maxFiles?: number;
-  token?: string;
+  token?: string; // 🔐 MUST be Firebase ID token (JWT)
 };
 
 export default function ImageUpload({
@@ -16,57 +16,55 @@ export default function ImageUpload({
   token,
 }: ImageUploadProps) {
   const [uploading, setUploading] = useState(false);
-  const [progressMap, setProgressMap] = useState<Record<string, number>>({});
   const [dragOver, setDragOver] = useState(false);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   /* ============================================================
-     HANDLE FILE UPLOAD (FINAL & CORRECT)
+     🔥 FINAL & SAFE UPLOAD HANDLER
   ============================================================ */
   const handleFiles = async (files: FileList | File[]) => {
-    const valid = Array.from(files).slice(
+    // ❌ Never allow upload without valid JWT
+    if (!token || token.length < 100) {
+      alert("Authentication expired. Please reload the page.");
+      return;
+    }
+
+    const validFiles = Array.from(files).slice(
       0,
       Math.max(0, maxFiles - images.length)
     );
-    if (!valid.length) return;
+
+    if (!validFiles.length) return;
 
     setUploading(true);
     const uploadedUrls: string[] = [];
 
-    for (const file of valid) {
+    for (const file of validFiles) {
       try {
         const formData = new FormData();
-        formData.append("files", file); // ✅ backend expects "files"
 
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/uploads", true);
+        // ✅ MUST MATCH BACKEND: formData.getAll("files")
+        formData.append("files", file);
 
-        if (token) {
-          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
-        }
-
-        const response = await new Promise<any>((resolve, reject) => {
-          xhr.onload = () => {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch {
-              reject("Invalid JSON response");
-            }
-          };
-          xhr.onerror = () => reject("Network error");
-          xhr.send(formData);
+        const response = await fetch("/api/uploads", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`, // ✅ FULL JWT ONLY
+          },
+          body: formData,
         });
 
-        if (!response?.success || !Array.isArray(response.urls)) {
-          alert(response?.error || "Image upload failed");
-          continue;
+        const data = await response.json();
+
+        if (!response.ok || !data?.success || !Array.isArray(data.urls)) {
+          throw new Error(data?.error || "Upload failed");
         }
 
-        uploadedUrls.push(...response.urls);
-      } catch (err) {
-        console.error("Upload error:", err);
-        alert("Image upload failed");
+        uploadedUrls.push(...data.urls);
+      } catch (err: any) {
+        console.error("❌ Upload error:", err);
+        alert(err.message || "Image upload failed");
       }
     }
 
@@ -74,7 +72,6 @@ export default function ImageUpload({
       onChange([...images, ...uploadedUrls]);
     }
 
-    setProgressMap({});
     setUploading(false);
   };
 
@@ -97,7 +94,9 @@ export default function ImageUpload({
         onDrop={(e) => {
           e.preventDefault();
           setDragOver(false);
-          if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+          if (e.dataTransfer.files.length) {
+            handleFiles(e.dataTransfer.files);
+          }
         }}
       >
         <input
@@ -109,26 +108,9 @@ export default function ImageUpload({
           className="hidden"
         />
         <p className="text-sm text-gray-500">
-          {uploading
-            ? "Uploading..."
-            : "Drag & drop or click to upload image"}
+          {uploading ? "Uploading..." : "Drag & drop or click to upload image"}
         </p>
       </div>
-
-      {/* ================= Upload Progress ================= */}
-      {uploading &&
-        Object.entries(progressMap).map(([name, percent]) => (
-          <div key={name} className="flex gap-2 items-center text-sm">
-            <span className="w-20 truncate">{name}</span>
-            <div className="flex-1 bg-gray-200 h-2 rounded">
-              <div
-                className="bg-blue-600 h-2 rounded"
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-            <span>{percent}%</span>
-          </div>
-        ))}
 
       {/* ================= Uploaded Images ================= */}
       <div className="flex flex-wrap gap-3">
@@ -141,10 +123,10 @@ export default function ImageUpload({
             onDragOver={(e) => {
               e.preventDefault();
               if (dragIndex !== null && dragIndex !== index) {
-                const newArr = [...images];
-                const [moved] = newArr.splice(dragIndex, 1);
-                newArr.splice(index, 0, moved);
-                onChange(newArr);
+                const reordered = [...images];
+                const [moved] = reordered.splice(dragIndex, 1);
+                reordered.splice(index, 0, moved);
+                onChange(reordered);
                 setDragIndex(index);
               }
             }}

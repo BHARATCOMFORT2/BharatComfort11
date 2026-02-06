@@ -5,24 +5,36 @@ import { NextResponse } from "next/server";
 import { getAuth } from "firebase-admin/auth";
 import { adminDb } from "@/lib/firebaseadmin";
 
+/* 🔐 VERIFY ADMIN */
 async function verifyAdmin(req: Request) {
   const authHeader = req.headers.get("authorization");
-  if (!authHeader?.startsWith("Bearer ")) throw new Error("Unauthorized");
+  if (!authHeader?.startsWith("Bearer ")) {
+    throw new Error("UNAUTHORIZED");
+  }
 
   const token = authHeader.split("Bearer ")[1];
   const decoded = await getAuth().verifyIdToken(token);
 
-  if (!["admin", "superadmin"].includes(decoded.role)) {
-    throw new Error("Forbidden");
+  const isAdmin =
+    decoded.role === "admin" ||
+    decoded.role === "superadmin" ||
+    decoded.admin === true ||
+    decoded.isAdmin === true;
+
+  if (!isAdmin) {
+    throw new Error("FORBIDDEN");
   }
 
   return decoded;
 }
 
-/* GET – list all */
+/* =========================
+   GET – list certificates
+========================= */
 export async function GET(req: Request) {
   try {
     await verifyAdmin(req);
+
     const snap = await adminDb
       .collection("certifications")
       .orderBy("displayOrder", "asc")
@@ -30,14 +42,26 @@ export async function GET(req: Request) {
 
     return NextResponse.json({
       success: true,
-      data: snap.docs.map(d => ({ id: d.id, ...d.data() })),
+      data: snap.docs.map(d => ({
+        id: d.id,
+        ...d.data(),
+      })),
     });
   } catch (e: any) {
-    return NextResponse.json({ success: false, message: e.message }, { status: 401 });
+    const status =
+      e.message === "UNAUTHORIZED" ? 401 :
+      e.message === "FORBIDDEN" ? 403 : 500;
+
+    return NextResponse.json(
+      { success: false, message: e.message },
+      { status }
+    );
   }
 }
 
-/* POST – add new */
+/* =========================
+   POST – add certificate
+========================= */
 export async function POST(req: Request) {
   try {
     const admin = await verifyAdmin(req);
@@ -45,7 +69,7 @@ export async function POST(req: Request) {
 
     const {
       title,
-      type,
+      type = "general",
       authority,
       certificateNumber,
       certificateUrl,
@@ -58,7 +82,7 @@ export async function POST(req: Request) {
 
     if (!title || !certificateUrl) {
       return NextResponse.json(
-        { success: false, message: "Title & Certificate required" },
+        { success: false, message: "Title & Certificate image are required" },
         { status: 400 }
       );
     }
@@ -66,8 +90,8 @@ export async function POST(req: Request) {
     await adminDb.collection("certifications").add({
       title,
       type,
-      authority,
-      certificateNumber,
+      authority: authority || "",
+      certificateNumber: certificateNumber || "",
       certificateUrl,
       issuedOn: issuedOn || null,
       expiresOn: expiresOn || null,
@@ -81,6 +105,13 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e: any) {
-    return NextResponse.json({ success: false, message: e.message }, { status: 401 });
+    const status =
+      e.message === "UNAUTHORIZED" ? 401 :
+      e.message === "FORBIDDEN" ? 403 : 500;
+
+    return NextResponse.json(
+      { success: false, message: e.message },
+      { status }
+    );
   }
 }

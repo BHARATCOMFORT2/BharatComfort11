@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react"; // ✅ REQUIRED FIX
 import { useRouter } from "next/navigation";
 
 import AdminDashboardLayout from "@/components/admin/AdminDashboardLayout";
@@ -73,7 +74,6 @@ export default function AddPersonPage() {
       profile={{ role: "admin" }} // layout ke liye
     >
       <div className="bg-white rounded-lg shadow p-6">
-        {/* 🔐 Render ONLY when token is READY */}
         {ready && (
           <PersonForm
             onSubmit={handleSubmit}

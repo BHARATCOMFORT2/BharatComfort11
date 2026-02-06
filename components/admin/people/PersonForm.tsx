@@ -40,33 +40,75 @@ export default function PersonForm({
     isActive: initialData?.isActive ?? true,
   });
 
+  const [submitting, setSubmitting] = useState(false);
+
   const update = (key: keyof PersonPayload, val: any) =>
     setForm((p) => ({ ...p, [key]: val }));
 
+  /* ============================================================
+     SUBMIT (FINAL + SAFE VALIDATION)
+  ============================================================ */
   const submit = async () => {
-    if (!form.name || !form.role || !form.photoUrl) {
-      alert("Name, Role and Photo are required");
+    // 🔒 Prevent double submit
+    if (submitting) return;
+
+    // ✅ Proper validation with trim + async upload safety
+    if (!form.name.trim()) {
+      alert("Name is required");
       return;
     }
-    await onSubmit(form);
+
+    if (!form.role.trim()) {
+      alert("Role is required");
+      return;
+    }
+
+    if (!form.photoUrl) {
+      alert("Please upload profile photo and wait for upload to finish");
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      await onSubmit({
+        ...form,
+        name: form.name.trim(),
+        role: form.role.trim(),
+      });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="space-y-5 max-w-2xl">
-      {/* PHOTO */}
+      {/* ================= PHOTO ================= */}
       <div>
-        <label className="block text-sm font-medium mb-1">Profile Photo</label>
+        <label className="block text-sm font-medium mb-1">
+          Profile Photo <span className="text-red-500">*</span>
+        </label>
+
         <ImageUpload
           images={form.photoUrl ? [form.photoUrl] : []}
           maxFiles={1}
           token={token}
-          onChange={(arr: string[]) => update("photoUrl", arr[0])}
+          onChange={(arr: string[]) =>
+            update("photoUrl", arr && arr.length ? arr[0] : "")
+          }
         />
+
+        {!form.photoUrl && (
+          <p className="text-xs text-gray-500 mt-1">
+            Upload one clear profile image
+          </p>
+        )}
       </div>
 
-      {/* NAME */}
+      {/* ================= NAME ================= */}
       <div>
-        <label className="block text-sm font-medium mb-1">Full Name</label>
+        <label className="block text-sm font-medium mb-1">
+          Full Name <span className="text-red-500">*</span>
+        </label>
         <input
           className="border rounded w-full p-2"
           value={form.name}
@@ -75,7 +117,7 @@ export default function PersonForm({
         />
       </div>
 
-      {/* TYPE */}
+      {/* ================= TYPE ================= */}
       <div>
         <label className="block text-sm font-medium mb-1">Type</label>
         <select
@@ -88,9 +130,11 @@ export default function PersonForm({
         </select>
       </div>
 
-      {/* ROLE */}
+      {/* ================= ROLE ================= */}
       <div>
-        <label className="block text-sm font-medium mb-1">Role</label>
+        <label className="block text-sm font-medium mb-1">
+          Role <span className="text-red-500">*</span>
+        </label>
         <input
           className="border rounded w-full p-2"
           value={form.role}
@@ -99,9 +143,11 @@ export default function PersonForm({
         />
       </div>
 
-      {/* CONTRIBUTION */}
+      {/* ================= CONTRIBUTION ================= */}
       <div>
-        <label className="block text-sm font-medium mb-1">Contribution</label>
+        <label className="block text-sm font-medium mb-1">
+          Contribution
+        </label>
         <textarea
           className="border rounded w-full p-2"
           rows={3}
@@ -111,7 +157,7 @@ export default function PersonForm({
         />
       </div>
 
-      {/* QUALIFICATIONS */}
+      {/* ================= QUALIFICATIONS ================= */}
       <div>
         <label className="block text-sm font-medium mb-1">
           Qualifications / Experience
@@ -125,7 +171,7 @@ export default function PersonForm({
         />
       </div>
 
-      {/* REVIEW */}
+      {/* ================= REVIEW ================= */}
       <div>
         <label className="block text-sm font-medium mb-1">
           Review / Statement
@@ -139,7 +185,7 @@ export default function PersonForm({
         />
       </div>
 
-      {/* ACTIVE */}
+      {/* ================= ACTIVE ================= */}
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -149,9 +195,9 @@ export default function PersonForm({
         <span className="text-sm">Visible on website</span>
       </div>
 
-      {/* SUBMIT */}
-      <Button onClick={submit} disabled={loading}>
-        {loading ? "Saving..." : "Save Profile"}
+      {/* ================= SUBMIT ================= */}
+      <Button onClick={submit} disabled={loading || submitting}>
+        {loading || submitting ? "Saving..." : "Save Profile"}
       </Button>
     </div>
   );

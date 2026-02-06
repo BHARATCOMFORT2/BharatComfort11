@@ -21,6 +21,9 @@ export default function ImageUpload({
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  /* ============================================================
+     HANDLE FILE UPLOAD (FINAL & CORRECT)
+  ============================================================ */
   const handleFiles = async (files: FileList | File[]) => {
     const valid = Array.from(files).slice(
       0,
@@ -32,47 +35,52 @@ export default function ImageUpload({
     const uploadedUrls: string[] = [];
 
     for (const file of valid) {
-      const formData = new FormData();
-      formData.append("files", file);
+      try {
+        const formData = new FormData();
+        formData.append("files", file); // ✅ backend expects "files"
 
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "/api/uploads", true);
-      if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/uploads", true);
 
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          const percent = Math.round((e.loaded / e.total) * 100);
-          setProgressMap((prev) => ({ ...prev, [file.name]: percent }));
+        if (token) {
+          xhr.setRequestHeader("Authorization", `Bearer ${token}`);
         }
-      };
 
-      const responsePromise = new Promise<{ url?: string; error?: string }>(
-        (resolve) => {
+        const response = await new Promise<any>((resolve, reject) => {
           xhr.onload = () => {
             try {
               resolve(JSON.parse(xhr.responseText));
             } catch {
-              resolve({ error: "Invalid upload response" });
+              reject("Invalid JSON response");
             }
           };
-          xhr.onerror = () => resolve({ error: "Network error" });
+          xhr.onerror = () => reject("Network error");
+          xhr.send(formData);
+        });
+
+        if (!response?.success || !Array.isArray(response.urls)) {
+          alert(response?.error || "Image upload failed");
+          continue;
         }
-      );
 
-      xhr.send(formData);
-
-      const { url } = await responsePromise;
-      if (url) uploadedUrls.push(url);
+        uploadedUrls.push(...response.urls);
+      } catch (err) {
+        console.error("Upload error:", err);
+        alert("Image upload failed");
+      }
     }
 
-    onChange([...images, ...uploadedUrls]);
+    if (uploadedUrls.length > 0) {
+      onChange([...images, ...uploadedUrls]);
+    }
+
     setProgressMap({});
     setUploading(false);
   };
 
   return (
     <div className="space-y-3">
-      {/* Upload Box */}
+      {/* ================= Upload Box ================= */}
       <div
         className={`flex flex-col items-center justify-center p-6 border-2 border-dashed rounded-xl cursor-pointer transition ${
           dragOver ? "border-blue-500 bg-blue-50" : "border-gray-300"
@@ -107,7 +115,7 @@ export default function ImageUpload({
         </p>
       </div>
 
-      {/* Upload Progress */}
+      {/* ================= Upload Progress ================= */}
       {uploading &&
         Object.entries(progressMap).map(([name, percent]) => (
           <div key={name} className="flex gap-2 items-center text-sm">
@@ -122,7 +130,7 @@ export default function ImageUpload({
           </div>
         ))}
 
-      {/* Uploaded Images */}
+      {/* ================= Uploaded Images ================= */}
       <div className="flex flex-wrap gap-3">
         {images.map((url, index) => (
           <div

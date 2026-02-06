@@ -57,14 +57,14 @@ export default function FounderProfileAdminPage() {
       setUploading(true);
 
       const url = await uploadImage(
-        file,
-        "website/founder/founder-photo.jpg"
-      );
+  file,
+  "website/founder/founder-photo.jpg"
+);
 
-      setProfile((prev) => ({
-        ...prev,
-        photoUrl: url,
-      }));
+setProfile((prev) => ({
+  ...prev,
+  photoUrl: `${url}?v=${Date.now()}`, // ✅ FIX
+}));
 
       toast.success("Founder photo uploaded");
     } catch (err) {

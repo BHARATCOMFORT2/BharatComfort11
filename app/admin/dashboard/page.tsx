@@ -402,7 +402,26 @@ export default function AdminDashboardPage() {
           </Link>
         </div>
       </section>
+{/* ✅ INVESTORS & CONTRIBUTORS */}
+<section className="mt-8 mb-12">
+  <h3 className="font-semibold mb-4">People & Investments</h3>
 
+  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+    <Link
+      href="/admin/dashboard/people"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      👥 Investors & Contributors
+    </Link>
+
+    <Link
+      href="/admin/dashboard/investor-leads"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      💼 Investor Enquiries
+    </Link>
+  </div>
+</section>
       {/* HOMEPAGE SECTIONS */}
       <section className="mb-12">
         <h3 className="font-semibold mb-4">Homepage Sections</h3>

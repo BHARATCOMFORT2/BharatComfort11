@@ -6,27 +6,27 @@ import { getAuth, Auth } from "firebase/auth";
 import { getFirestore, Firestore } from "firebase/firestore";
 import { getStorage, FirebaseStorage } from "firebase/storage";
 
-// 👇 Yahi env vars Netlify/Vercel me hone chahiye
+// 👇 Required env vars (auth + firestore ke liye)
 // NEXT_PUBLIC_FIREBASE_API_KEY
 // NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
 // NEXT_PUBLIC_FIREBASE_PROJECT_ID
-// NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
 // NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
 // NEXT_PUBLIC_FIREBASE_APP_ID
+//
+// ⚠️ NOTE:
+// NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET env ab OPTIONAL hai
+// kyunki hum storage ko explicit bucket ke saath init kar rahe hain
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY || "",
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN || "",
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "",
-  storageBucket: process.env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET || "",
   messagingSenderId:
     process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || "",
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID || "",
 };
 
-// ❗ Yahan koi custom getEnv / throw / "server-only" nahi hai
-// Bas normal Firebase init, taaki env issue par pura app crash na ho.
-
+// ❗ Safe init (env missing hone par app crash nahi karega)
 let app: FirebaseApp;
 
 if (!getApps().length) {
@@ -40,7 +40,13 @@ if (!getApps().length) {
   app = getApp();
 }
 
-// ✅ SINGLETON EXPORTS – tum har jagah yehi use kar rahe ho: "@/lib/firebase-client"
+// ✅ SINGLETON EXPORTS
 export const auth: Auth = getAuth(app);
 export const db: Firestore = getFirestore(app);
-export const storage: FirebaseStorage = getStorage(app);
+
+// ✅ CRITICAL FIX: Explicit Storage Bucket
+// (env newline / %0A / CORS issues completely avoided)
+export const storage: FirebaseStorage = getStorage(
+  app,
+  "gs://bharatcomfort-46bac.firebasestorage.app"
+);

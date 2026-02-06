@@ -20,31 +20,64 @@ export default function PeopleSection() {
 
   useEffect(() => {
     const load = async () => {
-      const q = query(
-        collection(db, "peopleProfiles"),
-        where("isActive", "==", true),
-        limit(6)
-      );
+      try {
+        const q = query(
+          collection(db, "peopleProfiles"),
+          where("isActive", "==", true),
+          limit(6)
+        );
 
-      const snap = await getDocs(q);
-      setPeople(
-        snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
-      );
-      setLoading(false);
+        const snap = await getDocs(q);
+        setPeople(
+          snap.docs.map((d) => ({ id: d.id, ...(d.data() as any) }))
+        );
+      } catch (err) {
+        console.error("Failed to load peopleProfiles", err);
+      } finally {
+        setLoading(false);
+      }
     };
 
     load();
   }, []);
 
-  if (loading) return null;
+  /* ================= LOADING STATE ================= */
+  if (loading) {
+    return (
+      <section className="py-20 text-center text-gray-400">
+        Loading investors & contributors…
+      </section>
+    );
+  }
 
-  return (
-    <section className="py-14 bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4">
-        <h2 className="text-2xl font-bold text-center mb-3">
+  /* ================= EMPTY STATE ================= */
+  if (!people.length) {
+    return (
+      <section className="py-20 text-center">
+        <h2 className="text-2xl font-bold text-white mb-2">
           Investors & Contributors
         </h2>
-        <p className="text-center text-gray-600 mb-8">
+        <p className="text-gray-400">
+          Our investor & contributor network is coming soon.
+        </p>
+
+        <div className="mt-6 flex justify-center gap-4">
+          <Link href="/invest-with-us" className="text-blue-400 font-medium">
+            Become an Investor →
+          </Link>
+        </div>
+      </section>
+    );
+  }
+
+  /* ================= NORMAL STATE ================= */
+  return (
+    <section className="py-20">
+      <div className="max-w-7xl mx-auto px-4">
+        <h2 className="text-3xl font-bold text-center text-white mb-3">
+          Investors & Contributors
+        </h2>
+        <p className="text-center text-gray-400 mb-10">
           The people who believe in and build BharatComfort
         </p>
 
@@ -60,11 +93,11 @@ export default function PeopleSection() {
           ))}
         </div>
 
-        <div className="text-center mt-8 flex justify-center gap-4">
-          <Link href="/investors" className="text-blue-600 font-medium">
+        <div className="text-center mt-10 flex justify-center gap-6">
+          <Link href="/investors" className="text-blue-400 font-medium">
             View Investors →
           </Link>
-          <Link href="/contributors" className="text-blue-600 font-medium">
+          <Link href="/contributors" className="text-blue-400 font-medium">
             View Contributors →
           </Link>
         </div>

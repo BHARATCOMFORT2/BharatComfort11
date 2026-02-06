@@ -24,6 +24,10 @@ const PeopleSection = dynamic(
   () => import("@/components/home/PeopleSection"),
   { ssr: false }
 );
+const CertificationsSection = dynamic(
+  () => import("@/components/home/CertificationsSection"),
+  { ssr: false }
+);
 
 /* ✅✅✅ SAMPLE DATA (UNCHANGED) ✅✅✅ */
 
@@ -161,6 +165,12 @@ export default function HomePage() {
 <motion.section className="py-20 container mx-auto px-4">
   <div className="rounded-[2rem] bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl p-6">
     <PeopleSection />
+  </div>
+</motion.section>
+{/* ✅ COMPLIANCE & CERTIFICATIONS */}
+<motion.section className="py-20 container mx-auto px-4">
+  <div className="rounded-[2rem] bg-white/5 backdrop-blur-2xl border border-white/10 shadow-2xl p-6">
+    <CertificationsSection />
   </div>
 </motion.section>
 

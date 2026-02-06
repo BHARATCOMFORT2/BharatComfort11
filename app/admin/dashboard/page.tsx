@@ -462,6 +462,19 @@ export default function AdminDashboardPage() {
         <h3 className="text-lg font-semibold mb-4">Manage All Listings</h3>
         <ListingsManager />
       </section>
+{/* ✅ COMPLIANCE & CERTIFICATIONS */}
+<section className="mt-8 mb-12">
+  <h3 className="font-semibold mb-4">Compliance & Certifications</h3>
+
+  <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+    <Link
+      href="/admin/dashboard/certifications"
+      className="block p-4 bg-white rounded shadow hover:shadow-lg text-center"
+    >
+      🏢 Manage Certificates
+    </Link>
+  </div>
+</section>
 
       {/* COMPLIANCE */}
       <section className="mt-12 mb-12">

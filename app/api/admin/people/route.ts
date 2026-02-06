@@ -6,7 +6,7 @@ import { getAuth } from "firebase-admin/auth";
 import { adminDb } from "@/lib/firebaseadmin";
 
 /* -------------------------------------------------
-   AUTH HELPER
+   AUTH HELPER (FIXED)
 -------------------------------------------------- */
 async function verifyAdmin(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -17,7 +17,14 @@ async function verifyAdmin(request: Request) {
   const token = authHeader.split("Bearer ")[1];
   const decoded = await getAuth().verifyIdToken(token);
 
-  if (!["admin", "superadmin"].includes(decoded.role)) {
+  // 🔥 FIX: role token se nahi, Firestore se check hoga
+  const userSnap = await adminDb.collection("users").doc(decoded.uid).get();
+  if (!userSnap.exists) {
+    throw new Error("User not found");
+  }
+
+  const role = userSnap.data()?.role;
+  if (!["admin", "superadmin"].includes(role)) {
     throw new Error("Forbidden");
   }
 
@@ -25,7 +32,7 @@ async function verifyAdmin(request: Request) {
 }
 
 /* -------------------------------------------------
-   GET: List all people
+   GET: List all people (ADMIN)
 -------------------------------------------------- */
 export async function GET(request: Request) {
   try {
@@ -51,7 +58,7 @@ export async function GET(request: Request) {
 }
 
 /* -------------------------------------------------
-   POST: Add new person
+   POST: Add new investor / contributor (FIXED)
 -------------------------------------------------- */
 export async function POST(request: Request) {
   try {
@@ -69,22 +76,30 @@ export async function POST(request: Request) {
       isActive,
     } = body;
 
-    if (!name || !photoUrl || !type || !role) {
+    // ✅ Strong validation
+    if (
+      !name ||
+      !String(name).trim() ||
+      !photoUrl ||
+      !type ||
+      !role ||
+      !String(role).trim()
+    ) {
       return NextResponse.json(
-        { success: false, message: "Missing required fields" },
+        { success: false, message: "Name, Photo, Type and Role are required" },
         { status: 400 }
       );
     }
 
     await adminDb.collection("peopleProfiles").add({
-      name,
+      name: String(name).trim(),
       photoUrl,
-      type,
-      role,
+      type, // "investor" | "contributor"
+      role: String(role).trim(),
       contribution: contribution || "",
       qualifications: qualifications || "",
       review: review || "",
-      isActive: isActive ?? true,
+      isActive: Boolean(isActive ?? true), // 🔥 HARD BOOLEAN
       createdAt: new Date(),
       updatedAt: new Date(),
       createdBy: admin.uid,
@@ -100,7 +115,7 @@ export async function POST(request: Request) {
 }
 
 /* -------------------------------------------------
-   PATCH: Update / Toggle Active
+   PATCH: Update / Toggle Active (SAFE)
 -------------------------------------------------- */
 export async function PATCH(request: Request) {
   try {
@@ -120,6 +135,10 @@ export async function PATCH(request: Request) {
       .doc(id)
       .update({
         ...updates,
+        isActive:
+          updates.isActive !== undefined
+            ? Boolean(updates.isActive)
+            : undefined,
         updatedAt: new Date(),
       });
 

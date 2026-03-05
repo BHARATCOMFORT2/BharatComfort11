@@ -4,7 +4,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { auth } from "@/lib/firebase"; // ✅ Firebase Auth
+import { auth } from "@/lib/firebase";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
 
 export interface Listing {
@@ -12,7 +12,7 @@ export interface Listing {
   name: string;
   category?: string;
   location: string;
-  price: string | number;
+  price: number | string;
   rating?: number;
   images?: string[];
   lat?: number;
@@ -27,45 +27,50 @@ interface ListingCardProps {
 
 export default function ListingCard({ listing }: ListingCardProps) {
   const router = useRouter();
+
   const [loading, setLoading] = useState(false);
   const [currentImage, setCurrentImage] = useState(0);
-  const [user, setUser] = useState<any>(undefined); // null = not logged in, undefined = checking
+  const [user, setUser] = useState<any>(undefined);
 
-  // ✅ Check Auth Status
+  /* Auth status */
   useEffect(() => {
-    const unsub = auth.onAuthStateChanged((u) => setUser(u || null));
+    const unsub = auth.onAuthStateChanged((u) => {
+      setUser(u || null);
+    });
+
     return () => unsub();
   }, []);
 
-  /** ✅ Safe fallback if no images */
+  /* Safe price */
+  const price = Number(listing.price) || 0;
+
+  /* Safe images */
   const images =
     listing.images && listing.images.length > 0
       ? listing.images
-      : ["https://via.placeholder.com/400x300?text=No+Image+Available"];
+      : ["https://via.placeholder.com/400x300?text=No+Image"];
 
-  /** 🔁 Auto-slide images */
+  /* Auto slider */
   useEffect(() => {
     if (images.length <= 1) return;
+
     const interval = setInterval(() => {
       setCurrentImage((prev) => (prev + 1) % images.length);
-    }, 3000);
+    }, 3500);
+
     return () => clearInterval(interval);
   }, [images.length]);
 
-  /** 🔗 Navigate to full details page */
+  /* Visit page */
   const handleVisit = () => {
     router.push(`/listing/${listing.id}`);
   };
 
-  /** 💳 Secure Booking — only logged-in users */
+  /* Booking */
   const handleBookNow = async () => {
-    if (user === undefined) {
-      alert("Checking your login status...");
-      return;
-    }
+    if (user === undefined) return;
 
     if (!user) {
-      alert("Please log in to continue booking.");
       router.push(`/login?redirect=/listing/${listing.id}`);
       return;
     }
@@ -73,72 +78,79 @@ export default function ListingCard({ listing }: ListingCardProps) {
     try {
       setLoading(true);
 
-      const response = await fetch("/api/payments/create-order", {
+      const res = await fetch("/api/payments/create-order", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+        },
+
         body: JSON.stringify({
-          amount: Number(listing.price) || 500,
           listingId: listing.id,
+          amount: price,
           userId: user.uid,
         }),
       });
 
-      const data = await response.json();
-      if (!data.success) throw new Error(data.error || "Failed to create order");
+      const data = await res.json();
 
-      // ✅ Open Razorpay checkout
+      if (!data.success) throw new Error(data.error);
+
       openRazorpayCheckout({
-        amount: Number(listing.price) || 500,
+        amount: data.amount,
         orderId: data.id,
         name: listing.name,
+
         email: user.email || "guest@bharatcomfort.com",
-        phone: user.phoneNumber || "9999999999",
+        phone: user.phoneNumber || "",
+
         onSuccess: (res) => {
           alert(`✅ Payment successful: ${res.razorpay_payment_id}`);
         },
-        onFailure: (err) => {
-          console.error("❌ Payment failed:", err);
-          alert("Payment failed or cancelled");
+
+        onFailure: () => {
+          alert("❌ Payment failed or cancelled");
         },
       });
     } catch (err) {
-      console.error("❌ Booking failed:", err);
+      console.error("Booking error:", err);
+      alert("Booking failed");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="border rounded-2xl shadow-md hover:shadow-lg transition-all duration-200 bg-white p-4 flex flex-col justify-between overflow-hidden">
-      {/* 🖼️ Image Carousel */}
+    <div className="border rounded-2xl shadow-md hover:shadow-lg transition bg-white p-4 flex flex-col overflow-hidden">
+
+      {/* Image Carousel */}
       <div className="relative w-full h-56 mb-3 overflow-hidden rounded-lg">
         <AnimatePresence mode="wait">
           <motion.div
             key={currentImage}
-            initial={{ opacity: 0, scale: 1.05 }}
+            initial={{ opacity: 0, scale: 1.04 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
-            transition={{ duration: 0.6 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.5 }}
             className="absolute inset-0"
           >
             <Image
               src={images[currentImage]}
-              alt={`${listing.name} image ${currentImage + 1}`}
+              alt={listing.name}
               fill
-              sizes="(max-width: 768px) 100vw, 33vw"
+              sizes="(max-width:768px)100vw,(max-width:1200px)50vw,33vw"
               className="object-cover rounded-lg"
             />
           </motion.div>
         </AnimatePresence>
 
-        {/* Carousel Indicators */}
+        {/* Indicators */}
         {images.length > 1 && (
           <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
             {images.map((_, i) => (
               <button
                 key={i}
                 onClick={() => setCurrentImage(i)}
-                className={`w-2 h-2 rounded-full transition-all ${
+                className={`w-2 h-2 rounded-full transition ${
                   currentImage === i ? "bg-white" : "bg-white/40"
                 }`}
               />
@@ -147,12 +159,16 @@ export default function ListingCard({ listing }: ListingCardProps) {
         )}
       </div>
 
-      {/* 🏕️ Details */}
+      {/* Details */}
       <div onClick={handleVisit} className="cursor-pointer flex-grow">
         <h2 className="text-lg font-semibold text-gray-800 hover:text-blue-700 truncate">
           {listing.name}
         </h2>
-        <p className="text-gray-600 text-sm truncate">{listing.location}</p>
+
+        <p className="text-gray-600 text-sm truncate">
+          {listing.location}
+        </p>
+
         {listing.category && (
           <p className="text-gray-500 text-sm capitalize">
             {listing.category}
@@ -160,24 +176,23 @@ export default function ListingCard({ listing }: ListingCardProps) {
         )}
 
         <div className="flex justify-between items-center mt-3">
-          <p className="font-bold text-blue-600">₹{listing.price}</p>
+          <p className="font-bold text-blue-600">
+            ₹{price.toLocaleString()}
+          </p>
+
           {listing.rating && (
-            <p className="text-yellow-600 text-sm">⭐ {listing.rating}</p>
+            <p className="text-yellow-600 text-sm">
+              ⭐ {listing.rating}
+            </p>
           )}
         </div>
-
-        {(listing.partnerId || listing.ownerId) && (
-          <p className="mt-2 text-xs text-gray-400">
-            Owner: {listing.partnerId || listing.ownerId}
-          </p>
-        )}
       </div>
 
-      {/* 💳 Buttons */}
+      {/* Buttons */}
       <div className="flex gap-2 mt-4">
         <button
           onClick={handleVisit}
-          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium transition"
+          className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium"
         >
           Visit
         </button>
@@ -185,7 +200,7 @@ export default function ListingCard({ listing }: ListingCardProps) {
         <button
           onClick={handleBookNow}
           disabled={loading || user === undefined}
-          className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded-lg font-medium transition disabled:opacity-60"
+          className="flex-1 bg-yellow-600 hover:bg-yellow-700 text-white py-2 rounded-lg font-medium disabled:opacity-60"
         >
           {loading ? "Processing..." : "Book Now"}
         </button>

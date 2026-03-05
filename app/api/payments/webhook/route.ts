@@ -22,25 +22,31 @@ function resolveWebhookSecret(): string {
 }
 
 /* --------------------------------------------------------
+   Verify Razorpay Signature
+-------------------------------------------------------- */
+function verifySignature(rawBody: string, signature: string, secret: string) {
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(rawBody)
+    .digest("hex");
+
+  return expected === signature;
+}
+
+/* --------------------------------------------------------
    Webhook Handler
 -------------------------------------------------------- */
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
     const signature = req.headers.get("x-razorpay-signature") || "";
-
     const secret = resolveWebhookSecret();
 
     /* --------------------------------------------------------
-       1️⃣ Verify Razorpay Signature
+       1️⃣ Verify Signature
     -------------------------------------------------------- */
 
-    const expected = crypto
-      .createHmac("sha256", secret)
-      .update(rawBody)
-      .digest("hex");
-
-    if (expected !== signature) {
+    if (!verifySignature(rawBody, signature, secret)) {
       console.warn("⚠ Invalid Razorpay webhook signature");
 
       return NextResponse.json(
@@ -50,9 +56,13 @@ export async function POST(req: Request) {
     }
 
     const event = JSON.parse(rawBody);
+    const eventId = event?.id;
+    const eventType = event?.event;
 
-    const eventId = event.id;
-    const eventType = event.event;
+    if (!eventId || !eventType) {
+      console.warn("Invalid webhook payload");
+      return NextResponse.json({ ok: false }, { status: 400 });
+    }
 
     /* --------------------------------------------------------
        2️⃣ Idempotency Protection
@@ -63,7 +73,6 @@ export async function POST(req: Request) {
 
     if (existing.exists) {
       console.log("Duplicate webhook skipped:", eventId);
-
       return NextResponse.json({ ok: true, duplicate: true });
     }
 
@@ -83,36 +92,70 @@ export async function POST(req: Request) {
 
     switch (eventType) {
       /* ================================
-         PAYMENT CAPTURED
+         PAYMENT CAPTURED / ORDER PAID
       ================================= */
-      case "payment.captured": {
-        const payment = event.payload.payment.entity;
+
+      case "payment.captured":
+      case "order.paid": {
+        const payment = event?.payload?.payment?.entity;
+
+        if (!payment) break;
 
         const paymentId = payment.id;
         const orderId = payment.order_id;
         const amount = payment.amount / 100;
 
-        /* --------------------------------
-           Find payment intent
-        -------------------------------- */
-
         const payRef = adminDb.collection("payments").doc(orderId);
         const paySnap = await payRef.get();
 
         if (!paySnap.exists) {
-          console.warn("Payment intent missing for order:", orderId);
+          console.warn("Payment intent missing:", orderId);
           break;
         }
 
         const paymentIntent = paySnap.data() as any;
-        const bookingId = paymentIntent.bookingId;
+        const bookingId = paymentIntent?.bookingId;
+        const expectedAmount = paymentIntent?.amount;
 
         if (!bookingId) {
           console.warn("Missing bookingId in payment intent");
           break;
         }
 
+        /* --------------------------------
+           Verify payment amount
+        -------------------------------- */
+
+        if (expectedAmount && expectedAmount !== amount) {
+          console.error("Amount mismatch:", {
+            expectedAmount,
+            receivedAmount: amount,
+          });
+          break;
+        }
+
         const bookingRef = adminDb.collection("bookings").doc(bookingId);
+        const bookingSnap = await bookingRef.get();
+
+        if (!bookingSnap.exists) {
+          console.warn("Booking not found:", bookingId);
+          break;
+        }
+
+        const booking = bookingSnap.data();
+
+        /* --------------------------------
+           Prevent duplicate confirmation
+        -------------------------------- */
+
+        if (booking?.paymentStatus === "paid") {
+          console.log("Booking already paid:", bookingId);
+          break;
+        }
+
+        /* --------------------------------
+           Confirm booking
+        -------------------------------- */
 
         await bookingRef.set(
           {
@@ -120,6 +163,7 @@ export async function POST(req: Request) {
             status: "confirmed",
             razorpayOrderId: orderId,
             razorpayPaymentId: paymentId,
+            paidAmount: amount,
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
@@ -146,7 +190,9 @@ export async function POST(req: Request) {
       ================================= */
 
       case "payment.failed": {
-        const payment = event.payload.payment.entity;
+        const payment = event?.payload?.payment?.entity;
+        if (!payment) break;
+
         const orderId = payment.order_id;
 
         const payRef = adminDb.collection("payments").doc(orderId);
@@ -155,7 +201,7 @@ export async function POST(req: Request) {
         if (!paySnap.exists) break;
 
         const paymentIntent = paySnap.data() as any;
-        const bookingId = paymentIntent.bookingId;
+        const bookingId = paymentIntent?.bookingId;
 
         if (!bookingId) break;
 
@@ -190,7 +236,8 @@ export async function POST(req: Request) {
       ================================= */
 
       case "refund.processed": {
-        const refund = event.payload.refund.entity;
+        const refund = event?.payload?.refund?.entity;
+        if (!refund) break;
 
         const refundId = refund.id;
         const paymentId = refund.payment_id;

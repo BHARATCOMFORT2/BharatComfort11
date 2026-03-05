@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import ListingFilters from "@/components/listings/ListingFilters";
-import nextDynamic from "next/dynamic";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { getFirebaseIdToken } from "@/lib/firebase-auth";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
@@ -21,7 +21,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
 
-const ListingMap = nextDynamic(
+const ListingMap = dynamic(
   () => import("@/components/listings/ListingMap"),
   { ssr: false }
 );
@@ -48,11 +48,12 @@ export default function ListingsPage() {
   });
 
   const [debouncedFilters, setDebouncedFilters] = useState(filters);
+
   const router = useRouter();
   const observer = useRef<IntersectionObserver | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  /* 👤 Auth Listener */
+  /* Auth Listener */
   useEffect(() => {
     const unsub = auth.onAuthStateChanged((u) => {
       setUser(u);
@@ -61,35 +62,34 @@ export default function ListingsPage() {
         setPendingListing(null);
       }
     });
+
     return () => unsub();
   }, [pendingListing]);
 
-  /* ⏱ Debounce Filters */
+  /* Debounce Filters */
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedFilters(filters), 400);
     return () => clearTimeout(timer);
   }, [filters]);
 
-  /* 🔍 Client-side filters */
+  /* Client Filters */
   const applyClientFilters = useCallback(
     (items: any[]) => {
       const f = debouncedFilters;
+
       const search = f.search.trim().toLowerCase();
-      const locSearch = f.location.trim().toLowerCase();
+      const locationSearch = f.location.trim().toLowerCase();
 
       return items.filter((item) => {
-        const title = (item.title || item.name || "").toString();
-        const placeLocation = (item.location || "").toString();
+        const title = (item.title || "").toLowerCase();
+        const location = (item.location || "").toLowerCase();
         const price = Number(item.price || 0);
         const rating = Number(item.rating || 0);
 
-        if (
-          search &&
-          !title.toLowerCase().includes(search) &&
-          !placeLocation.toLowerCase().includes(search)
-        ) return false;
+        if (search && !title.includes(search) && !location.includes(search))
+          return false;
 
-        if (locSearch && !placeLocation.toLowerCase().includes(locSearch))
+        if (locationSearch && !location.includes(locationSearch))
           return false;
 
         if (f.category !== "all" && item.category !== f.category)
@@ -110,10 +110,11 @@ export default function ListingsPage() {
     [debouncedFilters]
   );
 
-  /* 🔁 Load Listings (approved + active, featured priority) */
+  /* Load Listings */
   const loadListings = useCallback(
     async (reset = false) => {
-      if (loading || (!hasMore && !reset)) return;
+      if (loading) return;
+
       setLoading(true);
 
       try {
@@ -124,13 +125,9 @@ export default function ListingsPage() {
 
         const colRef = collection(db, "listings");
 
-        const baseConditions: any[] = [
-          where("status", "in", ["approved", "active"]),
-        ];
-
         let q = query(
           colRef,
-          ...baseConditions,
+          where("status", "in", ["approved", "active"]),
           orderBy("createdAt", "desc"),
           limit(9)
         );
@@ -138,7 +135,7 @@ export default function ListingsPage() {
         if (!reset && lastDoc) {
           q = query(
             colRef,
-            ...baseConditions,
+            where("status", "in", ["approved", "active"]),
             orderBy("createdAt", "desc"),
             startAfter(lastDoc),
             limit(9)
@@ -146,68 +143,55 @@ export default function ListingsPage() {
         }
 
         const snap = await getDocs(q);
-        let newListings: any[] = [];
 
-        if (!snap.empty) {
-          newListings = snap.docs.map((doc) => {
-            const data = doc.data() as any;
-
-            // ✅ STATUS MIGRATION (frontend-safe)
-            const normalizedStatus =
-              data.status === "active" || data.status === "approved"
-                ? data.status
-                : "approved";
-
-            const rawImages =
-              Array.isArray(data.images) && data.images.length > 0
-                ? data.images
-                : [
-                    data.image ||
-                      "https://via.placeholder.com/400x300?text=No+Image",
-                  ];
-
-            return {
-              id: doc.id,
-              ...data,
-              status: normalizedStatus,
-              title: data.title || data.name || "Untitled stay",
-              location: data.location || "",
-              images: rawImages,
-              featured: Boolean(data.featured),
-              createdAt: data.createdAt,
-            };
-          });
-
-          newListings = applyClientFilters(newListings);
-
-          // ⭐ FEATURED PRIORITY (TOP)
-          newListings.sort((a, b) => {
-            if (a.featured && !b.featured) return -1;
-            if (!a.featured && b.featured) return 1;
-            return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
-          });
-
-          setLastDoc(snap.docs[snap.docs.length - 1]);
-          setHasMore(snap.docs.length === 9);
-        } else {
+        if (snap.empty) {
           setHasMore(false);
+          setLoading(false);
+          return;
         }
 
-        if (reset) {
-          setListings(newListings);
-        } else {
-          setListings((prev) => [...prev, ...newListings]);
-        }
+        let newListings = snap.docs.map((doc) => {
+          const data: any = doc.data();
+
+          return {
+            id: doc.id,
+            ...data,
+            title: data.title || data.name || "Untitled stay",
+            location: data.location || "",
+            images:
+              Array.isArray(data.images) && data.images.length
+                ? data.images
+                : [data.image || "https://via.placeholder.com/400x300"],
+            featured: Boolean(data.featured),
+            createdAt: data.createdAt,
+          };
+        });
+
+        newListings = applyClientFilters(newListings);
+
+        newListings.sort((a, b) => {
+          if (a.featured && !b.featured) return -1;
+          if (!a.featured && b.featured) return 1;
+          return (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0);
+        });
+
+        setLastDoc(snap.docs[snap.docs.length - 1]);
+
+        setListings((prev) =>
+          reset ? newListings : [...prev, ...newListings]
+        );
+
+        setHasMore(snap.docs.length === 9);
       } catch (err) {
-        console.error("❌ Error loading listings:", err);
-      } finally {
-        setLoading(false);
+        console.error("Error loading listings:", err);
       }
+
+      setLoading(false);
     },
-    [applyClientFilters, lastDoc, hasMore, loading]
+    [applyClientFilters, lastDoc, loading]
   );
 
-  /* 🔄 Infinite Scroll */
+  /* Infinite Scroll */
   useEffect(() => {
     if (observer.current) observer.current.disconnect();
 
@@ -217,7 +201,10 @@ export default function ListingsPage() {
           loadListings(false);
         }
       },
-      { threshold: 1 }
+      {
+        threshold: 0.5,
+        rootMargin: "200px",
+      }
     );
 
     if (loadMoreRef.current) {
@@ -227,13 +214,11 @@ export default function ListingsPage() {
     return () => observer.current?.disconnect();
   }, [loadListings, hasMore, loading]);
 
-  /* 🔍 Reload on Filter Change */
   useEffect(() => {
     loadListings(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debouncedFilters]);
 
-  /* 💳 Handle Booking */
+  /* Booking */
   const handleBookNow = async (listing: any) => {
     if (!user) {
       setPendingListing(listing);
@@ -244,12 +229,6 @@ export default function ListingsPage() {
     try {
       const token = await getFirebaseIdToken();
 
-      const mode =
-        listing.allowPayAtHotel &&
-        confirm("Would you like to Pay at Hotel instead of paying online?")
-          ? "pay_at_hotel"
-          : "razorpay";
-
       const res = await fetch("/api/bookings", {
         method: "POST",
         headers: {
@@ -258,59 +237,55 @@ export default function ListingsPage() {
         },
         body: JSON.stringify({
           listingId: listing.id,
-          checkIn: new Date().toISOString(),
-          checkOut: new Date(Date.now() + 86400000).toISOString(),
-          paymentMode: mode,
         }),
       });
 
       const data = await res.json();
+
       if (!data.success) {
         toast.error(data.error || "Booking failed");
         return;
       }
 
-      if (mode === "razorpay") {
-        toast.info("Redirecting to Razorpay...");
-        await openRazorpayCheckout({
-          amount: data.razorpayOrder.amount,
-          orderId: data.razorpayOrder.id,
-          name: listing.title,
-          email: user.email,
-          phone: user.phoneNumber || "",
-          onSuccess: () => toast.success("✅ Payment successful"),
-          onFailure: () => toast.error("❌ Payment failed"),
-        });
-      } else {
-        toast.success("Booking confirmed — Pay at Hotel");
-      }
+      toast.info("Redirecting to payment");
+
+      await openRazorpayCheckout({
+        amount: data.razorpayOrder.amount,
+        orderId: data.razorpayOrder.id,
+        name: listing.title,
+        email: user.email,
+        phone: user.phoneNumber || "",
+        onSuccess: () => toast.success("Payment successful"),
+        onFailure: () => toast.error("Payment failed"),
+      });
     } catch (err) {
-      console.error("Booking error:", err);
-      toast.error("Booking could not be initiated");
+      console.error(err);
+      toast.error("Booking error");
     }
   };
 
-  /* 🧱 Listing Card */
-  const ListingCard = ({ listing }: { listing: any }) => {
+  /* Listing Card */
+  const ListingCard = ({ listing }: any) => {
     const [current, setCurrent] = useState(0);
 
     useEffect(() => {
-      if (!listing.images || listing.images.length === 0) return;
-      const timer = setInterval(
-        () => setCurrent((prev) => (prev + 1) % listing.images.length),
-        2500
-      );
+      if (!listing.images?.length) return;
+
+      const timer = setInterval(() => {
+        setCurrent((prev) => (prev + 1) % listing.images.length);
+      }, 3000);
+
       return () => clearInterval(timer);
     }, [listing.images]);
 
     const safeImages =
-      Array.isArray(listing.images) && listing.images.length > 0
+      listing.images?.length > 0
         ? listing.images
-        : ["https://via.placeholder.com/400x300?text=No+Image"];
+        : ["https://via.placeholder.com/400x300"];
 
     return (
-      <div className="border rounded-xl shadow bg-white overflow-hidden hover:shadow-xl transition-all">
-        <div className="relative w-full h-52 overflow-hidden">
+      <div className="border rounded-xl shadow bg-white overflow-hidden hover:shadow-xl transition">
+        <div className="relative w-full h-52">
           <AnimatePresence mode="wait">
             <motion.img
               key={safeImages[current]}
@@ -328,22 +303,11 @@ export default function ListingsPage() {
           <h3 className="text-lg font-semibold">{listing.title}</h3>
           <p className="text-gray-600 text-sm">{listing.location}</p>
 
-          {listing.allowPayAtHotel && (
-            <p className="text-green-600 text-xs">
-              🏨 Pay at Hotel Available
-            </p>
-          )}
-
-          {listing.featured && (
-            <p className="text-xs text-purple-600 font-semibold">
-              ⭐ Featured
-            </p>
-          )}
-
           <div className="flex justify-between items-center">
             <span className="text-blue-600 font-bold">
               ₹{listing.price}
             </span>
+
             <span className="text-yellow-600 text-sm">
               ⭐ {listing.rating || 4.2}
             </span>
@@ -352,7 +316,7 @@ export default function ListingsPage() {
           <div className="flex gap-2 mt-4">
             <Button
               onClick={() => router.push(`/listing/${listing.id}`)}
-              className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800"
+              className="flex-1 bg-gray-200 hover:bg-gray-300"
             >
               Visit
             </Button>
@@ -369,26 +333,9 @@ export default function ListingsPage() {
     );
   };
 
-  /* 🖼️ UI */
   return (
     <div className="p-6 space-y-8">
-      <header className="flex items-center justify-between flex-wrap gap-2">
-        <h1 className="text-2xl font-semibold text-gray-800">
-          Available Listings
-        </h1>
-        <span className="text-sm text-gray-500">
-          Showing {listings.length} place
-          {listings.length !== 1 ? "s" : ""}
-        </span>
-      </header>
-
-      <ListingFilters
-        filters={filters}
-        setFilters={setFilters}
-        onSearch={(value) =>
-          setFilters((prev) => ({ ...prev, search: value }))
-        }
-      />
+      <ListingFilters filters={filters} setFilters={setFilters} />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
         {listings.map((listing) => (
@@ -397,25 +344,12 @@ export default function ListingsPage() {
       </div>
 
       <div ref={loadMoreRef} className="py-8 text-center text-gray-500">
-        {!loading && listings.length === 0
-          ? "No listings found."
-          : loading
+        {loading
           ? "Loading more listings..."
           : hasMore
-          ? "Scroll down to load more"
-          : "🎉 You've reached the end"}
+          ? "Scroll to load more"
+          : "🎉 End of listings"}
       </div>
-
-      {listings.length > 0 && (
-        <section className="pt-8">
-          <h2 className="text-xl font-semibold mb-4 text-gray-800">
-            Explore on Map
-          </h2>
-          <div className="w-full h-[400px] rounded-lg overflow-hidden shadow">
-            <ListingMap listings={listings} />
-          </div>
-        </section>
-      )}
 
       <LoginModal
         isOpen={showLoginModal}

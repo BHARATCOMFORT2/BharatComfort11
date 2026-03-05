@@ -24,9 +24,9 @@ interface Action {
 
 // Default actions (fallback)
 const defaultActions: Action[] = [
-  { label: "Plan by Road", href: "/travel/roadways", icon: "Bus" },
-  { label: "Plan by Rail", href: "/travel/railways", icon: "Train" },
-  { label: "Plan by Air", href: "/travel/airways", icon: "Plane" },
+  { label: "Plan by Road", href: "/travel-planner/road", icon: "Bus" },
+  { label: "Plan by Rail", href: "/travel-planner/rail", icon: "Train" },
+  { label: "Plan by Air", href: "/travel-planner/air", icon: "Plane" },
   { label: "Find Stays", href: "/listings", icon: "Hotel" },
 ];
 

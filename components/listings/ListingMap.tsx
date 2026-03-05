@@ -1,12 +1,16 @@
 "use client";
 
-import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { Listing } from "./ListingCard";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-// ✅ Fix Leaflet marker icons in Next.js
+/* Fix leaflet icons */
+
 delete (L.Icon.Default.prototype as any)._getIconUrl;
+
 L.Icon.Default.mergeOptions({
   iconRetinaUrl:
     "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png",
@@ -20,33 +24,52 @@ interface ListingMapProps {
   listings: Listing[];
 }
 
+/* Auto fit map bounds */
+
+function FitBounds({ listings }: { listings: Listing[] }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const valid = listings.filter(
+      (l) => typeof l.lat === "number" && typeof l.lng === "number"
+    );
+
+    if (valid.length === 0) return;
+
+    const bounds = L.latLngBounds(
+      valid.map((l) => [l.lat as number, l.lng as number])
+    );
+
+    map.fitBounds(bounds, { padding: [40, 40] });
+  }, [listings, map]);
+
+  return null;
+}
+
 export default function ListingMap({ listings }: ListingMapProps) {
-  // ✅ Default to India's center if no listings
+
+  const router = useRouter();
+
   const defaultCenter: [number, number] = [20.5937, 78.9629];
-
-  // ✅ Safe fallback for center
-  const firstValid = listings.find(
-    (l) => typeof l.lat === "number" && typeof l.lng === "number"
-  );
-
-  const center: [number, number] = firstValid
-    ? [firstValid.lat as number, firstValid.lng as number]
-    : defaultCenter;
 
   return (
     <MapContainer
-      center={center}
+      center={defaultCenter}
       zoom={5}
       className="h-full w-full rounded-lg"
-      scrollWheelZoom={false}
+      scrollWheelZoom={true}
     >
+
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors'
+        attribution='&copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a>'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
 
+      {/* Auto fit bounds */}
+      <FitBounds listings={listings} />
+
       {listings.map((listing) => {
-        // ✅ Safely skip invalid coordinates
+
         if (
           typeof listing.lat !== "number" ||
           typeof listing.lng !== "number"
@@ -56,19 +79,44 @@ export default function ListingMap({ listings }: ListingMapProps) {
         return (
           <Marker
             key={listing.id}
-            position={[listing.lat, listing.lng] as [number, number]}
+            position={[listing.lat, listing.lng]}
           >
             <Popup>
-              <div>
-                <h3 className="font-semibold">{listing.name}</h3>
-                <p>{listing.location}</p>
-                <p className="text-sm">₹{listing.price}</p>
-                <p className="text-yellow-600 text-sm">⭐ {listing.rating}</p>
+
+              <div className="space-y-1">
+
+                <h3 className="font-semibold text-sm">
+                  {listing.name}
+                </h3>
+
+                <p className="text-xs text-gray-600">
+                  {listing.location}
+                </p>
+
+                <p className="text-xs font-semibold">
+                  ₹{listing.price}
+                </p>
+
+                {listing.rating && (
+                  <p className="text-yellow-600 text-xs">
+                    ⭐ {listing.rating}
+                  </p>
+                )}
+
+                <button
+                  onClick={() => router.push(`/listing/${listing.id}`)}
+                  className="text-blue-600 text-xs underline"
+                >
+                  View details
+                </button>
+
               </div>
+
             </Popup>
           </Marker>
         );
       })}
+
     </MapContainer>
   );
 }

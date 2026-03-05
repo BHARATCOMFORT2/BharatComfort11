@@ -1,11 +1,9 @@
-// app/api/bookings/route.ts
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/universal-wrapper";
 import { FieldValue } from "firebase-admin/firestore";
-import Razorpay from "razorpay";
 
 /* ---------------------------------------------------------
    GET — Fetch Bookings
@@ -22,30 +20,42 @@ export const GET = withAuth(
     let q;
 
     if (role === "admin") {
-      q = adminDb.collection("bookings").orderBy("createdAt", "desc");
+      q = adminDb
+        .collection("bookings")
+        .where("status", "!=", "pending_payment")
+        .orderBy("status")
+        .orderBy("createdAt", "desc");
     } else if (role === "partner") {
       q = adminDb
         .collection("bookings")
         .where("partnerId", "==", uid)
+        .where("status", "!=", "pending_payment")
+        .orderBy("status")
         .orderBy("createdAt", "desc");
     } else {
       q = adminDb
         .collection("bookings")
         .where("userId", "==", uid)
+        .where("status", "!=", "pending_payment")
+        .orderBy("status")
         .orderBy("createdAt", "desc");
     }
 
     const snap = await q.get();
+
     return NextResponse.json({
       success: true,
-      bookings: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
+      bookings: snap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      })),
     });
   },
   { requireRole: ["user", "partner", "admin"] }
 );
 
 /* ---------------------------------------------------------
-   POST — Create booking (supports Razorpay + Pay at Hotel)
+   POST — Create Booking
 --------------------------------------------------------- */
 export const POST = withAuth(
   async (req, ctx) => {
@@ -53,24 +63,30 @@ export const POST = withAuth(
     const userId = decoded.uid;
 
     const body = await req.json().catch(() => ({}));
+
     const {
       listingId,
-      partnerId,
-      amount,
       checkIn,
       checkOut,
       paymentMode = "razorpay", // razorpay | pay_at_hotel
     } = body;
 
-    if (!listingId || !partnerId || !amount || !checkIn || !checkOut) {
+    if (!listingId || !checkIn || !checkOut) {
       return NextResponse.json(
         { success: false, error: "Missing required fields" },
         { status: 400 }
       );
     }
 
-    // Validate listing exists
-    const listingSnap = await adminDb.collection("listings").doc(listingId).get();
+    /* ---------------------------------------------------------
+       1️⃣ Validate Listing
+    --------------------------------------------------------- */
+
+    const listingSnap = await adminDb
+      .collection("listings")
+      .doc(listingId)
+      .get();
+
     if (!listingSnap.exists) {
       return NextResponse.json(
         { success: false, error: "Listing not found" },
@@ -79,21 +95,29 @@ export const POST = withAuth(
     }
 
     const listing = listingSnap.data();
+
+    const partnerId = listing.partnerId;
+    const amount = Number(listing.price || listing.amount || 0);
     const allowPayAtHotel = listing.allowPayAtHotel ?? false;
 
-    const now = FieldValue.serverTimestamp();
+    if (!partnerId || !amount) {
+      return NextResponse.json(
+        { success: false, error: "Invalid listing configuration" },
+        { status: 500 }
+      );
+    }
+
+    /* ---------------------------------------------------------
+       2️⃣ Determine booking status
+    --------------------------------------------------------- */
 
     let bookingStatus = "pending_payment";
     let paymentStatus = "pending";
-    let razorpayOrder = null;
 
-    /* ---------------------------------------------------------
-        CASE A — PAY AT HOTEL
-    --------------------------------------------------------- */
     if (paymentMode === "pay_at_hotel") {
       if (!allowPayAtHotel) {
         return NextResponse.json(
-          { success: false, error: "Listing does not allow pay-at-hotel" },
+          { success: false, error: "Pay-at-hotel not allowed" },
           { status: 403 }
         );
       }
@@ -102,70 +126,54 @@ export const POST = withAuth(
       paymentStatus = "unpaid";
     }
 
-    /* ---------------------------------------------------------
-        CASE B — RAZORPAY PAYMENT
-    --------------------------------------------------------- */
-    if (paymentMode === "razorpay") {
-      try {
-        const razor = new Razorpay({
-          key_id: process.env.RAZORPAY_KEY_ID!,
-          key_secret: process.env.RAZORPAY_KEY_SECRET!,
-        });
-
-        const order = await razor.orders.create({
-          amount: Number(amount) * 100,
-          currency: "INR",
-          receipt: `order_rcpt_${Date.now()}`,
-        });
-
-        razorpayOrder = order;
-      } catch (err) {
-        console.error("Razorpay Error:", err);
-        return NextResponse.json(
-          { success: false, error: "Razorpay order creation failed" },
-          { status: 500 }
-        );
-      }
-    }
+    const now = FieldValue.serverTimestamp();
 
     /* ---------------------------------------------------------
-       CREATE BOOKING — common for both modes
+       3️⃣ Create Booking
     --------------------------------------------------------- */
+
     const bookingData = {
       userId,
       userEmail: decoded?.email || null,
+
       partnerId,
       listingId,
-      amount: Number(amount),
+
+      amount,
+
       checkIn,
       checkOut,
+
       paymentMode,
-      paymentStatus,         // pending / unpaid
-      status: bookingStatus, // pending_payment / confirmed_unpaid
+
+      paymentStatus, // pending | unpaid | paid
+      status: bookingStatus, // pending_payment | confirmed_unpaid | confirmed
+
       refundStatus: "none",
-      razorpayOrderId: razorpayOrder?.id || null,
+
       createdAt: now,
       updatedAt: now,
     };
 
-    const bookingRef = await adminDb.collection("bookings").add(bookingData);
+    const bookingRef = await adminDb
+      .collection("bookings")
+      .add(bookingData);
 
     return NextResponse.json({
       success: true,
       bookingId: bookingRef.id,
       paymentMode,
-      razorpayOrder,
       message:
         paymentMode === "pay_at_hotel"
-          ? "Booking created (Pay at Hotel)."
-          : "Booking created (Razorpay pending payment).",
+          ? "Booking confirmed (Pay at Hotel)"
+          : "Booking created. Awaiting payment.",
     });
   },
   { requireRole: ["user", "partner", "admin"] }
 );
 
 /* ---------------------------------------------------------
-   PUT — Update Booking (admin / partner only)
+   PUT — Update Booking (Admin / Partner)
 --------------------------------------------------------- */
 export const PUT = withAuth(
   async (req, ctx) => {
@@ -192,14 +200,22 @@ export const PUT = withAuth(
       );
     }
 
-    const updates: any = { updatedAt: FieldValue.serverTimestamp() };
+    const updates: any = {
+      updatedAt: FieldValue.serverTimestamp(),
+    };
 
     if (status) updates.status = status;
     if (paymentStatus) updates.paymentStatus = paymentStatus;
 
-    await adminDb.collection("bookings").doc(bookingId).update(updates);
+    await adminDb
+      .collection("bookings")
+      .doc(bookingId)
+      .update(updates);
 
-    return NextResponse.json({ success: true, updates });
+    return NextResponse.json({
+      success: true,
+      updates,
+    });
   },
   { requireRole: ["admin", "partner"] }
 );

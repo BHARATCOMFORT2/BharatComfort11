@@ -12,7 +12,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "@/lib/firebase";
 import ListingFilters from "@/components/listings/ListingFilters";
-import dynamic from "next/dynamic";
+import nextDynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { getFirebaseIdToken } from "@/lib/firebase-auth";
 import { openRazorpayCheckout } from "@/lib/payments-razorpay";
@@ -21,11 +21,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import LoginModal from "@/components/auth/LoginModal";
 
-const ListingMap = dynamic(
+export const dynamic = "force-dynamic";
+
+const ListingMap = nextDynamic(
   () => import("@/components/listings/ListingMap"),
   { ssr: false }
 );
-
 export const dynamic = "force-dynamic";
 
 export default function ListingsPage() {

@@ -1,20 +1,73 @@
-// lib/payments-razorpay.ts
-// Universal entry point that works for both app/ and pages/
+/* ---------------------------------------------------------
+   lib/payments-razorpay.ts
+   Universal Razorpay loader (Server + Client safe)
+--------------------------------------------------------- */
 
 const isServer = typeof window === "undefined";
 
-let serverExports: any = {};
-let clientExports: any = {};
+/* ---------------------------------------------------------
+   Types
+--------------------------------------------------------- */
 
-// Load server-only code only in server environment
+type RazorpayServerExports = {
+  createOrder?: Function;
+  verifySignature?: Function;
+};
+
+type RazorpayClientExports = {
+  openRazorpayCheckout?: Function;
+  loadRazorpayScript?: Function;
+};
+
+/* ---------------------------------------------------------
+   Server Module
+--------------------------------------------------------- */
+
+let serverModule: RazorpayServerExports = {};
+
 if (isServer) {
-  serverExports = require("./payments/razorpay-server");
+  try {
+    serverModule = require("./payments/razorpay-server");
+  } catch (err) {
+    console.warn("⚠ Razorpay server module not loaded:", err);
+  }
 }
 
-// Always load client-side checkout (safe on both)
-clientExports = require("./payments/razorpay-client");
+/* ---------------------------------------------------------
+   Client Module
+--------------------------------------------------------- */
 
-module.exports = {
-  ...serverExports,
-  ...clientExports,
+let clientModule: RazorpayClientExports = {};
+
+try {
+  clientModule = require("./payments/razorpay-client");
+} catch (err) {
+  console.warn("⚠ Razorpay client module not loaded:", err);
+}
+
+/* ---------------------------------------------------------
+   Server Exports
+--------------------------------------------------------- */
+
+export const createOrder = serverModule.createOrder;
+
+export const verifySignature = serverModule.verifySignature;
+
+/* ---------------------------------------------------------
+   Client Exports
+--------------------------------------------------------- */
+
+export const openRazorpayCheckout = clientModule.openRazorpayCheckout;
+
+export const loadRazorpayScript = clientModule.loadRazorpayScript;
+
+/* ---------------------------------------------------------
+   Default Export (optional)
+--------------------------------------------------------- */
+
+export default {
+  createOrder,
+  verifySignature,
+  openRazorpayCheckout,
+  loadRazorpayScript,
 };

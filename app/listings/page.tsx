@@ -27,7 +27,6 @@ const ListingMap = nextDynamic(
   () => import("@/components/listings/ListingMap"),
   { ssr: false }
 );
-export const dynamic = "force-dynamic";
 
 export default function ListingsPage() {
   const [listings, setListings] = useState<any[]>([]);

@@ -67,9 +67,8 @@ await user.getIdToken(true);
 loadListings();
 });
 
-```
+
 return () => unsub();
-```
 
 }, []);
 
@@ -77,7 +76,6 @@ async function loadListings() {
 try {
 setLoadBusy(true);
 
-```
   const res = await apiFetch(
     "/api/partners/listings/list?page=1&limit=50"
   );
@@ -90,7 +88,6 @@ setLoadBusy(true);
 } finally {
   setLoadBusy(false);
 }
-```
 
 }
 
@@ -99,7 +96,6 @@ setLoadBusy(true);
 function handleFilesSelected(filesList: FileList) {
 const files = Array.from(filesList);
 
-```
 if (images.length + files.length > MAX_IMAGES) {
   alert(`Maximum ${MAX_IMAGES} images allowed`);
   return;
@@ -122,7 +118,6 @@ setImages((prev) => {
 
   return merged;
 });
-```
 
 }
 
@@ -130,7 +125,6 @@ function removeImage(index: number) {
 const it = images[index];
 if (!it) return;
 
-```
 if (!it.isExisting && "objectUrl" in it) {
   URL.revokeObjectURL(it.objectUrl);
 }
@@ -145,7 +139,6 @@ setImages((prev) => {
 
   return arr;
 });
-```
 
 }
 
@@ -170,7 +163,6 @@ dropIndexRef.current = idx;
 function onDrop(e: any) {
 e.preventDefault();
 
-```
 const from = dragIndexRef.current;
 const to = dropIndexRef.current;
 
@@ -185,7 +177,6 @@ setImages((prev) => {
 
 dragIndexRef.current = null;
 dropIndexRef.current = null;
-```
 
 }
 
@@ -195,7 +186,7 @@ async function uploadFile(file: File) {
 const fd = new FormData();
 fd.append("file", file);
 
-```
+
 const res = await apiFetch("/api/partners/listings/upload", {
   method: "POST",
   body: fd,
@@ -206,7 +197,6 @@ const j = await res.json();
 if (!j.ok) throw new Error(j.error || "Image upload failed");
 
 return j.url as string;
-```
 
 }
 
@@ -214,7 +204,6 @@ async function prepareImageUploadPayload(items: ImageItem[]) {
 const uploads = items.map(async (it) => {
 if (it.isExisting) return it.url;
 
-```
   if (!it.isExisting && "file" in it) {
     return await uploadFile(it.file);
   }
@@ -223,7 +212,6 @@ if (it.isExisting) return it.url;
 });
 
 return await Promise.all(uploads);
-```
 
 }
 
@@ -232,7 +220,6 @@ return await Promise.all(uploads);
 async function handleCreateOrUpdate() {
 if (!form.title.trim()) return alert("Enter title");
 
-```
 setBusy(true);
 
 try {
@@ -288,7 +275,6 @@ try {
 } finally {
   setBusy(false);
 }
-```
 
 }
 
@@ -297,7 +283,6 @@ try {
 async function handleDelete(id?: string) {
 if (!id || !confirm("Delete this listing?")) return;
 
-```
 setBusy(true);
 
 try {
@@ -317,7 +302,6 @@ try {
 } finally {
   setBusy(false);
 }
-```
 
 }
 
@@ -326,7 +310,6 @@ try {
 function startEdit(l: Listing) {
 setEditId(l.id || null);
 
-```
 setForm({
   title: l.title || "",
   description: l.description || "",
@@ -345,7 +328,6 @@ const exImages: ImageItem[] = (l.images || []).map((url, idx) => ({
 setImages(exImages);
 
 window.scrollTo({ top: 0, behavior: "smooth" });
-```
 
 }
 
@@ -356,7 +338,6 @@ URL.revokeObjectURL(x.objectUrl);
 }
 });
 
-```
 setEditId(null);
 
 setForm({
@@ -368,7 +349,6 @@ setForm({
 });
 
 setImages([]);
-```
 
 }
 
@@ -377,7 +357,6 @@ setImages([]);
 return ( <div className="space-y-8">
 {/* FORM */}
 
-```
   <div className="bg-white p-6 rounded-xl shadow border space-y-4">
     <h2 className="text-xl font-semibold">
       {editId ? "Edit Listing" : "Add Listing"}
@@ -536,7 +515,6 @@ return ( <div className="space-y-8">
     )}
   </div>
 </div>
-```
 
 );
 }

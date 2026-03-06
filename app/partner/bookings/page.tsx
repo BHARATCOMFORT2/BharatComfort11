@@ -57,7 +57,6 @@ router.replace("/auth/login");
 return;
 }
 
-```
   try {
     await user.getIdToken(true);
 
@@ -115,7 +114,6 @@ return;
 });
 
 return () => unsub();
-```
 
 }, [router]);
 
@@ -142,7 +140,6 @@ profile={{ name: "Partner", role: "partner" }}
 >
 {/* ---------------- STATS ---------------- */}
 
-```
   <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
     <div className="bg-white p-6 rounded-xl shadow text-center">
       <h2 className="text-3xl font-bold">{totalBookings}</h2>
@@ -264,7 +261,6 @@ profile={{ name: "Partner", role: "partner" }}
     )}
   </div>
 </DashboardLayout>
-```
 
 );
 }

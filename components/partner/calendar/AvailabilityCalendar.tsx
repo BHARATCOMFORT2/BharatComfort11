@@ -27,7 +27,6 @@ return d.toISOString().slice(0, 10);
 return ( <div className="bg-white rounded-xl shadow p-6"> <h3 className="text-lg font-semibold mb-4">
 Availability Calendar </h3>
 
-```
   <div className="grid grid-cols-5 gap-3">
     {days.map((d) => (
       <button
@@ -48,7 +47,6 @@ Availability Calendar </h3>
     Red = Blocked | Green = Available
   </p>
 </div>
-```
 
 );
 }

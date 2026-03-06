@@ -119,15 +119,21 @@ return () => unsub();
 
 }, [router]);
 
-if (loading)
+/* ---------------- LOADING ---------------- */
+
+if (loading) {
 return ( <p className="text-center py-12 text-gray-500">
 Loading partner dashboard... </p>
 );
+}
 
-if (error)
+/* ---------------- ERROR ---------------- */
+
+if (error) {
 return ( <p className="text-center py-12 text-red-500">
 {error} </p>
 );
+}
 
 return (
 <DashboardLayout
@@ -138,7 +144,6 @@ profile={{ name: "Partner", role: "partner" }}
 
 ```
   <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-
     <div className="bg-white p-6 rounded-xl shadow text-center">
       <h2 className="text-3xl font-bold">{totalBookings}</h2>
       <p className="text-gray-500">Total Bookings</p>
@@ -153,25 +158,20 @@ profile={{ name: "Partner", role: "partner" }}
 
     <div className="bg-white p-6 rounded-xl shadow text-center">
       <h2 className="text-3xl font-bold">
-        {
-          bookings.filter((b) => b.status === "confirmed").length
-        }
+        {bookings.filter((b) => b.status === "confirmed").length}
       </h2>
       <p className="text-gray-500">Confirmed</p>
     </div>
 
     <div className="bg-white p-6 rounded-xl shadow text-center">
       <h2 className="text-3xl font-bold">
-        {
-          bookings.filter((b) => b.status === "completed").length
-        }
+        {bookings.filter((b) => b.status === "completed").length}
       </h2>
       <p className="text-gray-500">Completed</p>
     </div>
-
   </div>
 
-  {/* ---------------- CHART ---------------- */}
+  {/* ---------------- BOOKINGS CHART ---------------- */}
 
   <div className="bg-white p-6 rounded-2xl shadow mb-10">
     <h3 className="font-semibold mb-4">
@@ -184,11 +184,7 @@ profile={{ name: "Partner", role: "partner" }}
         <XAxis dataKey="date" />
         <YAxis />
         <Tooltip />
-        <Line
-          dataKey="count"
-          stroke="#16a34a"
-          strokeWidth={3}
-        />
+        <Line dataKey="count" stroke="#16a34a" strokeWidth={3} />
       </LineChart>
     </ResponsiveContainer>
   </div>
@@ -214,7 +210,6 @@ profile={{ name: "Partner", role: "partner" }}
   {/* ---------------- BOOKINGS TABLE ---------------- */}
 
   <div className="bg-white p-6 rounded-2xl shadow">
-
     <h3 className="text-xl font-semibold mb-6">
       Your Bookings
     </h3>
@@ -225,14 +220,11 @@ profile={{ name: "Partner", role: "partner" }}
       </p>
     ) : (
       <div className="space-y-3">
-
         {bookings.map((b) => (
-
           <div
             key={b.id}
             className="border rounded-lg p-4 flex justify-between items-center"
           >
-
             <div>
               <p className="font-semibold">
                 {b.guestName || "Guest"}
@@ -250,7 +242,6 @@ profile={{ name: "Partner", role: "partner" }}
             </div>
 
             <div className="text-right">
-
               <p className="font-semibold text-green-600">
                 ₹{b.amount}
               </p>
@@ -266,16 +257,11 @@ profile={{ name: "Partner", role: "partner" }}
               >
                 {b.status || "pending"}
               </span>
-
             </div>
-
           </div>
-
         ))}
-
       </div>
     )}
-
   </div>
 </DashboardLayout>
 ```

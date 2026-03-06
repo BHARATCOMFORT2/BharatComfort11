@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { auth } from "@/lib/firebase-client";
 import { apiFetch } from "@/lib/apiFetch";
+import { onAuthStateChanged } from "firebase/auth";
 
 /* ---------------- TYPES ---------------- */
 
@@ -17,14 +18,14 @@ images?: string[];
 allowPayAtHotel?: boolean;
 };
 
-type ImageItem =
-| {
+type ExistingImage = {
 id: string;
 url: string;
 isExisting: true;
 isPrimary?: boolean;
-}
-| {
+};
+
+type NewImage = {
 id: string;
 file: File;
 objectUrl: string;
@@ -32,11 +33,14 @@ isExisting: false;
 isPrimary?: boolean;
 };
 
+type ImageItem = ExistingImage | NewImage;
+
+/* ---------------- COMPONENT ---------------- */
+
 export default function PartnerListingsManager() {
 const [listings, setListings] = useState<Listing[]>([]);
 const [busy, setBusy] = useState(false);
 const [loadBusy, setLoadBusy] = useState(false);
-
 const [editId, setEditId] = useState<string | null>(null);
 
 const [form, setForm] = useState({
@@ -57,9 +61,9 @@ const MAX_IMAGES = 10;
 /* ---------------- AUTH + LOAD ---------------- */
 
 useEffect(() => {
-const unsub = auth.onAuthStateChanged(async (u) => {
-if (!u) return;
-await u.getIdToken(true);
+const unsub = onAuthStateChanged(auth, async (user) => {
+if (!user) return;
+await user.getIdToken(true);
 loadListings();
 });
 
@@ -74,7 +78,10 @@ try {
 setLoadBusy(true);
 
 ```
-  const res = await apiFetch("/api/partners/listings/list?page=1&limit=50");
+  const res = await apiFetch(
+    "/api/partners/listings/list?page=1&limit=50"
+  );
+
   const j = await res.json();
 
   if (j.ok) setListings(j.listings || []);
@@ -124,7 +131,9 @@ const it = images[index];
 if (!it) return;
 
 ```
-if (!it.isExisting) URL.revokeObjectURL(it.objectUrl);
+if (!it.isExisting && "objectUrl" in it) {
+  URL.revokeObjectURL(it.objectUrl);
+}
 
 setImages((prev) => {
   const arr = [...prev];
@@ -204,10 +213,15 @@ return j.url as string;
 async function prepareImageUploadPayload(items: ImageItem[]) {
 const uploads = items.map(async (it) => {
 if (it.isExisting) return it.url;
-return await uploadFile(it.file);
-});
 
 ```
+  if (!it.isExisting && "file" in it) {
+    return await uploadFile(it.file);
+  }
+
+  return "";
+});
+
 return await Promise.all(uploads);
 ```
 
@@ -251,7 +265,7 @@ try {
 
     if (!j.success) throw new Error(j.error || "Update failed");
 
-    alert("✅ Listing updated");
+    alert("Listing updated");
   } else {
     const res = await apiFetch("/api/partners/listings/create", {
       method: "POST",
@@ -263,7 +277,7 @@ try {
 
     if (!j.success) throw new Error(j.error || "Create failed");
 
-    alert("✅ Listing created");
+    alert("Listing created");
   }
 
   resetForm();
@@ -296,8 +310,6 @@ try {
   const j = await res.json();
 
   if (!j.success) throw new Error(j.error || "Delete failed");
-
-  alert("✅ Listing deleted");
 
   loadListings();
 } catch (err: any) {
@@ -339,7 +351,9 @@ window.scrollTo({ top: 0, behavior: "smooth" });
 
 function resetForm() {
 images.forEach((x) => {
-if (!x.isExisting) URL.revokeObjectURL(x.objectUrl);
+if (!x.isExisting && "objectUrl" in x) {
+URL.revokeObjectURL(x.objectUrl);
+}
 });
 
 ```
@@ -361,10 +375,9 @@ setImages([]);
 /* ---------------- UI ---------------- */
 
 return ( <div className="space-y-8">
+{/* FORM */}
 
 ```
-  {/* FORM */}
-
   <div className="bg-white p-6 rounded-xl shadow border space-y-4">
     <h2 className="text-xl font-semibold">
       {editId ? "Edit Listing" : "Add Listing"}
@@ -374,14 +387,18 @@ return ( <div className="space-y-8">
       placeholder="Title"
       className="border p-2 w-full rounded"
       value={form.title}
-      onChange={(e) => setForm({ ...form, title: e.target.value })}
+      onChange={(e) =>
+        setForm({ ...form, title: e.target.value })
+      }
     />
 
     <input
       placeholder="Location"
       className="border p-2 w-full rounded"
       value={form.location}
-      onChange={(e) => setForm({ ...form, location: e.target.value })}
+      onChange={(e) =>
+        setForm({ ...form, location: e.target.value })
+      }
     />
 
     <input
@@ -389,7 +406,9 @@ return ( <div className="space-y-8">
       type="number"
       className="border p-2 w-full rounded"
       value={form.price}
-      onChange={(e) => setForm({ ...form, price: e.target.value })}
+      onChange={(e) =>
+        setForm({ ...form, price: e.target.value })
+      }
     />
 
     <textarea
@@ -397,7 +416,10 @@ return ( <div className="space-y-8">
       className="border p-2 w-full rounded"
       value={form.description}
       onChange={(e) =>
-        setForm({ ...form, description: e.target.value })
+        setForm({
+          ...form,
+          description: e.target.value,
+        })
       }
     />
 
@@ -426,6 +448,7 @@ return ( <div className="space-y-8">
             <img
               src={it.isExisting ? it.url : it.objectUrl}
               className="w-full h-24 object-cover"
+              loading="lazy"
             />
 
             <button
@@ -453,7 +476,10 @@ return ( <div className="space-y-8">
         type="checkbox"
         checked={form.allowPayAtHotel}
         onChange={(e) =>
-          setForm({ ...form, allowPayAtHotel: e.target.checked })
+          setForm({
+            ...form,
+            allowPayAtHotel: e.target.checked,
+          })
         }
       />
       Pay at Hotel
@@ -467,7 +493,9 @@ return ( <div className="space-y-8">
   {/* LISTINGS */}
 
   <div className="bg-white p-6 rounded-xl shadow border">
-    <h2 className="text-xl font-semibold mb-4">Your Listings</h2>
+    <h2 className="text-xl font-semibold mb-4">
+      Your Listings
+    </h2>
 
     {loadBusy ? (
       <p>Loading...</p>
@@ -484,19 +512,24 @@ return ( <div className="space-y-8">
               <img
                 src={l.images[0]}
                 className="w-14 h-14 rounded object-cover"
+                loading="lazy"
               />
             )}
 
             <div>
               <h3 className="font-semibold">{l.title}</h3>
-              <p className="text-sm text-gray-500">{l.location}</p>
+              <p className="text-sm text-gray-500">
+                {l.location}
+              </p>
               <p className="text-blue-600">₹{l.price}</p>
             </div>
           </div>
 
           <div className="flex gap-2">
             <Button onClick={() => startEdit(l)}>Edit</Button>
-            <Button onClick={() => handleDelete(l.id)}>Delete</Button>
+            <Button onClick={() => handleDelete(l.id)}>
+              Delete
+            </Button>
           </div>
         </div>
       ))

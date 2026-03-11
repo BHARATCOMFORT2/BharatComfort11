@@ -162,7 +162,7 @@ export default function RegisterPage() {
     try {
       await resendOtp();
       setOtpSentAt(Date.now());
-      setTimeLeft(600);
+      setTimeLeft(60);
     } catch (err: any) {
       setError(err.message || "Resend failed.");
     }

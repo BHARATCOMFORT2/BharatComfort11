@@ -1,14 +1,17 @@
 // middleware.ts
 import { NextRequest, NextResponse } from "next/server";
 
+/* ---------------------------------------
+   PUBLIC ROUTES
+--------------------------------------- */
 const PUBLIC_ROUTES = [
   "/",
   "/auth",
   "/auth/login",
   "/auth/register",
 
-  "/partner/register",
   "/partner/login",
+  "/partner/register",
 
   "/staff/login",
   "/staff/register",
@@ -16,12 +19,24 @@ const PUBLIC_ROUTES = [
   "/admin/login",
 ];
 
+/* ---------------------------------------
+   PROTECTED ROUTE PREFIXES
+--------------------------------------- */
+const PROTECTED_PREFIXES = [
+  "/user",
+  "/partner",
+  "/staff",
+  "/admin",
+  "/chat",
+  "/book",
+];
+
 export function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const { pathname, search } = request.nextUrl;
   const host = request.headers.get("host") || "";
 
   /* ---------------------------------------------------
-     1️⃣ ABSOLUTELY SKIP API & STATIC (NO MIDDLEWARE RUN)
+     1️⃣ SKIP API & STATIC FILES
   ----------------------------------------------------*/
   if (
     pathname.startsWith("/api") ||
@@ -33,48 +48,39 @@ export function middleware(request: NextRequest) {
   }
 
   /* ---------------------------------------------------
-     2️⃣ ALLOW PUBLIC ROUTES
-  ----------------------------------------------------*/
-  if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
-    if (host === "bharatcomfort.online") {
-      return NextResponse.redirect(
-        new URL(
-          `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
-        )
-      );
-    }
-    return NextResponse.next();
-  }
-
-  /* ---------------------------------------------------
-     3️⃣ FORCE DOMAIN (ONLY FOR REAL PAGES)
+     2️⃣ FORCE WWW DOMAIN
   ----------------------------------------------------*/
   if (host === "bharatcomfort.online") {
     return NextResponse.redirect(
-      new URL(
-        `https://www.bharatcomfort.online${pathname}${request.nextUrl.search}`
-      )
+      new URL(`https://www.bharatcomfort.online${pathname}${search}`)
     );
   }
 
   /* ---------------------------------------------------
-     4️⃣ PROTECTED DASHBOARD ROUTES
+     3️⃣ CHECK SESSION COOKIE
   ----------------------------------------------------*/
-  const protectedPaths = [
-    "/dashboard",
-    "/user/dashboard",
-    "/partner/dashboard",
-    "/staff/dashboard",
-    "/admin/dashboard",
-    "/chat",
-    "/book",
-  ];
-
-  const isProtected = protectedPaths.some((p) =>
-    pathname.startsWith(p)
-  );
-
   const session = request.cookies.get("__session")?.value;
+
+  /* ---------------------------------------------------
+     4️⃣ BLOCK AUTH PAGES IF ALREADY LOGGED IN
+  ----------------------------------------------------*/
+  if (session && pathname.startsWith("/auth")) {
+    return NextResponse.redirect(new URL("/user/dashboard", request.url));
+  }
+
+  /* ---------------------------------------------------
+     5️⃣ ALLOW PUBLIC ROUTES
+  ----------------------------------------------------*/
+  if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
+    return NextResponse.next();
+  }
+
+  /* ---------------------------------------------------
+     6️⃣ PROTECT DASHBOARDS
+  ----------------------------------------------------*/
+  const isProtected = PROTECTED_PREFIXES.some((prefix) =>
+    pathname.startsWith(prefix)
+  );
 
   if (isProtected && !session) {
     const loginUrl = new URL("/auth/login", request.url);
@@ -86,17 +92,10 @@ export function middleware(request: NextRequest) {
 }
 
 /* ---------------------------------------------------
-   🚨 MOST IMPORTANT PART
-   ❌ DO NOT RUN MIDDLEWARE ON /api/*
+   MATCHER CONFIG
 ----------------------------------------------------*/
 export const config = {
   matcher: [
-    /*
-      Match all paths EXCEPT:
-      - /api/*
-      - _next
-      - static files
-    */
     "/((?!api|_next|static|favicon.ico|robots.txt|sitemap.xml|.*\\..*).*)",
   ],
 };

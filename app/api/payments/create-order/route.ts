@@ -14,7 +14,6 @@ export const POST = withAuth(
 async (req, ctx) => {
 const { adminDb, decoded } = ctx;
 
-```
 const userId = decoded.uid;
 
 const body = await req.json().catch(() => ({}));

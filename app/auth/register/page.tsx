@@ -63,7 +63,7 @@ export default function RegisterPage() {
   useEffect(() => {
     if (step !== "phone" || !otpSentAt) return;
     const t = setInterval(() => {
-      const diff = 600 - Math.floor((Date.now() - otpSentAt) / 1000);
+      const diff = 60 - Math.floor((Date.now() - otpSentAt) / 1000);
       setTimeLeft(diff > 0 ? diff : 0);
     }, 1000);
     return () => clearInterval(t);
@@ -108,7 +108,7 @@ export default function RegisterPage() {
 
       await sendOtp(phoneNumber);
       setOtpSentAt(Date.now());
-      setTimeLeft(600);
+      setTimeLeft(60);
       setStep("phone");
     } catch (err: any) {
       setError(err.message || "Failed to send OTP.");

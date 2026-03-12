@@ -249,7 +249,7 @@ export default function RegisterPage() {
 
       sessionStorage.removeItem("pendingSignup");
       router.push(
-        pending.role === "partner" ? "/partner/dashboard" : "/dashboard"
+        pending.role === "partner" ? "/partner/dashboard" : "/user/dashboard"
       );
     } catch (err: any) {
       setError(err.message || "Verification failed.");

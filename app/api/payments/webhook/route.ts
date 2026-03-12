@@ -11,6 +11,7 @@ const { adminDb } = getFirebaseAdmin();
 /* --------------------------------------------------------
    Resolve Razorpay Webhook Secret
 -------------------------------------------------------- */
+
 function resolveWebhookSecret(): string {
   const plain = process.env.RAZORPAY_WEBHOOK_SECRET?.trim();
   const base64 = process.env.RAZORPAY_WEBHOOK_SECRET_BASE64?.trim();
@@ -24,6 +25,7 @@ function resolveWebhookSecret(): string {
 /* --------------------------------------------------------
    Verify Razorpay Signature
 -------------------------------------------------------- */
+
 function verifySignature(rawBody: string, signature: string, secret: string) {
   const expected = crypto
     .createHmac("sha256", secret)
@@ -34,12 +36,15 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 }
 
 /* --------------------------------------------------------
-   Webhook Handler
+   WEBHOOK HANDLER
 -------------------------------------------------------- */
+
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text();
+
     const signature = req.headers.get("x-razorpay-signature") || "";
+
     const secret = resolveWebhookSecret();
 
     /* --------------------------------------------------------
@@ -56,12 +61,15 @@ export async function POST(req: Request) {
     }
 
     const event = JSON.parse(rawBody);
+
     const eventId = event?.id;
     const eventType = event?.event;
 
     if (!eventId || !eventType) {
-      console.warn("Invalid webhook payload");
-      return NextResponse.json({ ok: false }, { status: 400 });
+      return NextResponse.json(
+        { ok: false, error: "Invalid webhook payload" },
+        { status: 400 }
+      );
     }
 
     /* --------------------------------------------------------
@@ -69,31 +77,33 @@ export async function POST(req: Request) {
     -------------------------------------------------------- */
 
     const eventRef = adminDb.collection("webhook_events").doc(eventId);
+
     const existing = await eventRef.get();
 
     if (existing.exists) {
       console.log("Duplicate webhook skipped:", eventId);
+
       return NextResponse.json({ ok: true, duplicate: true });
     }
 
     await eventRef.set({
       eventId,
       eventType,
-      payload: event,
       receivedAt: FieldValue.serverTimestamp(),
       processed: false,
+      payload: event,
     });
 
     console.log("Webhook received:", eventType);
 
     /* --------------------------------------------------------
-       3️⃣ Handle Events
+       3️⃣ EVENT HANDLING
     -------------------------------------------------------- */
 
     switch (eventType) {
-      /* ================================
-         PAYMENT CAPTURED / ORDER PAID
-      ================================= */
+      /* =======================================================
+         PAYMENT CAPTURED
+      ======================================================= */
 
       case "payment.captured":
       case "order.paid": {
@@ -106,14 +116,16 @@ export async function POST(req: Request) {
         const amount = payment.amount / 100;
 
         const payRef = adminDb.collection("payments").doc(orderId);
+
         const paySnap = await payRef.get();
 
         if (!paySnap.exists) {
-          console.warn("Payment intent missing:", orderId);
+          console.warn("Payment intent not found:", orderId);
           break;
         }
 
         const paymentIntent = paySnap.data() as any;
+
         const bookingId = paymentIntent?.bookingId;
         const expectedAmount = paymentIntent?.amount;
 
@@ -122,12 +134,12 @@ export async function POST(req: Request) {
           break;
         }
 
-        /* --------------------------------
-           Verify payment amount
-        -------------------------------- */
+        /* -------------------------------------
+           Validate amount
+        ------------------------------------- */
 
         if (expectedAmount && expectedAmount !== amount) {
-          console.error("Amount mismatch:", {
+          console.error("Amount mismatch", {
             expectedAmount,
             receivedAmount: amount,
           });
@@ -135,6 +147,7 @@ export async function POST(req: Request) {
         }
 
         const bookingRef = adminDb.collection("bookings").doc(bookingId);
+
         const bookingSnap = await bookingRef.get();
 
         if (!bookingSnap.exists) {
@@ -144,99 +157,114 @@ export async function POST(req: Request) {
 
         const booking = bookingSnap.data();
 
-        /* --------------------------------
-           Prevent duplicate confirmation
-        -------------------------------- */
-
         if (booking?.paymentStatus === "paid") {
           console.log("Booking already paid:", bookingId);
           break;
         }
 
-        /* --------------------------------
-           Confirm booking
-        -------------------------------- */
+        /* -------------------------------------
+           Confirm Booking
+        ------------------------------------- */
 
-        await bookingRef.set(
-          {
-            paymentStatus: "paid",
-            status: "confirmed",
-            razorpayOrderId: orderId,
-            razorpayPaymentId: paymentId,
-            paidAmount: amount,
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await bookingRef.update({
+          paymentStatus: "paid",
+          status: "confirmed",
+          razorpayOrderId: orderId,
+          razorpayPaymentId: paymentId,
+          paidAmount: amount,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
 
-        await payRef.set(
-          {
-            status: "captured",
-            razorpayPaymentId: paymentId,
-            verifiedVia: "webhook",
-            amount,
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        /* -------------------------------------
+           Lock Inventory
+        ------------------------------------- */
 
-        console.log("Payment captured → booking confirmed:", bookingId);
+        await adminDb.collection("inventory_locks").add({
+          listingId: booking?.listingId,
+          bookingId,
+          checkIn: booking?.checkIn,
+          checkOut: booking?.checkOut,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        /* -------------------------------------
+           Create Settlement
+        ------------------------------------- */
+
+        if (booking?.partnerId) {
+          const commissionRate = 0.15;
+
+          const partnerAmount = amount * (1 - commissionRate);
+
+          await adminDb.collection("settlements").add({
+            bookingId,
+            partnerId: booking.partnerId,
+            grossAmount: amount,
+            commission: amount * commissionRate,
+            payoutAmount: partnerAmount,
+            status: "pending",
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+
+        await payRef.update({
+          status: "captured",
+          razorpayPaymentId: paymentId,
+          verifiedVia: "webhook",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+
+        console.log("Booking confirmed:", bookingId);
 
         break;
       }
 
-      /* ================================
+      /* =======================================================
          PAYMENT FAILED
-      ================================= */
+      ======================================================= */
 
       case "payment.failed": {
         const payment = event?.payload?.payment?.entity;
+
         if (!payment) break;
 
         const orderId = payment.order_id;
 
         const payRef = adminDb.collection("payments").doc(orderId);
+
         const paySnap = await payRef.get();
 
         if (!paySnap.exists) break;
 
         const paymentIntent = paySnap.data() as any;
+
         const bookingId = paymentIntent?.bookingId;
 
         if (!bookingId) break;
 
-        await adminDb.collection("bookings").doc(bookingId).set(
-          {
-            paymentStatus: "failed",
-            status: "payment_failed",
-            failureReason:
-              payment.error_description || "Unknown payment error",
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await adminDb.collection("bookings").doc(bookingId).update({
+          paymentStatus: "failed",
+          status: "payment_failed",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
 
-        await payRef.set(
-          {
-            status: "failed",
-            errorDescription:
-              payment.error_description || "Unknown payment error",
-            updatedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        await payRef.update({
+          status: "failed",
+          updatedAt: FieldValue.serverTimestamp(),
+        });
 
         console.log("Payment failed:", bookingId);
 
         break;
       }
 
-      /* ================================
+      /* =======================================================
          REFUND PROCESSED
-      ================================= */
+      ======================================================= */
 
       case "refund.processed": {
         const refund = event?.payload?.refund?.entity;
+
         if (!refund) break;
 
         const refundId = refund.id;
@@ -252,15 +280,12 @@ export async function POST(req: Request) {
         if (!bookingSnap.empty) {
           const bookingRef = bookingSnap.docs[0].ref;
 
-          await bookingRef.set(
-            {
-              refundStatus: "processed",
-              refundId,
-              refundAmount: amount,
-              updatedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          );
+          await bookingRef.update({
+            refundStatus: "processed",
+            refundAmount: amount,
+            refundId,
+            updatedAt: FieldValue.serverTimestamp(),
+          });
         }
 
         await adminDb.collection("refunds").doc(refundId).set({
@@ -277,12 +302,12 @@ export async function POST(req: Request) {
       }
 
       default:
-        console.log("Unhandled Razorpay event:", eventType);
+        console.log("Unhandled event:", eventType);
         break;
     }
 
     /* --------------------------------------------------------
-       4️⃣ Mark Webhook Processed
+       4️⃣ Mark webhook processed
     -------------------------------------------------------- */
 
     await eventRef.update({

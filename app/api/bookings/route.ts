@@ -117,17 +117,17 @@ if (nights <= 0) {
 const result = await adminDb.runTransaction(async (tx) => {
 
   const listingRef = adminDb.collection("listings").doc(listingId);
-  const listingSnap = await tx.get(listingRef);
+ const listingSnap = await tx.get(listingRef);
 
-  if (!listingSnap.exists) {
-    throw new Error("Listing not found");
-  }
+if (!listingSnap.exists) {
+  throw new Error("Listing not found");
+}
 
-  const listing = listingSnap.data();
+const listing = listingSnap.data();
 
-  if (!listing.isActive) {
-    throw new Error("Listing unavailable");
-  }
+if (!listing || listing.status !== "active") {
+  throw new Error("Listing unavailable");
+}
 
   const ownerId = listing.ownerId || listing.partnerId || null;
 

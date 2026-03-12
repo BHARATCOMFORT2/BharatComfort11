@@ -11,6 +11,7 @@ import { FieldValue } from "firebase-admin/firestore";
 export const GET = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
+
     const uid = decoded?.uid;
 
     const role =
@@ -22,22 +23,16 @@ export const GET = withAuth(
     if (role === "admin") {
       q = adminDb
         .collection("bookings")
-        .where("status", "!=", "pending_payment")
-        .orderBy("status")
         .orderBy("createdAt", "desc");
     } else if (role === "partner") {
       q = adminDb
         .collection("bookings")
         .where("partnerId", "==", uid)
-        .where("status", "!=", "pending_payment")
-        .orderBy("status")
         .orderBy("createdAt", "desc");
     } else {
       q = adminDb
         .collection("bookings")
         .where("userId", "==", uid)
-        .where("status", "!=", "pending_payment")
-        .orderBy("status")
         .orderBy("createdAt", "desc");
     }
 
@@ -60,6 +55,7 @@ export const GET = withAuth(
 export const POST = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
+
     const userId = decoded.uid;
 
     const body = await req.json().catch(() => ({}));
@@ -68,7 +64,7 @@ export const POST = withAuth(
       listingId,
       checkIn,
       checkOut,
-      paymentMode = "razorpay", // razorpay | pay_at_hotel
+      paymentMode = "razorpay",
     } = body;
 
     if (!listingId || !checkIn || !checkOut) {
@@ -79,7 +75,7 @@ export const POST = withAuth(
     }
 
     /* ---------------------------------------------------------
-       1️⃣ Validate Listing
+       1️⃣ Get Listing
     --------------------------------------------------------- */
 
     const listingSnap = await adminDb
@@ -96,19 +92,64 @@ export const POST = withAuth(
 
     const listing = listingSnap.data();
 
-    const partnerId = listing.partnerId;
-    const amount = Number(listing.price || listing.amount || 0);
-    const allowPayAtHotel = listing.allowPayAtHotel ?? false;
+    const ownerId = listing.ownerId || listing.partnerId || null;
 
-    if (!partnerId || !amount) {
+    const ownerType =
+      listing.ownerType || (listing.partnerId ? "partner" : "admin");
+
+    const partnerId = listing.partnerId || null;
+
+    const price = Number(listing.price || 0);
+
+    if (!price) {
       return NextResponse.json(
-        { success: false, error: "Invalid listing configuration" },
-        { status: 500 }
+        { success: false, error: "Listing price missing" },
+        { status: 400 }
       );
     }
 
+    const allowPayAtHotel = listing.allowPayAtHotel ?? false;
+
     /* ---------------------------------------------------------
-       2️⃣ Determine booking status
+       2️⃣ Prevent Overbooking
+    --------------------------------------------------------- */
+
+    const existingBookings = await adminDb
+      .collection("bookings")
+      .where("listingId", "==", listingId)
+      .where("status", "in", ["confirmed", "confirmed_unpaid"])
+      .get();
+
+    const start = new Date(checkIn);
+    const end = new Date(checkOut);
+
+    for (const doc of existingBookings.docs) {
+      const b = doc.data();
+
+      const bookedStart = new Date(b.checkIn);
+      const bookedEnd = new Date(b.checkOut);
+
+      if (start <= bookedEnd && end >= bookedStart) {
+        return NextResponse.json(
+          { success: false, error: "Selected dates already booked" },
+          { status: 409 }
+        );
+      }
+    }
+
+    /* ---------------------------------------------------------
+       3️⃣ Calculate Amount
+    --------------------------------------------------------- */
+
+    const nights = Math.ceil(
+      (new Date(checkOut).getTime() - new Date(checkIn).getTime()) /
+        86400000
+    );
+
+    const amount = nights * price;
+
+    /* ---------------------------------------------------------
+       4️⃣ Determine Booking Status
     --------------------------------------------------------- */
 
     let bookingStatus = "pending_payment";
@@ -126,18 +167,20 @@ export const POST = withAuth(
       paymentStatus = "unpaid";
     }
 
-    const now = FieldValue.serverTimestamp();
-
     /* ---------------------------------------------------------
-       3️⃣ Create Booking
+       5️⃣ Create Booking
     --------------------------------------------------------- */
 
-    const bookingData = {
+    const bookingRef = await adminDb.collection("bookings").add({
       userId,
       userEmail: decoded?.email || null,
 
-      partnerId,
       listingId,
+
+      ownerId,
+      ownerType,
+
+      partnerId,
 
       amount,
 
@@ -146,27 +189,43 @@ export const POST = withAuth(
 
       paymentMode,
 
-      paymentStatus, // pending | unpaid | paid
-      status: bookingStatus, // pending_payment | confirmed_unpaid | confirmed
+      paymentStatus,
+      status: bookingStatus,
 
       refundStatus: "none",
 
-      createdAt: now,
-      updatedAt: now,
-    };
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
-    const bookingRef = await adminDb
-      .collection("bookings")
-      .add(bookingData);
+    /* ---------------------------------------------------------
+       6️⃣ Razorpay Order
+    --------------------------------------------------------- */
+
+    let razorpayOrderId = null;
+
+    if (paymentMode === "razorpay") {
+      const { createRazorpayOrder } = await import(
+        "@/lib/payments-razorpay-server"
+      );
+
+      const order = await createRazorpayOrder({
+        amount,
+        receipt: bookingRef.id,
+      });
+
+      razorpayOrderId = order.id;
+
+      await bookingRef.update({
+        razorpayOrderId,
+      });
+    }
 
     return NextResponse.json({
       success: true,
       bookingId: bookingRef.id,
+      razorpayOrderId,
       paymentMode,
-      message:
-        paymentMode === "pay_at_hotel"
-          ? "Booking confirmed (Pay at Hotel)"
-          : "Booking created. Awaiting payment.",
     });
   },
   { requireRole: ["user", "partner", "admin"] }
@@ -175,6 +234,7 @@ export const POST = withAuth(
 /* ---------------------------------------------------------
    PUT — Update Booking (Admin / Partner)
 --------------------------------------------------------- */
+
 export const PUT = withAuth(
   async (req, ctx) => {
     const { adminDb, decoded } = ctx;
@@ -191,6 +251,7 @@ export const PUT = withAuth(
     }
 
     const body = await req.json().catch(() => ({}));
+
     const { bookingId, status, paymentStatus } = body;
 
     if (!bookingId) {

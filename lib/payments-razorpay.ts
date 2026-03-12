@@ -1,52 +1,70 @@
 /* ---------------------------------------------------------
-   lib/payments-razorpay.ts
-   Universal Razorpay loader (Server + Client safe)
+BHARATCOMFORT11
+Universal Razorpay Loader (Server + Client Safe)
 --------------------------------------------------------- */
 
 const isServer = typeof window === "undefined";
 
 /* ---------------------------------------------------------
-   Types
+Types
 --------------------------------------------------------- */
 
 type RazorpayServerExports = {
-  createOrder?: Function;
-  verifySignature?: Function;
+createOrder?: (
+amount: number,
+bookingId: string
+) => Promise<{ orderId: string }>;
+verifySignature?: (
+orderId: string,
+paymentId: string,
+signature: string
+) => boolean;
 };
 
 type RazorpayClientExports = {
-  openRazorpayCheckout?: Function;
-  loadRazorpayScript?: Function;
+openRazorpayCheckout?: (options: {
+orderId: string;
+amount: number;
+name: string;
+email?: string;
+phone?: string;
+onSuccess?: (resp: any) => void;
+onFailure?: (err: any) => void;
+}) => void;
+
+loadRazorpayScript?: () => Promise<boolean>;
 };
 
 /* ---------------------------------------------------------
-   Server Module
+Server Module
 --------------------------------------------------------- */
 
 let serverModule: RazorpayServerExports = {};
 
 if (isServer) {
-  try {
-    serverModule = require("./payments/razorpay-server");
-  } catch (err) {
-    console.warn("⚠ Razorpay server module not loaded:", err);
-  }
+try {
+serverModule = require("./payments/razorpay-server");
+} catch (err) {
+console.warn("⚠ Razorpay server module not loaded:", err);
+}
 }
 
 /* ---------------------------------------------------------
-   Client Module
+Client Module
 --------------------------------------------------------- */
 
 let clientModule: RazorpayClientExports = {};
 
+if (!isServer) {
 try {
-  clientModule = require("./payments/razorpay-client");
+clientModule = require("./payments/razorpay-client");
 } catch (err) {
-  console.warn("⚠ Razorpay client module not loaded:", err);
+console.warn("⚠ Razorpay client module not loaded:", err);
+}
 }
 
 /* ---------------------------------------------------------
-   Server Exports
+Server Exports
 --------------------------------------------------------- */
 
 export const createOrder = serverModule.createOrder;
@@ -54,7 +72,7 @@ export const createOrder = serverModule.createOrder;
 export const verifySignature = serverModule.verifySignature;
 
 /* ---------------------------------------------------------
-   Client Exports
+Client Exports
 --------------------------------------------------------- */
 
 export const openRazorpayCheckout = clientModule.openRazorpayCheckout;
@@ -62,12 +80,12 @@ export const openRazorpayCheckout = clientModule.openRazorpayCheckout;
 export const loadRazorpayScript = clientModule.loadRazorpayScript;
 
 /* ---------------------------------------------------------
-   Default Export (optional)
+Default Export
 --------------------------------------------------------- */
 
 export default {
-  createOrder,
-  verifySignature,
-  openRazorpayCheckout,
-  loadRazorpayScript,
+createOrder,
+verifySignature,
+openRazorpayCheckout,
+loadRazorpayScript,
 };

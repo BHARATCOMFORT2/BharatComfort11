@@ -1,95 +1,123 @@
-// lib/payments/razorpay-server.ts
-// Safe for Next.js pages + app router
-
-if (typeof window !== "undefined") {
-  // Prevent accidental client execution
-  throw new Error("razorpay-server.ts was imported on the client");
-}
-
 import Razorpay from "razorpay";
 import crypto from "crypto";
 
+/* ---------------------------------------------------------
+Prevent client execution
+--------------------------------------------------------- */
+if (typeof window !== "undefined") {
+throw new Error("razorpay-server.ts cannot run on client");
+}
+
 let razorpayInstance: Razorpay | null = null;
 
-/* ============================================================
-   🔐 RESOLVE SECRET
-============================================================ */
+/* ---------------------------------------------------------
+Resolve Razorpay secret
+--------------------------------------------------------- */
 function resolveSecret(): string | null {
-  const rawSecret = process.env.RAZORPAY_KEY_SECRET?.trim();
-  const encoded = process.env.RAZORPAY_KEY_SECRET_BASE64?.trim();
+const raw = process.env.RAZORPAY_KEY_SECRET?.trim();
+const encoded = process.env.RAZORPAY_KEY_SECRET_BASE64?.trim();
 
-  if (rawSecret) return rawSecret;
-  if (encoded) {
-    try {
-      return Buffer.from(encoded, "base64").toString("utf8");
-    } catch (err) {
-      console.error("❌ Failed to decode Base64 Razorpay secret:", err);
-    }
-  }
-  return null;
+if (raw) return raw;
+
+if (encoded) {
+try {
+return Buffer.from(encoded, "base64").toString("utf8");
+} catch (err) {
+console.error("❌ Razorpay Base64 decode failed:", err);
+}
 }
 
-/* ============================================================
-   ⚙ KEY FETCH
-============================================================ */
+return null;
+}
+
+/* ---------------------------------------------------------
+Get Razorpay keys
+--------------------------------------------------------- */
 function getKeys() {
-  const keyId = process.env.RAZORPAY_KEY_ID || "";
-  const keySecret = resolveSecret();
+const keyId = process.env.RAZORPAY_KEY_ID?.trim();
+const keySecret = resolveSecret()?.trim();
 
-  if (!keyId || !keySecret) {
-    console.error("❌ Missing Razorpay environment keys.");
-  }
-
-  return { keyId: keyId.trim(), keySecret: keySecret?.trim() || "" };
+if (!keyId || !keySecret) {
+console.error("❌ Missing Razorpay environment variables");
+return null;
 }
 
-/* ============================================================
-   🚀 SINGLETON INSTANCE
-============================================================ */
-export function getRazorpayServerInstance(): Razorpay | null {
-  const { keyId, keySecret } = getKeys();
-
-  if (!keyId || !keySecret) return null;
-
-  if (!razorpayInstance) {
-    razorpayInstance = new Razorpay({ key_id: keyId, key_secret: keySecret });
-    console.log("✅ Razorpay instance initialized");
-  }
-
-  return razorpayInstance;
+return { keyId, keySecret };
 }
 
-/* ============================================================
-   💳 ORDER CREATION
-============================================================ */
-export async function createOrder({ amount, currency = "INR", receipt }: any) {
-  if (!amount || amount <= 0) throw new Error("Invalid amount");
+/* ---------------------------------------------------------
+Singleton Razorpay instance
+--------------------------------------------------------- */
+export function getRazorpayServerInstance(): Razorpay {
+if (razorpayInstance) return razorpayInstance;
 
-  const instance = getRazorpayServerInstance();
-  if (!instance) throw new Error("Razorpay instance not initialized");
+const keys = getKeys();
 
-  return instance.orders.create({
-    amount: Math.round(amount * 100),
-    currency,
-    receipt: receipt || `rcpt_${Date.now()}`,
-  });
+if (!keys) {
+throw new Error("Razorpay keys missing");
 }
 
-/* ============================================================
-   🔏 SIGNATURE VERIFY
-============================================================ */
+razorpayInstance = new Razorpay({
+key_id: keys.keyId,
+key_secret: keys.keySecret,
+});
+
+return razorpayInstance;
+}
+
+/* ---------------------------------------------------------
+Create Razorpay order
+--------------------------------------------------------- */
+export async function createOrder({
+amount,
+currency = "INR",
+receipt,
+notes = {},
+}: {
+amount: number;
+currency?: string;
+receipt?: string;
+notes?: Record<string, any>;
+}) {
+if (!amount || amount <= 0) {
+throw new Error("Invalid order amount");
+}
+
+const instance = getRazorpayServerInstance();
+
+const order = await instance.orders.create({
+amount: Math.round(amount * 100), // convert to paise
+currency,
+receipt: receipt || `order_${Date.now()}`,
+notes,
+});
+
+return order;
+}
+
+/* ---------------------------------------------------------
+Verify Razorpay payment signature
+--------------------------------------------------------- */
 export function verifyPayment({
-  razorpay_order_id,
-  razorpay_payment_id,
-  razorpay_signature,
-}: any) {
-  const secret = resolveSecret();
-  if (!secret) return false;
+razorpay_order_id,
+razorpay_payment_id,
+razorpay_signature,
+}: {
+razorpay_order_id: string;
+razorpay_payment_id: string;
+razorpay_signature: string;
+}) {
+const secret = resolveSecret();
 
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
-    .digest("hex");
+if (!secret) {
+console.error("❌ Razorpay secret missing");
+return false;
+}
 
-  return expected === razorpay_signature;
+const expectedSignature = crypto
+.createHmac("sha256", secret)
+.update(`${razorpay_order_id}|${razorpay_payment_id}`)
+.digest("hex");
+
+return expectedSignature === razorpay_signature;
 }

@@ -206,7 +206,7 @@ export const POST = withAuth(
 
     if (paymentMode === "razorpay") {
       const { createRazorpayOrder } = await import(
-        "@/lib/payments-razorpay-server"
+        "@/lib/payments-razorpay"
       );
 
       const order = await createRazorpayOrder({

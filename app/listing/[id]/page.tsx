@@ -11,27 +11,38 @@ import {
   where,
   orderBy,
   limit,
-  getDocs,
-  DocumentData,
-  QuerySnapshot,
 } from "firebase/firestore";
+import { onAuthStateChanged, User } from "firebase/auth";
+
 import ImageGallery from "@/components/ui/ImageGallery";
 import ReviewCard from "@/components/reviews/ReviewCard";
 import { Button } from "@/components/ui/Button";
 import LoginModal from "@/components/auth/LoginModal";
-import { onAuthStateChanged, User } from "firebase/auth";
-import { openRazorpayCheckout } from "@/lib/payments-razorpay"; // client export
+
+import { openRazorpayCheckout } from "@/lib/payments-razorpay";
+
+/* --------------------------------------------
+   TYPES
+---------------------------------------------*/
 
 interface Listing {
   id?: string;
+
   name: string;
   category: string;
   location: string;
   description: string;
+
   price: number;
-  rating?: number;
+
+  ownerId?: string;
+  ownerType?: "partner" | "admin";
+
   partnerId?: string;
+
   images?: string[];
+  rating?: number;
+
   unavailableDates?: string[];
 }
 
@@ -42,168 +53,182 @@ interface Review {
   comment: string;
 }
 
+/* --------------------------------------------
+   COMPONENT
+---------------------------------------------*/
+
 export default function ListingDetailsPage() {
   const { id } = useParams();
   const router = useRouter();
 
   const [listing, setListing] = useState<Listing | null>(null);
-  const [loading, setLoading] = useState(true);
   const [reviews, setReviews] = useState<Review[]>([]);
+
+  const [loading, setLoading] = useState(true);
+
   const [user, setUser] = useState<User | null>(null);
   const [showLoginModal, setShowLoginModal] = useState(false);
 
-  // Booking state
   const [checkIn, setCheckIn] = useState("");
   const [checkOut, setCheckOut] = useState("");
+
   const [totalNights, setTotalNights] = useState(0);
   const [totalPrice, setTotalPrice] = useState(0);
+
   const [dateError, setDateError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  /* AUTH LISTENER */
+  /* --------------------------------------------
+     AUTH LISTENER
+  ---------------------------------------------*/
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsub();
   }, []);
 
-  /* FETCH LISTING DETAILS */
+  /* --------------------------------------------
+     FETCH LISTING
+  ---------------------------------------------*/
+
   useEffect(() => {
     if (!id) return;
-    setLoading(true);
+
     const ref = doc(db, "listings", id as string);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (snap.exists()) {
-          const data = snap.data() as Listing;
-          setListing({
-            id: snap.id,
-            ...data,
-            unavailableDates: data.unavailableDates || [],
-          });
-        } else setListing(null);
-        setLoading(false);
-      },
-      (err) => {
-        console.error("Error fetching listing:", err);
-        setLoading(false);
+
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as Listing;
+
+        setListing({
+          id: snap.id,
+          ...data,
+          unavailableDates: data.unavailableDates || [],
+        });
       }
-    );
+
+      setLoading(false);
+    });
+
     return () => unsub();
   }, [id]);
 
-  /* REAL-TIME UNAVAILABLE DATES (FILTERED QUERY) */
+  /* --------------------------------------------
+     REAL-TIME BOOKED DATES
+  ---------------------------------------------*/
+
   useEffect(() => {
     if (!id) return;
 
-    // Query only bookings for this listing
     const q = query(
       collection(db, "bookings"),
       where("listingId", "==", id as string),
       orderBy("createdAt", "desc"),
-      limit(50)
+      limit(100)
     );
 
-    const unsub = onSnapshot(
-      q,
-      (snap) => {
-        const bookedDates: string[] = [];
-        snap.forEach((docSnap) => {
-          const data = docSnap.data();
-          try {
-            const start = new Date(data.checkIn);
-            const end = new Date(data.checkOut);
-            const cur = new Date(start);
-            while (cur <= end) {
-              bookedDates.push(cur.toISOString().split("T")[0]);
-              cur.setDate(cur.getDate() + 1);
+    const unsub = onSnapshot(q, (snap) => {
+      const bookedDates: string[] = [];
+
+      snap.forEach((doc) => {
+        const data = doc.data();
+
+        const start = new Date(data.checkIn);
+        const end = new Date(data.checkOut);
+
+        const cur = new Date(start);
+
+        while (cur <= end) {
+          bookedDates.push(cur.toISOString().split("T")[0]);
+          cur.setDate(cur.getDate() + 1);
+        }
+      });
+
+      setListing((prev) =>
+        prev
+          ? {
+              ...prev,
+              unavailableDates: Array.from(new Set(bookedDates)),
             }
-          } catch (e) {
-            // ignore invalid date formats
-          }
-        });
-        setListing((prev) =>
-          prev ? { ...prev, unavailableDates: Array.from(new Set(bookedDates)) } : prev
-        );
-      },
-      (err) => {
-        console.error("Booking snapshot error:", err);
-      }
-    );
+          : prev
+      );
+    });
 
     return () => unsub();
   }, [id]);
 
-  /* FETCH REVIEWS (simple doc-based storage) */
+  /* --------------------------------------------
+     REVIEWS
+  ---------------------------------------------*/
+
   useEffect(() => {
     if (!id) return;
+
     const ref = doc(db, "reviews", id as string);
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        if (snap.exists()) {
-          setReviews(snap.data().reviews || []);
-        } else setReviews([]);
-      },
-      (err) => {
-        console.error("Error fetching reviews:", err);
+
+    const unsub = onSnapshot(ref, (snap) => {
+      if (snap.exists()) {
+        setReviews(snap.data().reviews || []);
+      } else {
         setReviews([]);
       }
-    );
+    });
+
     return () => unsub();
   }, [id]);
 
-  /* PRICE & DATE VALIDATION */
+  /* --------------------------------------------
+     DATE VALIDATION
+  ---------------------------------------------*/
+
   const isUnavailable = (date: string) =>
     listing?.unavailableDates?.includes(date);
 
   useEffect(() => {
     if (!checkIn || !checkOut || !listing?.price) {
-      setTotalNights(0);
       setTotalPrice(0);
-      setDateError(null);
+      setTotalNights(0);
       return;
     }
 
-    const today = new Date();
     const start = new Date(checkIn);
     const end = new Date(checkOut);
 
-    if (start < new Date(today.setHours(0, 0, 0, 0))) {
-      setDateError("Check-in cannot be in the past.");
-      return;
-    }
-
     if (end <= start) {
-      setDateError("Checkout must be after check-in.");
+      setDateError("Checkout must be after check-in");
       return;
     }
 
     if (isUnavailable(checkIn) || isUnavailable(checkOut)) {
-      setDateError("Selected dates are unavailable.");
+      setDateError("Selected dates unavailable");
       return;
     }
 
-    const diff = Math.ceil((end.getTime() - start.getTime()) / 86400000);
-    setTotalNights(diff);
-    setTotalPrice(diff * listing.price);
+    const nights = Math.ceil((end.getTime() - start.getTime()) / 86400000);
+
+    setTotalNights(nights);
+    setTotalPrice(nights * listing.price);
+
     setDateError(null);
   }, [checkIn, checkOut, listing]);
 
-  /* FIXED BOOK NOW BUTTON (uses session cookie by sending credentials: 'include') */
+  /* --------------------------------------------
+     BOOK NOW
+  ---------------------------------------------*/
+
   const handleBookNow = async () => {
     if (!user) {
       setShowLoginModal(true);
       return;
     }
 
-    if (!listing?.id || !listing?.partnerId) {
-      alert("Listing missing partnerId.");
+    if (!listing?.id) {
+      alert("Listing not available");
       return;
     }
 
-    if (!checkIn || !checkOut || totalPrice <= 0) {
-      alert("Please select valid dates.");
+    if (!checkIn || !checkOut) {
+      alert("Select dates");
       return;
     }
 
@@ -212,151 +237,137 @@ export default function ListingDetailsPage() {
 
       const payload = {
         listingId: listing.id,
-        partnerId: listing.partnerId,
+
+        ownerId: listing.ownerId || listing.partnerId || null,
+        ownerType:
+          listing.ownerType || (listing.partnerId ? "partner" : "admin"),
+
+        partnerId: listing.partnerId || null,
+
         amount: totalPrice,
+
         checkIn,
         checkOut,
+
         paymentMode: "razorpay",
       };
 
-      console.log("Creating booking (client) payload:", payload);
-
       const res = await fetch("/api/bookings", {
         method: "POST",
-        credentials: "include", // critical: sends __session cookie to server
+        credentials: "include",
+
         headers: {
           "Content-Type": "application/json",
         },
+
         body: JSON.stringify(payload),
       });
 
-      const text = await res.text();
-      let data: any = {};
-      try {
-        data = text ? JSON.parse(text) : {};
-      } catch (e) {
-        console.error("Invalid JSON from /api/bookings:", text);
-        alert("Server error while creating booking.");
-        setSubmitting(false);
-        return;
-      }
-
-      if (!res.ok) {
-        console.error("Booking API failed:", data);
-        alert("Failed to create booking: " + (data.error || JSON.stringify(data)));
-        setSubmitting(false);
-        return;
-      }
+      const data = await res.json();
 
       if (!data.success) {
-        alert(data.error || "Booking creation failed.");
-        setSubmitting(false);
+        alert(data.error || "Booking failed");
         return;
       }
 
-      // If server returned a Razorpay order id — open checkout
-      const rzpOrderId = data.razorpayOrderId;
-      if (payload.paymentMode === "razorpay" && rzpOrderId) {
+      const orderId = data.razorpayOrderId;
+
+      if (orderId) {
         openRazorpayCheckout({
-          amount: Number(payload.amount),
-          orderId: rzpOrderId,
-          name: listing.name || "BHARATCOMFORT11",
+          orderId,
+          amount: payload.amount,
+
+          name: listing.name,
           email: user.email || "",
-          phone: (user.phoneNumber as string) || "",
-          onSuccess: (resp) => {
-            console.log("Razorpay success:", resp);
-            // You may want to verify payment server-side, or navigate to booking details
-            router.push(`/listing/${listing.id}/booking-confirmed?bookingId=${data.bookingId}`);
+          phone: user.phoneNumber || "",
+
+          onSuccess: () => {
+            router.push(
+              `/listing/${listing.id}/booking-confirmed?bookingId=${data.bookingId}`
+            );
           },
-          onFailure: (err) => {
-            console.error("Razorpay failed or cancelled:", err);
-            alert("Payment cancelled or failed.");
+
+          onFailure: () => {
+            alert("Payment cancelled");
           },
         });
-      } else {
-        // pay_at_hotel or no rzp order
-        router.push(`/listing/${listing.id}/book?checkIn=${checkIn}&checkOut=${checkOut}`);
       }
     } catch (err) {
-      console.error("Booking error:", err);
-      alert("Something went wrong while creating booking.");
+      console.error(err);
+      alert("Booking failed");
     } finally {
       setSubmitting(false);
     }
   };
 
-  /* RENDER PAGE */
-  if (loading)
-    return <div className="text-center py-8">Loading listing...</div>;
+  /* --------------------------------------------
+     UI
+  ---------------------------------------------*/
 
-  if (!listing)
-    return (
-      <div className="text-center py-8 text-gray-600">
-        Listing not found or removed.
-      </div>
-    );
+  if (loading) return <div className="p-10 text-center">Loading...</div>;
+
+  if (!listing) return <div>Listing not found</div>;
 
   return (
     <div className="container mx-auto px-4 py-12">
-      <header>
-        <h1 className="text-3xl font-bold">{listing.name}</h1>
-        <p className="text-gray-600">
-          {listing.category} • {listing.location}
-        </p>
-        <p className="font-semibold mt-1">₹{listing.price}/night</p>
-      </header>
+      <h1 className="text-3xl font-bold">{listing.name}</h1>
 
-      {/* IMAGES */}
+      <p className="text-gray-600">
+        {listing.category} • {listing.location}
+      </p>
+
+      <p className="font-semibold mt-2">₹{listing.price}/night</p>
+
       {listing.images && <ImageGallery images={listing.images} />}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mt-8">
         <div className="lg:col-span-2">
-          <h2 className="text-xl font-semibold mb-3">About</h2>
+          <h2 className="text-xl font-semibold mb-2">About</h2>
+
           <p>{listing.description}</p>
         </div>
 
-        <aside className="p-6 bg-white border rounded-lg shadow sticky top-24">
+        <aside className="p-6 border rounded-lg shadow sticky top-24">
           <h3 className="text-lg font-bold mb-4">Booking</h3>
 
-          <div className="space-y-3">
-            <div>
-              <label>Check-in</label>
-              <input
-                type="date"
-                value={checkIn}
-                onChange={(e) => setCheckIn(e.target.value)}
-                className="w-full p-2 border rounded"
-              />
-            </div>
+          <input
+            type="date"
+            value={checkIn}
+            onChange={(e) => setCheckIn(e.target.value)}
+            className="border p-2 w-full mb-2"
+          />
 
-            <div>
-              <label>Check-out</label>
-              <input
-                type="date"
-                value={checkOut}
-                onChange={(e) => setCheckOut(e.target.value)}
-                className="w-full p-2 border rounded"
-              />
-            </div>
+          <input
+            type="date"
+            value={checkOut}
+            onChange={(e) => setCheckOut(e.target.value)}
+            className="border p-2 w-full mb-4"
+          />
 
-            {totalPrice > 0 && <p className="font-semibold">Total: ₹{totalPrice}</p>}
+          {totalPrice > 0 && (
+            <p className="font-semibold">Total ₹{totalPrice}</p>
+          )}
 
-            <Button
-              onClick={handleBookNow}
-              disabled={!checkIn || !checkOut || !!dateError || submitting}
-              className="w-full bg-yellow-600 text-white"
-            >
-              {submitting ? "Processing..." : user ? "Book Now" : "Login to Book"}
-            </Button>
+          <Button
+            onClick={handleBookNow}
+            disabled={!checkIn || !checkOut || submitting}
+            className="w-full bg-yellow-600 text-white"
+          >
+            {user ? "Book Now" : "Login to Book"}
+          </Button>
 
-            {dateError && <p className="text-red-500 text-sm text-center">{dateError}</p>}
-          </div>
+          {dateError && <p className="text-red-500">{dateError}</p>}
         </aside>
       </div>
 
       <section className="mt-12">
         <h2 className="text-xl font-semibold mb-4">Reviews</h2>
-        {reviews.length === 0 ? <p>No reviews yet.</p> : reviews.map((r) => <ReviewCard key={r.id} review={r} />)}
+
+        {reviews.length === 0 ? (
+          <p>No reviews yet</p>
+        ) : (
+          reviews.map((r) => <ReviewCard key={r.id} review={r} />)
+        )}
       </section>
 
       <LoginModal

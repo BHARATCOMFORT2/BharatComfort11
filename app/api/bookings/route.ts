@@ -5,10 +5,6 @@ import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/universal-wrapper";
 import { FieldValue } from "firebase-admin/firestore";
 
-/* ---------------------------------------------------------
-PLATFORM CONFIG
---------------------------------------------------------- */
-
 const COMMISSION_RATE = 0.06;
 
 /* ---------------------------------------------------------
@@ -17,13 +13,20 @@ GET — Fetch Bookings
 
 export const GET = withAuth(
 async (req, ctx) => {
+
 const { adminDb, decoded } = ctx;
 
-```
-const uid = decoded?.uid;
+if (!decoded) {
+  return NextResponse.json(
+    { success: false, error: "Not authenticated" },
+    { status: 401 }
+  );
+}
+
+const uid = decoded.uid;
 
 const role =
-  decoded?.role ||
+  decoded.role ||
   (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
 
 let q;
@@ -51,10 +54,9 @@ return NextResponse.json({
     ...d.data(),
   })),
 });
-```
 
 },
-{ requireRole: ["user", "partner", "admin"] }
+{ requireAuth: true }
 );
 
 /* ---------------------------------------------------------
@@ -63,9 +65,16 @@ POST — Create Booking
 
 export const POST = withAuth(
 async (req, ctx) => {
+
 const { adminDb, decoded } = ctx;
 
-```
+if (!decoded) {
+  return NextResponse.json(
+    { success: false, error: "Not authenticated" },
+    { status: 401 }
+  );
+}
+
 const userId = decoded.uid;
 
 const body = await req.json().catch(() => ({}));
@@ -94,13 +103,20 @@ if (end <= start) {
   );
 }
 
-/* ---------------------------------------------------------
-   TRANSACTION (PREVENT RACE CONDITION)
---------------------------------------------------------- */
+const nights = Math.ceil(
+  (end.getTime() - start.getTime()) / 86400000
+);
+
+if (nights <= 0) {
+  return NextResponse.json(
+    { success: false, error: "Minimum 1 night booking required" },
+    { status: 400 }
+  );
+}
 
 const result = await adminDb.runTransaction(async (tx) => {
-  const listingRef = adminDb.collection("listings").doc(listingId);
 
+  const listingRef = adminDb.collection("listings").doc(listingId);
   const listingSnap = await tx.get(listingRef);
 
   if (!listingSnap.exists) {
@@ -108,6 +124,10 @@ const result = await adminDb.runTransaction(async (tx) => {
   }
 
   const listing = listingSnap.data();
+
+  if (!listing.isActive) {
+    throw new Error("Listing unavailable");
+  }
 
   const ownerId = listing.ownerId || listing.partnerId || null;
 
@@ -124,9 +144,7 @@ const result = await adminDb.runTransaction(async (tx) => {
 
   const allowPayAtHotel = listing.allowPayAtHotel ?? false;
 
-  /* ---------------------------------------------------------
-     CHECK EXISTING BOOKINGS
-  --------------------------------------------------------- */
+  /* CHECK EXISTING BOOKINGS */
 
   const existingBookings = await adminDb
     .collection("bookings")
@@ -135,6 +153,7 @@ const result = await adminDb.runTransaction(async (tx) => {
     .get();
 
   for (const doc of existingBookings.docs) {
+
     const b = doc.data();
 
     const bookedStart = new Date(b.checkIn);
@@ -143,50 +162,34 @@ const result = await adminDb.runTransaction(async (tx) => {
     if (start <= bookedEnd && end >= bookedStart) {
       throw new Error("Selected dates already booked");
     }
+
   }
-
-  /* ---------------------------------------------------------
-     CALCULATE NIGHTS
-  --------------------------------------------------------- */
-
-  const nights = Math.ceil(
-    (end.getTime() - start.getTime()) / 86400000
-  );
 
   const amount = nights * price;
 
-  /* ---------------------------------------------------------
-     PLATFORM COMMISSION
-  --------------------------------------------------------- */
-
   const commission = Number((amount * COMMISSION_RATE).toFixed(2));
   const partnerPayout = Number((amount - commission).toFixed(2));
-
-  /* ---------------------------------------------------------
-     BOOKING STATUS
-  --------------------------------------------------------- */
 
   let bookingStatus = "pending_payment";
   let paymentStatus = "pending";
 
   if (paymentMode === "pay_at_hotel") {
+
     if (!allowPayAtHotel) {
       throw new Error("Pay-at-hotel not allowed");
     }
 
     bookingStatus = "confirmed_unpaid";
     paymentStatus = "unpaid";
-  }
 
-  /* ---------------------------------------------------------
-     CREATE BOOKING
-  --------------------------------------------------------- */
+  }
 
   const bookingRef = adminDb.collection("bookings").doc();
 
   tx.set(bookingRef, {
+
     userId,
-    userEmail: decoded?.email || null,
+    userEmail: decoded.email || null,
 
     listingId,
 
@@ -220,6 +223,7 @@ const result = await adminDb.runTransaction(async (tx) => {
 
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
+
   });
 
   return {
@@ -227,6 +231,7 @@ const result = await adminDb.runTransaction(async (tx) => {
     amount,
     paymentMode,
   };
+
 });
 
 return NextResponse.json({
@@ -235,10 +240,9 @@ return NextResponse.json({
   amount: result.amount,
   paymentMode: result.paymentMode,
 });
-```
 
 },
-{ requireRole: ["user", "partner", "admin"] }
+{ requireAuth: true }
 );
 
 /* ---------------------------------------------------------
@@ -247,11 +251,18 @@ PUT — Update Booking
 
 export const PUT = withAuth(
 async (req, ctx) => {
+
 const { adminDb, decoded } = ctx;
 
-```
+if (!decoded) {
+  return NextResponse.json(
+    { success: false, error: "Not authenticated" },
+    { status: 401 }
+  );
+}
+
 const role =
-  decoded?.role ||
+  decoded.role ||
   (decoded.admin ? "admin" : decoded.partner ? "partner" : "user");
 
 if (!["admin", "partner"].includes(role)) {
@@ -272,6 +283,25 @@ if (!bookingId) {
   );
 }
 
+const bookingRef = adminDb.collection("bookings").doc(bookingId);
+const bookingSnap = await bookingRef.get();
+
+if (!bookingSnap.exists) {
+  return NextResponse.json(
+    { success: false, error: "Booking not found" },
+    { status: 404 }
+  );
+}
+
+const booking = bookingSnap.data();
+
+if (role === "partner" && booking.partnerId !== decoded.uid) {
+  return NextResponse.json(
+    { success: false, error: "Unauthorized booking access" },
+    { status: 403 }
+  );
+}
+
 const updates: any = {
   updatedAt: FieldValue.serverTimestamp(),
 };
@@ -280,17 +310,13 @@ if (status) updates.status = status;
 
 if (paymentStatus) updates.paymentStatus = paymentStatus;
 
-await adminDb
-  .collection("bookings")
-  .doc(bookingId)
-  .update(updates);
+await bookingRef.update(updates);
 
 return NextResponse.json({
   success: true,
   updates,
 });
-```
 
 },
-{ requireRole: ["admin", "partner"] }
+{ requireAuth: true }
 );

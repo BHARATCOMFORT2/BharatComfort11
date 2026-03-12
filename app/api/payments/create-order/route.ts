@@ -186,7 +186,6 @@ return NextResponse.json({
   razorpayOrder: rzpOrder,
   key: process.env.NEXT_PUBLIC_RAZORPAY_KEY_ID,
 });
-```
 
 },
 { requireRole: ["user", "partner", "admin"] }

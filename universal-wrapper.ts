@@ -1,78 +1,104 @@
-// lib/universal-wrapper.ts
-/**
- * Universal wrapper for Next.js App Router route handlers.
- *
- * Usage:
- *  - Import `wrapRoute` and wrap your handler:
- *
- *    import { wrapRoute } from "@/lib/universal-wrapper";
- *
- *    export const runtime = "nodejs";
- *    export const dynamic = "force-dynamic";
- *
- *    export const POST = wrapRoute(async (req, ctx) => {
- *      // ctx contains: decoded, adminAuth, adminDb, adminStorage, uid, claims, rawSession
- *      // your handler code here
- *      return NextResponse.json({ ok: true });
- *    }, { requireAuth: true, requireAdmin: false });
- *
- * Options:
- *  - requireAuth: boolean (if true, will require a valid Firebase session or idToken)
- *  - requireAdmin: boolean (if true, will require decoded.admin === true)
- *
- * The wrapper uses getFirebaseAdmin() from your repo (expected to return adminAuth, adminDb, adminStorage).
- */
-
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 import { getFirebaseAdmin } from "@/lib/firebaseadmin";
+
+/* ---------------------------------------------------------
+Types
+--------------------------------------------------------- */
 
 export type WrappedContext = {
   req: Request;
   decoded: any | null;
-  uid?: string | null;
-  claims?: Record<string, any> | null;
+  uid: string | null;
+  claims: Record<string, any> | null;
   adminAuth: any;
   adminDb: any;
   adminStorage: any;
   rawSession?: string | null;
 };
 
-export function jsonError(message: string, status = 500) {
-  return NextResponse.json({ error: message }, { status });
+/* ---------------------------------------------------------
+Helpers
+--------------------------------------------------------- */
+
+function jsonError(message: string, status = 500) {
+  return NextResponse.json({ success: false, error: message }, { status });
 }
+
+/* ---------------------------------------------------------
+Read session cookie safely
+--------------------------------------------------------- */
 
 function readSessionFromHeaders(req: Request) {
   try {
-    const cookieHeader = (req as any).headers?.get
-      ? (req as any).headers.get("cookie") || ""
-      : (typeof window !== "undefined" ? document.cookie : "");
+    const cookieHeader = req.headers.get("cookie") || "";
     if (!cookieHeader) return "";
 
-    const parts = cookieHeader.split(";").map((c: string) => c.trim());
-    const findCookie = (names: string[]) =>
-      parts.find((c: string) => names.some((n) => c.startsWith(n + "=")));
-    const raw =
-      findCookie(["__session", "session", "firebase_session"]) ||
-      parts.find((c: string) => c.startsWith("firebaseToken=")) ||
-      "";
-    return raw ? raw.split("=")[1] : "";
-  } catch (e) {
+    const cookies = cookieHeader.split(";").map((c) => c.trim());
+
+    const names = [
+      "__session",
+      "session",
+      "firebase_session",
+      "firebaseToken",
+    ];
+
+    for (const cookie of cookies) {
+      for (const name of names) {
+        if (cookie.startsWith(name + "=")) {
+          return cookie.split("=")[1];
+        }
+      }
+    }
+
+    return "";
+  } catch {
     return "";
   }
 }
 
-/**
- * wrapRoute - high level wrapper
- *
- * handler: async (req, ctx) => NextResponse | Response | object
- * options:
- *   requireAuth?: boolean (default false) - if true, verifies session or id token
- *   requireAdmin?: boolean (default false) - if true, requires decoded.admin true
- */
+/* ---------------------------------------------------------
+Extract idToken from request body (SAFE)
+--------------------------------------------------------- */
+
+async function extractIdTokenFromBody(req: Request) {
+  try {
+    const contentType = req.headers.get("content-type") || "";
+
+    if (!contentType.includes("application/json")) return "";
+
+    const cloned = req.clone();
+
+    const body = await cloned.json().catch(() => null);
+
+    return body?.token || body?.idToken || "";
+  } catch {
+    return "";
+  }
+}
+
+/* ---------------------------------------------------------
+Response check helper
+--------------------------------------------------------- */
+
+function isResponseLike(obj: any) {
+  return (
+    obj &&
+    (obj instanceof Response ||
+      obj?.status !== undefined ||
+      obj?.headers !== undefined)
+  );
+}
+
+/* ---------------------------------------------------------
+Main Wrapper
+--------------------------------------------------------- */
+
 export function wrapRoute(
   handler: (req: Request, ctx: WrappedContext) => Promise<any>,
-  options?: { requireAuth?: boolean; requireAdmin?: boolean }
+  options?: {
+    requireAuth?: boolean;
+    requireAdmin?: boolean;
+  }
 ) {
   const requireAuth = options?.requireAuth ?? false;
   const requireAdmin = options?.requireAdmin ?? false;
@@ -81,57 +107,82 @@ export function wrapRoute(
     try {
       const { adminAuth, adminDb, adminStorage } = getFirebaseAdmin();
 
-      // attach base ctx
-      const ctxBase: Partial<WrappedContext> = {
-        req,
-        adminAuth,
-        adminDb,
-        adminStorage,
-        decoded: null,
-        uid: null,
-        claims: null,
-        rawSession: null,
-      };
+      let decoded: any = null;
+      let rawSession: string | null = null;
 
-      // 1) Read bearer token (Authorization: Bearer ...)
-      const authHeader = (req as any).headers?.get
-        ? (req as any).headers.get("authorization") || ""
-        : "";
+      /* ---------------------------------------------------------
+         1️⃣ Authorization header
+      --------------------------------------------------------- */
+
+      const authHeader = req.headers.get("authorization") || "";
 
       const bearer = authHeader.startsWith("Bearer ")
         ? authHeader.substring(7)
         : "";
 
-      // 2) Read cookie session from common names
-      const sessionFromCookie = readSessionFromHeaders(req);
-      ctxBase.rawSession = sessionFromCookie || null;
+      /* ---------------------------------------------------------
+         2️⃣ Session cookie
+      --------------------------------------------------------- */
 
-      // 3) Prefer verifying session cookie (server session) -> adminAuth.verifySessionCookie
-      let decoded: any = null;
-      if (sessionFromCookie) {
+      const sessionCookie = readSessionFromHeaders(req);
+
+      if (sessionCookie) {
+        rawSession = sessionCookie;
+
         try {
-          decoded = await adminAuth.verifySessionCookie(sessionFromCookie, true).catch(() => null);
-        } catch (e) {
+          decoded = await adminAuth.verifySessionCookie(sessionCookie, true);
+        } catch {
           decoded = null;
         }
       }
 
-      // 4) If no session cookie verified, try ID token (bearer or passed in body)
-      if (!decoded) {
-        const idToken = bearer || (await extractIdTokenFromBody(req));
-        if (idToken) {
-          decoded = await adminAuth.verifyIdToken(idToken).catch(() => null);
+      /* ---------------------------------------------------------
+         3️⃣ Bearer token
+      --------------------------------------------------------- */
+
+      if (!decoded && bearer) {
+        try {
+          decoded = await adminAuth.verifyIdToken(bearer);
+        } catch {
+          decoded = null;
         }
       }
 
-      // 5) Fill ctx with decoded
-      if (decoded) {
-        ctxBase.decoded = decoded;
-        ctxBase.uid = decoded.uid || null;
-        ctxBase.claims = decoded;
+      /* ---------------------------------------------------------
+         4️⃣ Token from body
+      --------------------------------------------------------- */
+
+      if (!decoded) {
+        const idToken = await extractIdTokenFromBody(req);
+
+        if (idToken) {
+          try {
+            decoded = await adminAuth.verifyIdToken(idToken);
+          } catch {
+            decoded = null;
+          }
+        }
       }
 
-      // 6) Auth checks
+      /* ---------------------------------------------------------
+         Build context
+      --------------------------------------------------------- */
+
+      const ctx: WrappedContext = {
+        req,
+        decoded,
+        uid: decoded?.uid || null,
+        claims: decoded || null,
+        adminAuth,
+        adminDb,
+        adminStorage,
+        rawSession,
+      };
+
+      /* ---------------------------------------------------------
+         Auth checks
+      --------------------------------------------------------- */
+
       if (requireAuth && !decoded) {
         return jsonError("Not authenticated", 401);
       }
@@ -140,38 +191,19 @@ export function wrapRoute(
         return jsonError("Admin access required", 403);
       }
 
-      // 7) Call user handler
-      const ctx = ctxBase as WrappedContext;
+      /* ---------------------------------------------------------
+         Run handler
+      --------------------------------------------------------- */
+
       const result = await handler(req, ctx);
 
-      // Handler may directly return NextResponse or raw object
-      if (result instanceof NextResponse) return result;
       if (isResponseLike(result)) return result;
 
-      // otherwise return JSON
       return NextResponse.json(result);
     } catch (err: any) {
       console.error("Universal wrapper error:", err);
+
       return jsonError(err?.message || "Internal server error", 500);
     }
   };
-}
-
-/** helper to extract idToken from JSON body if present (non-consuming for other flows) */
-async function extractIdTokenFromBody(req: Request) {
-  try {
-    // clone the request stream so we can try to parse JSON safely
-    const ct = (req as any).headers?.get ? (req as any).headers.get("content-type") || "" : "";
-    if (!ct.includes("application/json")) return "";
-    const bodyText = await req.text();
-    if (!bodyText) return "";
-    const parsed = JSON.parse(bodyText);
-    return parsed?.token || parsed?.idToken || "";
-  } catch (e) {
-    return "";
-  }
-}
-
-function isResponseLike(obj: any) {
-  return obj && (obj.body !== undefined || obj.headers !== undefined || obj.status !== undefined);
 }

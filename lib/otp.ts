@@ -5,68 +5,53 @@ import {
   ConfirmationResult,
 } from "firebase/auth";
 
-let recaptchaVerifier: RecaptchaVerifier | null = null;
 let confirmationResult: ConfirmationResult | null = null;
 
 /* ==========================================
-   🔐 Initialize reCAPTCHA (SAFE)
+   🔐 Initialize reCAPTCHA
 ========================================== */
 export const initRecaptcha = async (containerId = "recaptcha-container") => {
   if (typeof window === "undefined") return;
 
-  // ✅ If already initialized, reuse
-  if (recaptchaVerifier) {
-    return;
-  }
+  if ((window as any).recaptchaVerifier) return;
 
   const container = document.getElementById(containerId);
-  if (!container) {
-    throw new Error("reCAPTCHA container not found");
-  }
+  if (!container) throw new Error("reCAPTCHA container missing");
 
-  recaptchaVerifier = new RecaptchaVerifier(auth, container, {
+  const verifier = new RecaptchaVerifier(auth, container, {
     size: "invisible",
     callback: () => console.log("✅ reCAPTCHA solved"),
-    "expired-callback": () => {
-      console.warn("⚠️ reCAPTCHA expired");
-      clearOtpSession();
-    },
   });
 
-  await recaptchaVerifier.render();
+  await verifier.render();
+
+  (window as any).recaptchaVerifier = verifier;
 };
 
 /* ==========================================
-   📲 Send OTP (FIXED)
+   📲 Send OTP
 ========================================== */
-export const sendOtp = async (phone: string): Promise<boolean> => {
-  if (typeof window === "undefined") {
-    throw new Error("OTP cannot be sent server-side");
-  }
-
+export const sendOtp = async (phone: string) => {
   if (!phone) throw new Error("Phone number missing");
 
-  // ✅ Normalize phone (VERY IMPORTANT)
-  const raw = phone.replace(/\D/g, "");
-  const clean = raw.startsWith("0") ? raw.slice(1) : raw;
-  const finalPhone = phone.startsWith("+") ? phone : `+${clean}`;
+  const formattedPhone = phone.startsWith("+")
+    ? phone
+    : `+${phone.replace(/\D/g, "")}`;
 
-  try {
-    await initRecaptcha();
+  await initRecaptcha();
 
-    confirmationResult = await signInWithPhoneNumber(
-      auth,
-      finalPhone,
-      recaptchaVerifier!
-    );
+  const verifier = (window as any).recaptchaVerifier;
 
-    sessionStorage.setItem("otpPhone", finalPhone);
-    sessionStorage.setItem("otpSentAt", Date.now().toString());
-    return true;
-  } catch (err: any) {
-    console.error("❌ OTP SEND ERROR:", err);
-    throw err;
-  }
+  confirmationResult = await signInWithPhoneNumber(
+    auth,
+    formattedPhone,
+    verifier
+  );
+
+  sessionStorage.setItem("otpPhone", formattedPhone);
+  sessionStorage.setItem("otpSentAt", Date.now().toString());
+
+  return true;
 };
 
 /* ==========================================
@@ -74,56 +59,37 @@ export const sendOtp = async (phone: string): Promise<boolean> => {
 ========================================== */
 export const verifyOtp = async (otp: string) => {
   if (!confirmationResult) {
-    throw new Error("OTP session expired. Please resend.");
+    throw new Error("OTP session expired");
   }
 
   const sentAt = Number(sessionStorage.getItem("otpSentAt") || 0);
+
   if (Date.now() - sentAt > 10 * 60 * 1000) {
-    throw new Error("OTP expired.");
+    throw new Error("OTP expired");
   }
 
-  try {
-    const result = await confirmationResult.confirm(otp.trim());
-    clearOtpSession();
-    return result.user;
-  } catch (err: any) {
-    console.error("❌ OTP VERIFY ERROR:", err);
-    throw err;
-  }
-};
-
-/* ==========================================
-   🔁 Resend OTP (FIXED)
-========================================== */
-export const resendOtp = async (): Promise<boolean> => {
-  const phone = sessionStorage.getItem("otpPhone");
-  if (!phone) throw new Error("No phone to resend OTP");
+  const result = await confirmationResult.confirm(otp.trim());
 
   clearOtpSession();
-  await initRecaptcha();
 
-  confirmationResult = await signInWithPhoneNumber(
-    auth,
-    phone,
-    recaptchaVerifier!
-  );
-
-  sessionStorage.setItem("otpPhone", phone);
-  sessionStorage.setItem("otpSentAt", Date.now().toString());
-  return true;
+  return result.user;
 };
 
 /* ==========================================
-   🧹 Proper Cleanup (CRITICAL FIX)
+   🔁 Resend OTP
+========================================== */
+export const resendOtp = async () => {
+  const phone = sessionStorage.getItem("otpPhone");
+
+  if (!phone) throw new Error("No phone for resend");
+
+  return sendOtp(phone);
+};
+
+/* ==========================================
+   🧹 Cleanup
 ========================================== */
 export const clearOtpSession = () => {
-  try {
-    if (recaptchaVerifier) {
-      recaptchaVerifier.clear(); // ✅ VERY IMPORTANT
-    }
-  } catch {}
-
-  recaptchaVerifier = null;
   confirmationResult = null;
   sessionStorage.removeItem("otpPhone");
   sessionStorage.removeItem("otpSentAt");
